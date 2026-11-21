@@ -38,6 +38,28 @@ Mojo builds only on Linux and macOS. On Windows, work in the WSL clone
   and the generated wrapper package re-raises it as `<PythonType>(<msg>)`.
 - The built `.so` loads in the system `python3` (3.12 on Ubuntu 24.04) as well as pixi's.
 
+## C ABI
+
+Confirmed by `tests/fixtures/mojo-c-probe/exports.mojo`, called from `probe.c` compiled by the
+system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib ships compiled
+(`std.mojoc`), so these spellings come from the 1.2.0 compiler's own errors and the probe runs.
+
+- Export: `@export` on `def <c_name>(...) abi("C") -> T:`; the symbol is the function's name.
+  `mojo build --Werror exports.mojo --emit shared-lib -o lib<name>.so` exports only the
+  `@export` functions as global text symbols (`nm -D --defined-only` lists nothing else as `T`).
+- Scalars: `int` `Int32`, `unsigned` `UInt32`, `int64_t` `Int64`, `uint64_t` `UInt64`, `size_t`
+  `UInt` (64-bit hosts), `double` `Float64`, `float` `Float32`, `char` `Int8`, `unsigned char`
+  `UInt8`. `UInt.MAX` is `(size_t)-1`.
+- Pointers: `UnsafePointer` is deprecated in 1.2 (an error under `--Werror`); use
+  `Pointer[T, ImmutAnyOrigin]` (`const T *`) and `Pointer[T, MutAnyOrigin]` (`T *`), from
+  `std.memory`. A `Pointer` is never null; a C pointer that may be `NULL` is
+  `Optional[Pointer[...]]`, which crosses the C ABI as a plain pointer (`NULL` is `None`).
+- Pointer access: `p[unsafe_offset=i]` reads and writes element `i`, `p[]` the first,
+  `p.unsafe_offset(n)` is `p + n`. Positional `p[i]` and `p + n` are deprecated.
+- Structs by value: `@fieldwise_init struct S(Copyable, Movable, TrivialRegisterPassable)` with
+  the C fields in declaration order matches the C layout and calling convention, also for
+  `struct { int a; double b; }` passed and returned by value.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.
