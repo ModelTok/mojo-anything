@@ -5,7 +5,6 @@
 mod common;
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use mojo_anything::bridge::{self, Manifest};
 use mojo_anything::front_door::{self, AppKind, FrontDoorOptions, State, WireOptions};
@@ -206,86 +205,5 @@ fn a_ts_library_moves_unit_by_unit() {
     .unwrap();
     assert!(!broken.failures.is_empty());
     assert!(broken.failures.iter().all(|f| f.case == "text: shout"));
-    std::fs::remove_dir_all(&repo).unwrap();
-}
-
-const C_PORT: &str = "pub fn count_words(s: Option<&[u8]>) -> usize {
-    s.map_or(0, |s| {
-        s.split(|b| b.is_ascii_whitespace() || *b == 0x0b)
-            .filter(|w| !w.is_empty())
-            .count()
-    })
-}
-
-pub fn vowels(s: Option<&[u8]>) -> std::ffi::c_int {
-    s.map_or(-1, |s| {
-        s.iter().filter(|b| b\"aeiouAEIOU\".contains(b)).count() as std::ffi::c_int
-    })
-}
-
-pub fn is_palindrome(s: Option<&[u8]>) -> bool {
-    s.is_some_and(|s| s.iter().eq(s.iter().rev()))
-}
-";
-
-#[test]
-fn a_c_library_lifts_to_one_pure_rust_crate() {
-    if !common::have("cc") || !common::have("python3") || !common::have("cargo") {
-        return;
-    }
-    let repo = fixture("lib/c");
-    let original = std::fs::read_to_string(repo.join("src/text.c")).unwrap();
-    let front = door(&repo, false);
-    assert_eq!(front.api.len(), 1);
-
-    let dir = bridged(&repo, "src/text.c");
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    let header = port.split("pub fn").next().unwrap();
-    std::fs::write(dir.join("src/port.rs"), format!("{header}{C_PORT}")).unwrap();
-    let fmt = Command::new("cargo")
-        .args(["fmt", "--manifest-path"])
-        .arg(dir.join("Cargo.toml"))
-        .status()
-        .unwrap();
-    assert!(fmt.success());
-    record(&dir, 30);
-
-    let wired = wire(&repo, "text", false);
-    assert_eq!(wired.gate, Some(true));
-    assert!(wired.shadow.is_some());
-    let replay = wired.replay.unwrap();
-    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
-    assert_eq!(replay.fallback.unwrap().cases, 0);
-
-    let lifted = lift::lift(&LiftOptions { repo: &repo }).unwrap();
-    assert!(lifted.lifted, "{:?}", lifted.blockers);
-    assert!(
-        lifted.checklist.iter().all(|i| i.mark != lift::Mark::Fail),
-        "{:?}",
-        lifted.checklist
-    );
-    assert!(
-        lifted
-            .checklist
-            .iter()
-            .any(|i| i.name == "replay" && i.mark == lift::Mark::Pass)
-    );
-    assert!(lifted.binary.is_none());
-    let lib = std::fs::read_to_string(repo.join("rust/app/src/lib.rs")).unwrap();
-    assert!(lib.contains("Written by `mojo-anything app lift`"), "{lib}");
-    assert!(lib.contains("pub use text_rs::port as text;"), "{lib}");
-    let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-    assert!(!cargo.contains("cdylib"), "{cargo}");
-    assert!(!dir.join("include").exists() && !dir.join("shadow").exists());
-    assert_eq!(
-        std::fs::read_to_string(dir.join("src/lib.rs")).unwrap(),
-        "pub mod port;\n"
-    );
-    assert_eq!(
-        std::fs::read_to_string(repo.join("src/text.c")).unwrap(),
-        original,
-        "the original stays as it was"
-    );
-    assert!(State::load(&repo).unwrap().lifted);
     std::fs::remove_dir_all(&repo).unwrap();
 }

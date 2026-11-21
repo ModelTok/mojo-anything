@@ -941,17 +941,10 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
         });
     }
     if manifest.kind == Kind::CAbi {
-        let port = std::fs::read_to_string(crate_dir.join("src/port.rs"))
-            .context("reading src/port.rs")?;
-        let mut files = c_bindings(&manifest, &port);
-        let cargo =
-            std::fs::read_to_string(crate_dir.join("Cargo.toml")).context("reading Cargo.toml")?;
-        files.push((
-            "Cargo.toml".into(),
-            with_template_deps(&cargo, &crate::codegen_c::cargo_toml(&manifest))?,
-        ));
+        let port =
+            std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
+        let files = c_bindings(&manifest, &crate::codegen_mojo::parse_port_mojo(&port))?;
         write_files(crate_dir, &files)?;
-        format_rust(crate_dir);
         return Ok(Refreshed {
             functions: manifest.exports.iter().map(|f| f.name.clone()).collect(),
             files: files.into_iter().map(|(p, _)| p).collect(),
@@ -1272,11 +1265,16 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
                 }
             })
             .collect();
-        let suffix = if kind == Kind::MojoPy { "mojo" } else { "rs" };
+        let mojo = matches!(kind, Kind::MojoPy | Kind::CAbi);
+        let suffix = if mojo { "mojo" } else { "rs" };
         format!("{}-{suffix}", clean.trim_matches('-'))
     });
     let crate_dir = opts.out.clone().unwrap_or_else(|| {
-        let folder = if kind == Kind::MojoPy { "mojo" } else { "rust" };
+        let folder = if matches!(kind, Kind::MojoPy | Kind::CAbi) {
+            "mojo"
+        } else {
+            "rust"
+        };
         root.join(folder).join(&crate_name)
     });
     if crate_dir.exists() && std::fs::read_dir(&crate_dir)?.next().is_some() {
@@ -1511,16 +1509,30 @@ fn write_files(crate_dir: &Path, files: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
-/// The generated C-side files: the `extern "C"` layer and its header. C signatures are fixed
-/// by the original, so they come from the manifest, not from `port.rs`.
-fn c_bindings(m: &Manifest, port: &str) -> Vec<(String, String)> {
-    vec![
-        ("src/lib.rs".into(), crate::codegen_c::lib_rs(m, port)),
+/// The generated C-side files: the exports under the C names and under the shadow names, the
+/// structs, and the header. C signatures are fixed by the original, so they come from the
+/// manifest; the port only says which functions raise.
+fn c_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
+    use crate::codegen_mojo_c as c;
+    let mut files = vec![
+        (
+            crate::harness_mojo_c::EXPORTS.into(),
+            c::exports_mojo(m, api, "").map_err(anyhow::Error::msg)?,
+        ),
+        (
+            crate::harness_mojo_c::EXPORTS_SHADOW.into(),
+            c::exports_mojo(m, api, c::SHADOW_PREFIX).map_err(anyhow::Error::msg)?,
+        ),
         (
             format!("include/{}.h", m.lib_name()),
             crate::codegen_c::header(m),
         ),
-    ]
+    ];
+    let structs = c::c_struct_defs_mojo(m).map_err(anyhow::Error::msg)?;
+    if !structs.is_empty() {
+        files.push((format!("{}.mojo", c::C_STRUCTS), structs));
+    }
+    Ok(files)
 }
 
 /// The generated layers of a JSON-dispatcher crate: `lib.rs` and the language-side wrapper.
@@ -1682,34 +1694,35 @@ fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
 }
 
 fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_mojo_c::port_mojo_c(manifest).map_err(anyhow::Error::msg)?;
+    let api = crate::codegen_mojo::parse_port_mojo(&port);
     let mut files = vec![
+        ("port.mojo".to_string(), port),
         (
-            "Cargo.toml".to_string(),
-            crate::codegen_c::cargo_toml(manifest),
+            "pixi.toml".into(),
+            crate::codegen_mojo_py::pixi_toml(manifest),
         ),
-        ("src/port.rs".into(), crate::codegen_c::port_rs(manifest)),
-        (
-            ".gitignore".into(),
-            "target/\n.mojo-anything/\nruby/*.so\nruby/*.bundle\n".into(),
-        ),
+        (".gitignore".into(), ".mojo-anything/\n.pixi/\n".into()),
         ("README.md".into(), readme(manifest)),
         (
             MANIFEST.into(),
             serde_json::to_string_pretty(manifest)? + "\n",
         ),
     ];
-    let port = crate::codegen_c::port_rs(manifest);
-    files.extend(c_bindings(manifest, &port));
+    files.extend(c_bindings(manifest, &api)?);
     write_files(crate_dir, &files)?;
-    format_rust(crate_dir);
     let mut notes = vec![
         format!(
-            "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+            "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
             crate_dir.display()
         ),
         format!(
-            "Link target/release/lib{}.a (or the .so) instead of the C objects; include/{}.h has the prototypes.",
-            manifest.lib_name(),
+            "Link {}/{} instead of the C objects; include/{}.h has the prototypes.",
+            crate::harness_mojo_c::BUILD_DIR,
+            crate::harness_mojo_c::library_path(Path::new(""), manifest, false)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             manifest.lib_name()
         ),
     ];

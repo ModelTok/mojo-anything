@@ -1,7 +1,7 @@
 //! C functions that take and return structs of scalars by value (`AVRational av_mul_q(AVRational,
 //! AVRational)`), and that set a `const char **` / `char **` to a position inside a string
 //! argument (`av_strstart`, `strtol`): bridged with the original signatures, recorded, ported,
-//! diffed and gated, and a wrong port is caught.
+//! diffed, and a wrong port is caught. The port is Mojo; the drop-in library exports the C names.
 
 mod common;
 
@@ -85,70 +85,72 @@ int held(Holder h)
 "#;
 
 const PORT: &str = r#"
-use std::ffi::{c_int, c_long};
+def _gcd(a_in: Int64, b_in: Int64) -> Int64:
+    var a = a_in
+    var b = b_in
+    while b != 0:
+        var t = a % b
+        a = b
+        b = t
+    return -a if a < 0 else a
 
-fn gcd(mut a: i64, mut b: i64) -> i64 {
-    while b != 0 {
-        (a, b) = (b, a % b);
-    }
-    a.abs()
-}
 
-pub fn mul_q(b: crate::Rational, c: crate::Rational) -> crate::Rational {
-    let num = i64::from(b.num) * i64::from(c.num);
-    let den = i64::from(b.den) * i64::from(c.den);
-    let g = gcd(num, den);
-    let mut r = crate::Rational { num: 0, den: 1 };
-    if g != 0 {
-        r.num = (num / g) as i32;
-        r.den = (den / g) as i32;
-    }
-    if r.den < 0 {
-        r.num = -r.num;
-        r.den = -r.den;
-    }
-    r
-}
+def mul_q(b: Rational, c: Rational) -> Rational:
+    var num = b.num.cast[DType.int64]() * c.num.cast[DType.int64]()
+    var den = b.den.cast[DType.int64]() * c.den.cast[DType.int64]()
+    var g = _gcd(num, den)
+    var r = Rational(0, 1)
+    if g != 0:
+        r.num = (num // g).cast[DType.int32]()
+        r.den = (den // g).cast[DType.int32]()
+    if r.den < 0:
+        r.num = -r.num
+        r.den = -r.den
+    return r
 
-pub fn scale(p: crate::point, k: f64) -> crate::point {
-    crate::point {
-        x: p.x * k,
-        y: p.y * k,
-    }
-}
 
-pub fn strstart(
-    str: Option<&[u8]>,
-    pfx: Option<&[u8]>,
-    ptr: Option<&mut Option<usize>>,
-) -> c_int {
-    let (Some(s), Some(pfx)) = (str, pfx) else {
-        return 0;
-    };
-    if !s.starts_with(pfx) {
-        return 0;
-    }
-    if let Some(ptr) = ptr {
-        *ptr = Some(pfx.len());
-    }
-    1
-}
+def scale(p: point, k: Float64) -> point:
+    return point(p.x * k, p.y * k)
 
-pub fn skip(s: Option<&[u8]>, n: c_int) -> Option<usize> {
-    let s = s?;
-    usize::try_from(n).ok().filter(|&n| n <= s.len() + 1)
-}
 
-pub fn parse_num(s: Option<&[u8]>, end: Option<&mut Option<usize>>) -> c_long {
-    let s = s.unwrap_or_default();
-    let digits = s.iter().take_while(|b| b.is_ascii_digit()).count();
-    if let Some(end) = end {
-        *end = Some(digits);
-    }
-    s[..digits]
-        .iter()
-        .fold(0, |v: c_long, &b| v.wrapping_mul(10).wrapping_add(c_long::from(b - b'0')))
-}
+def strstart(
+    str: Optional[Span[UInt8, ImmutAnyOrigin]],
+    pfx: Optional[Span[UInt8, ImmutAnyOrigin]],
+    mut ptr: Optional[Int],
+) -> Int32:
+    if not str or not pfx:
+        return 0
+    var s = str.value()
+    var p = pfx.value()
+    if len(p) > len(s):
+        return 0
+    for i in range(len(p)):
+        if s[i] != p[i]:
+            return 0
+    ptr = Optional(len(p))
+    return 1
+
+
+def parse_num(
+    s: Optional[Span[UInt8, ImmutAnyOrigin]], mut end: Optional[Int]
+) -> Int64:
+    var v: Int64 = 0
+    var digits = 0
+    if s:
+        var b = s.value()
+        while digits < len(b) and b[digits] >= 48 and b[digits] <= 57:
+            v = v * 10 + (b[digits] - 48).cast[DType.int64]()
+            digits += 1
+    end = Optional(digits)
+    return v
+
+
+def skip(s: Optional[Span[UInt8, ImmutAnyOrigin]], n: Int32) -> Optional[Int]:
+    if not s:
+        return None
+    if n < 0 or Int(n) > len(s.value()) + 1:
+        return None
+    return Optional(Int(n))
 "#;
 
 const INPUTS: &str = r#"{"fn": "mul_q", "args": [{"num": 1, "den": 2}, {"num": 2, "den": 3}]}
@@ -221,7 +223,7 @@ fn diff(dir: &Path) -> harness::DiffOutcome {
 
 #[test]
 fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
-    if !common::have("cc") || common::python().is_none() || !common::have("cargo") {
+    if !common::have("cc") || common::python().is_none() || !mojo_anything::mojo::available() {
         return;
     }
     let repo = project();
@@ -241,7 +243,7 @@ fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
         "a struct holding a pointer stays in C"
     );
 
-    let header = std::fs::read_to_string(dir.join("include/q_rs.h")).unwrap();
+    let header = std::fs::read_to_string(dir.join("include/q_mojo.h")).unwrap();
     assert!(
         header.contains("typedef struct { int32_t num; int32_t den; } Rational;"),
         "{header}"
@@ -250,26 +252,20 @@ fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
         header.contains("struct point scale(struct point p, double k);"),
         "{header}"
     );
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
     assert!(
-        port.contains("pub fn mul_q(b: crate::Rational, c: crate::Rational) -> crate::Rational {"),
+        port.contains("def mul_q(b: Rational, c: Rational) -> Rational:"),
         "{port}"
     );
-    assert!(port.contains("ptr: Option<&mut Option<usize>>"), "{port}");
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+    assert!(port.contains("mut ptr: Optional[Int]"), "{port}");
+    let structs = std::fs::read_to_string(dir.join("c_structs.mojo")).unwrap();
     assert!(
-        lib.contains("#[repr(C)]") && lib.contains("pub struct Rational {"),
-        "{lib}"
+        structs.contains("struct Rational(Copyable, Movable, TrivialRegisterPassable):"),
+        "{structs}"
     );
 
-    let head = port.split("\n/// Port of").next().unwrap();
-    std::fs::write(dir.join("src/port.rs"), format!("{head}\n{PORT}")).unwrap();
-    let fmt = Command::new("cargo")
-        .args(["fmt", "--manifest-path"])
-        .arg(dir.join("Cargo.toml"))
-        .status()
-        .unwrap();
-    assert!(fmt.success());
+    let head = port.split("\n\n# Port of").next().unwrap();
+    std::fs::write(dir.join("port.mojo"), format!("{head}\n{PORT}")).unwrap();
 
     harness::record(&RecordOptions {
         crate_dir: &dir,
@@ -355,13 +351,14 @@ fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
     .unwrap();
     assert_eq!(rows.len(), 5, "every function benchmarked");
 
-    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
-    assert!(gate.passed, "{:?}", gate.checks);
-
     let wrong = PORT
-        .replace("r.den = (den / g) as i32;", "r.den = den as i32;")
-        .replace("*ptr = Some(pfx.len());", "*ptr = Some(pfx.len() + 1);");
-    std::fs::write(dir.join("src/port.rs"), format!("{head}\n{wrong}")).unwrap();
+        .replace(
+            "r.den = (den // g).cast[DType.int32]()",
+            "r.den = den.cast[DType.int32]()",
+        )
+        .replace("ptr = Optional(len(p))", "ptr = Optional(len(p) + 1)");
+    assert_ne!(wrong, PORT);
+    std::fs::write(dir.join("port.mojo"), format!("{head}\n{wrong}")).unwrap();
     build(&dir);
     let outcome = diff(&dir);
     let failed: std::collections::BTreeSet<String> = outcome

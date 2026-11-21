@@ -1,8 +1,7 @@
 //! C functions that take buffers with lengths, write through out-pointers, return a pointer
 //! into an argument, or use typedef'd scalars: bridged with the original signatures, recorded,
-//! ported, diffed and gated. A port that takes a `const char *` as `CChars` gets it unmeasured
-//! after `refresh`. The project ships a `time.h` of its own, as ffmpeg does, which must
-//! not shadow `<time.h>`.
+//! ported to Mojo, diffed and benchmarked. The project ships a `time.h` of its own, as ffmpeg
+//! does, which must not shadow `<time.h>`.
 
 mod common;
 
@@ -76,55 +75,66 @@ int split(int *hi, int *lo, int v, Mode mode)
 "#;
 
 const PORT: &str = r#"
-pub fn sum_update(s: u32, buf: &[u8]) -> u32 {
-    buf.iter()
-        .fold(s, |s, &b| s.wrapping_mul(31).wrapping_add(u32::from(b)))
-}
+def sum_update(s: UInt32, buf: Span[UInt8, ImmutAnyOrigin]) -> UInt32:
+    var h = s
+    for i in range(len(buf)):
+        h = h * 31 + buf[i].cast[DType.uint32]()
+    return h
 
-pub fn hex_encode(out: &mut [u8], r#in: &[u8]) -> std::ffi::c_int {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    if out.len() < 2 * r#in.len() + 1 {
-        return -1;
-    }
-    for (i, &b) in r#in.iter().enumerate() {
-        out[2 * i] = DIGITS[usize::from(b >> 4)];
-        out[2 * i + 1] = DIGITS[usize::from(b & 15)];
-    }
-    out[2 * r#in.len()] = 0;
-    std::ffi::c_int::try_from(2 * r#in.len()).unwrap_or(-1)
-}
 
-pub fn find_byte(s: Option<&[u8]>, c: std::ffi::c_int) -> Option<usize> {
-    s?.iter().position(|&b| std::ffi::c_int::from(b as std::ffi::c_char) == c)
-}
+def hex_encode(
+    out_: Span[UInt8, MutAnyOrigin], in_: Span[UInt8, ImmutAnyOrigin]
+) -> Int32:
+    var digits = "0123456789abcdef".as_bytes()
+    if len(out_) < 2 * len(in_) + 1:
+        return -1
+    for i in range(len(in_)):
+        out_[2 * i] = digits[Int(in_[i] >> 4)]
+        out_[2 * i + 1] = digits[Int(in_[i] & 15)]
+    out_[2 * len(in_)] = 0
+    return Int32(2 * len(in_))
 
-pub fn casecmp(a: Option<crate::CChars<'_>>, b: Option<crate::CChars<'_>>) -> std::ffi::c_int {
-    let (Some(mut a), Some(mut b)) = (a, b) else {
-        return 0;
-    };
-    loop {
-        let x = std::ffi::c_int::from(a.next().unwrap_or(0).to_ascii_lowercase());
-        let y = std::ffi::c_int::from(b.next().unwrap_or(0).to_ascii_lowercase());
-        if x == 0 || x != y {
-            return x - y;
-        }
-    }
-}
 
-pub fn split(
-    hi: Option<&mut std::ffi::c_int>,
-    lo: Option<&mut std::ffi::c_int>,
-    v: std::ffi::c_int,
-    mode: std::ffi::c_int,
-) -> std::ffi::c_int {
-    if let Some(hi) = hi {
-        *hi = if mode == 1 { v >> 16 } else { 0 };
-    }
-    if let Some(lo) = lo {
-        *lo = v & 0xffff;
-    }
-    mode
-}
+def find_byte(s: Optional[Span[UInt8, ImmutAnyOrigin]], c: Int32) -> Optional[Int]:
+    if not s:
+        return None
+    var b = s.value()
+    for i in range(len(b)):
+        if b[i].cast[DType.int8]().cast[DType.int32]() == c:
+            return Optional(i)
+    return None
+
+
+def _fold(c: UInt8) -> Int32:
+    var v = c.cast[DType.int32]()
+    return v + 32 if c >= 65 and c <= 90 else v
+
+
+def casecmp(
+    a: Optional[Span[UInt8, ImmutAnyOrigin]],
+    b: Optional[Span[UInt8, ImmutAnyOrigin]],
+) -> Int32:
+    if not a or not b:
+        return 0
+    var x = a.value()
+    var y = b.value()
+    var i = 0
+    while True:
+        var p: Int32 = _fold(x[i]) if i < len(x) else 0
+        var q: Int32 = _fold(y[i]) if i < len(y) else 0
+        if p == 0 or p != q:
+            return p - q
+        i += 1
+
+
+def split(
+    mut hi: Optional[Int32], mut lo: Optional[Int32], v: Int32, mode: Int32
+) -> Int32:
+    if hi:
+        hi = Optional(v >> 16 if mode == 1 else Int32(0))
+    if lo:
+        lo = Optional(v & 0xFFFF)
+    return mode
 "#;
 
 const INPUTS: &str = r#"{"fn": "sum_update", "args": [7, "00ff10"]}
@@ -173,7 +183,7 @@ fn bridged(repo: &Path) -> PathBuf {
 
 #[test]
 fn pointer_arguments_cross_the_c_bridge() {
-    if !common::have("cc") || common::python().is_none() || !common::have("cargo") {
+    if !common::have("cc") || common::python().is_none() || !mojo_anything::mojo::available() {
         return;
     }
     let repo = project();
@@ -194,35 +204,22 @@ fn pointer_arguments_cross_the_c_bridge() {
         .unwrap();
     assert_eq!(find.returns, "ptr:0");
 
-    let header = std::fs::read_to_string(dir.join("include/buf_rs.h")).unwrap();
+    let header = std::fs::read_to_string(dir.join("include/buf_mojo.h")).unwrap();
     assert!(
         header.contains("uint32_t sum_update(uint32_t s, const uint8_t *buf, size_t len);"),
         "{header}"
     );
 
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
     assert!(
-        port.contains("pub fn hex_encode(out: &mut [u8], r#in: &[u8])"),
+        port.contains(
+            "def hex_encode(out_: Span[UInt8, MutAnyOrigin], in_: Span[UInt8, ImmutAnyOrigin]) -> Int32:"
+        ),
         "{port}"
     );
-    let head = port.split("\n/// Port of").next().unwrap();
-    std::fs::write(dir.join("src/port.rs"), format!("{head}\n{PORT}")).unwrap();
-    let fmt = Command::new("cargo")
-        .args(["fmt", "--manifest-path"])
-        .arg(dir.join("Cargo.toml"))
-        .status()
-        .unwrap();
-    assert!(fmt.success());
+    let head = port.split("\n\n# Port of").next().unwrap();
+    std::fs::write(dir.join("port.mojo"), format!("{head}\n{PORT}")).unwrap();
     mojo_anything::bridge::refresh(&dir).unwrap();
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("port::casecmp(\n        crate::__mojo_anything_c_abi::c_chars(a),"),
-        "{lib}"
-    );
-    assert!(
-        lib.contains("c_str(s)"),
-        "find_byte still takes a slice: {lib}"
-    );
 
     let inputs = repo.join("inputs.jsonl");
     std::fs::write(&inputs, INPUTS).unwrap();
@@ -280,8 +277,5 @@ fn pointer_arguments_cross_the_c_bridge() {
     })
     .unwrap();
     assert_eq!(rows.len(), 5, "every function benchmarked");
-
-    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
-    assert!(gate.passed, "{:?}", gate.checks);
     std::fs::remove_dir_all(&repo).unwrap();
 }

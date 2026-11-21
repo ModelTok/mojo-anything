@@ -754,14 +754,56 @@ fn c_bridge_string_helper_does_not_collide_with_source_names() {
         allocator: Default::default(),
     })
     .unwrap();
-    let status = Command::new("cargo")
-        .args(["check", "--quiet"])
-        .current_dir(&dir)
-        .status()
-        .unwrap();
+    let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
+    assert!(exports.contains("def c_str(a_c_str: "), "{exports}");
+    if mojo_anything::mojo::available() {
+        harness::build(&dir).unwrap();
+    }
     std::fs::remove_dir_all(root).unwrap();
-    assert!(status.success());
 }
+
+/// The Mojo port of `tests/fixtures/c/src/text.c`, with `vowels` forgetting upper case.
+const C_TEXT_PORT: &str = "
+def _space(b: UInt8) -> Bool:
+    return b == 32 or (b >= 9 and b <= 13)
+
+
+def count_words(s: Optional[Span[UInt8, ImmutAnyOrigin]]) -> UInt:
+    if not s:
+        return 0
+    var b = s.value()
+    var n: UInt = 0
+    var inword = False
+    for i in range(len(b)):
+        if _space(b[i]):
+            inword = False
+        elif not inword:
+            inword = True
+            n += 1
+    return n
+
+
+def vowels(s: Optional[Span[UInt8, ImmutAnyOrigin]]) -> Int32:
+    if not s:
+        return -1
+    var b = s.value()
+    var n: Int32 = 0
+    for i in range(len(b)):
+        var c = b[i]
+        if c == 97 or c == 101 or c == 105 or c == 111 or c == 117:
+            n += 1
+    return n
+
+
+def is_palindrome(s: Optional[Span[UInt8, ImmutAnyOrigin]]) -> Bool:
+    if not s:
+        return False
+    var b = s.value()
+    for i in range(len(b) // 2):
+        if b[i] != b[len(b) - 1 - i]:
+            return False
+    return True
+";
 
 #[test]
 fn c_units_bridge_record_and_diff() {
@@ -787,17 +829,19 @@ fn c_units_bridge_record_and_diff() {
     // A returned pointer needs an ownership design: it stays in C.
     let kept: Vec<&str> = manifest.js_only.iter().map(|j| j.name.as_str()).collect();
     assert_eq!(kept, ["upper_copy"]);
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+    let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
     assert!(
-        lib.contains("pub extern \"C\" fn count_words(s: *const c_char) -> usize"),
-        "{lib}"
+        exports.contains(
+            "def count_words(a_s: Optional[Pointer[Int8, ImmutAnyOrigin]]) abi(\"C\") -> UInt:"
+        ),
+        "{exports}"
     );
-    let header = std::fs::read_to_string(dir.join("include/text_rs.h")).unwrap();
+    let header = std::fs::read_to_string(dir.join("include/text_mojo.h")).unwrap();
     assert!(
         header.contains("bool is_palindrome(const char *s);"),
         "{header}"
     );
-    if !(common::have("cc") && common::have("python3")) {
+    if !(common::have("cc") && common::have("python3") && mojo_anything::mojo::available()) {
         return;
     }
     let recorded = harness::record(&RecordOptions {
@@ -811,13 +855,9 @@ fn c_units_bridge_record_and_diff() {
     .unwrap();
     assert_eq!(recorded.cases - recorded.traps, 120);
     // `vowels` forgets upper case: the diff must notice.
-    std::fs::write(
-        dir.join("src/port.rs"),
-        "pub fn count_words(s: Option<&[u8]>) -> usize {\n    s.map_or(0, |s| s.split(|b| b.is_ascii_whitespace() || *b == 0x0b).filter(|w| !w.is_empty()).count())\n}\n\
-         pub fn vowels(s: Option<&[u8]>) -> std::ffi::c_int {\n    s.map_or(-1, |s| s.iter().filter(|b| b\"aeiou\".contains(b)).count() as std::ffi::c_int)\n}\n\
-         pub fn is_palindrome(s: Option<&[u8]>) -> bool {\n    s.is_some_and(|s| s.iter().eq(s.iter().rev()))\n}\n",
-    )
-    .unwrap();
+    let stubs = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    let head = stubs.split("\n\n# Port of").next().unwrap();
+    std::fs::write(dir.join("port.mojo"), format!("{head}\n{C_TEXT_PORT}")).unwrap();
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
         crate_dir: &dir,

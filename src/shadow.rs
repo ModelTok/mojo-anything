@@ -530,6 +530,7 @@ fn shadow_c(crate_dir: &Path, manifest: &Manifest, out: Option<&Path>) -> Result
     let stem = manifest
         .crate_name
         .trim_end_matches("-rs")
+        .trim_end_matches("-mojo")
         .replace('-', "_");
     let path = match out {
         Some(p) => p.to_path_buf(),

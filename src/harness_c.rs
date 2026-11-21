@@ -227,7 +227,7 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest) -> Result<DiffOutcome> {
             crate_dir.display()
         );
     }
-    let rust = built_library(crate_dir, manifest)?;
+    let rust = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
     let (driver, sigs) = driver(crate_dir, manifest)?;
     let out = crate_dir.join(WORK_DIR).join("diff.json");
     run(
@@ -251,7 +251,7 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
             crate_dir.display()
         );
     }
-    let rust = built_library(crate_dir, manifest)?.canonical()?;
+    let rust = crate::harness_mojo_c::built_library(crate_dir, manifest, true)?.canonical()?;
     let work = crate_dir.canonical()?.join(WORK_DIR);
     std::fs::create_dir_all(&work)?;
     let cases: Vec<Value> = std::fs::read_to_string(&cases_path)?
@@ -261,8 +261,8 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
         .collect::<Result<_, _>>()?;
     let source = work.join("bench.c");
     std::fs::write(&source, bench_c(manifest, &cases, min_ms))?;
-    // The original, its functions renamed `<name>__original`, and the Rust library, whose
-    // `mojo_anything_<name>` aliases are the port: both called directly from one C program.
+    // The original, its functions renamed `<name>__original`, and the port's shadow library,
+    // which exports it as `mojo_anything_<name>`: both called directly from one C program.
     let (sources, include_dirs) = original_sources(manifest)?;
     let bin = work.join("bench");
     let mut cmd = Command::new(compiler());

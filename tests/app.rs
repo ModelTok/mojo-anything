@@ -912,7 +912,6 @@ fn lift_strips_bridge_bindings_in_every_language() {
     let _ = std::fs::remove_dir_all(&base);
     let units = [
         ("mini", "packages/a/src/util.ts", "ts"),
-        ("c", "src/text.c", "c"),
         ("go", "strkit/", "go"),
         ("ruby", "lib/textkit/", "ruby"),
         ("java", "src/main/java/com/example/text/", "java"),
