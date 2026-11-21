@@ -7,3 +7,6 @@ website/dist/
 website/.void/
 website/.cloudflare/
 website/.wrangler/
+
+# pixi environments
+.pixi/

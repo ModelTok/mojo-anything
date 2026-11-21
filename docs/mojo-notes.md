@@ -1,0 +1,44 @@
+# Mojo notes
+
+The Mojo APIs and commands the generated code relies on, each confirmed against the pinned Mojo
+(`MOJO_VERSION` in `src/mojo.rs`, `mojo = "==1.2.0"` in `pixi.toml`) by building
+`tests/fixtures/mojo-probe/_native.mojo` (`tests/mojo_toolchain.rs`). Source references are to
+`Mojo/stdlib/std/` in github.com/modular/modular; that tree tracks the nightly (1.3.0.dev on
+2026-11-21), so an API is listed here only once the 1.2.0 compiler has accepted it.
+
+Mojo builds only on Linux and macOS. On Windows, work in the WSL clone
+(`~/github/mojo-anything` in Ubuntu 24.04), not under `/mnt/c`.
+
+## Toolchain
+
+| What | Command or spelling | Checked |
+| --- | --- | --- |
+| Install | pixi, channels `https://conda.modular.com/max` then `conda-forge` | `pixi add mojo` resolved 1.2.0 |
+| Version | `pixi run mojo --version` → `Mojo 1.2.0 (2016d0cd)` | 2026-11-21 |
+| Build a Python extension | `mojo build <file>.mojo --emit shared-lib -o <dir>/<module>.so` | probe, about 1 s |
+| Warnings as errors | `mojo build --Werror` | `mojo build --help` |
+| Format | `mojo format <files>`; there is no check mode, so compare against a formatted copy | `mojo format --help` |
+| Tests | no `mojo test` in 1.2 (`error: no such command 'test'`); run `mojo run test_<name>.mojo`, with `std.testing` asserts | `mojo --help` |
+
+## Python extension modules
+
+- Imports: `from std.python import Python, PythonObject` and
+  `from std.python.bindings import PythonModuleBuilder`; `from std.os import abort`.
+- Entry point: `@export` on `def PyInit_<module>() abi("C") -> PythonObject:`, which builds
+  `PythonModuleBuilder("<module>")`, calls `module.def_function[<fn>]("<python name>")` for each
+  function and returns `module.finalize()`; on error, `abort(String("...", e))`.
+- Bound functions take only `PythonObject` arguments and return `PythonObject` or `None`, and may
+  `raise` (`python/bindings.mojo`, `def_function`).
+- Conversions from Python: `Float64(py=obj)`, `Int(py=obj)`, `String(py=obj)` (`raises`).
+  To Python: `PythonObject(x)` for `Float64`, `Int`, `String`, `Bool`; tuples with
+  `Python.tuple(a, b, ...)`, lists with `Python.list(...)` (`python/python.mojo`).
+- Errors: a raised Mojo `Error` reaches Python as `Exception` with the error's text as its
+  message (`_set_python_error`, default `ExceptionType.Exception`). There is no public way to pick
+  the type from a bound function. Generated code therefore raises `Error("<PythonType>: <msg>")`,
+  and the generated wrapper package re-raises it as `<PythonType>(<msg>)`.
+- The built `.so` loads in the system `python3` (3.12 on Ubuntu 24.04) as well as pixi's.
+
+## Language
+
+- `def` is the function keyword; `fn` is not used in the 1.2 examples.
+- Type aliases are declared with `comptime`.

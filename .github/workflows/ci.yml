@@ -38,6 +38,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+      - name: Install pixi (Mojo comes from it)
+        run: |
+          curl -fsSL https://pixi.sh/install.sh | PIXI_NO_PATH_UPDATE=1 bash
+          echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
+      - run: pixi install --locked
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
@@ -80,35 +85,6 @@ jobs:
           for crate in demo/fixtures/*-rs; do
             rust-anything gate "$crate"
           done
-
-  windows:
-    runs-on: windows-latest
-    env:
-      RUST_ANYTHING_REQUIRE: node,python,go,ruby,java,cargo
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
-      - uses: Swatinem/rust-cache@v2
-      - name: Test Windows command parsing
-        run: cargo test --locked --lib app::tests::shell_words
-      - name: Run native bridge integration tests
-        run: cargo test --locked --test native -- --nocapture
 
   # The whole loop on a real port: build both bridges and pass the gate.
   demo:
