@@ -351,6 +351,22 @@ fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
     .unwrap();
     assert_eq!(rows.len(), 5, "every function benchmarked");
 
+    // The gate wants the port formatted as `mojo format` writes it.
+    let formatted = mojo_anything::mojo::command(&dir)
+        .unwrap()
+        .args(["format", "--quiet", "port.mojo"])
+        .current_dir(&dir)
+        .status()
+        .unwrap();
+    assert!(formatted.success());
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let failed: Vec<_> = gate.checks.iter().filter(|c| !c.passed).collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+    let names: Vec<&str> = gate.checks.iter().map(|c| c.name).collect();
+    for name in ["exports", "pointers", "unsafe", "ported", "behavior"] {
+        assert!(names.contains(&name), "{name} in {names:?}");
+    }
+
     let wrong = PORT
         .replace(
             "r.den = (den // g).cast[DType.int32]()",

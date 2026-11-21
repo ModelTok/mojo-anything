@@ -221,8 +221,15 @@ pub struct GateOutcome {
 
 pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     let manifest = Manifest::load(crate_dir)?;
-    let mut checks = if manifest.kind == crate::bridge::Kind::MojoPy {
+    let mojo = matches!(
+        manifest.kind,
+        crate::bridge::Kind::MojoPy | crate::bridge::Kind::CAbi
+    );
+    let mut checks = if mojo {
         let mut checks = mojo_checks(crate_dir);
+        if manifest.kind == crate::bridge::Kind::CAbi {
+            checks.push(c_pointers_check(crate_dir));
+        }
         // The recorded error paths apply to any port; the panics check reads Rust only.
         checks.extend(
             crate::error_paths::checks(crate_dir, &manifest)
@@ -242,6 +249,7 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     };
     let built = harness::build(crate_dir);
     let built_ok = built.is_ok();
+    let library = built.as_ref().ok().cloned();
     checks.push(Check {
         fix: None,
         name: "build",
@@ -251,6 +259,11 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
             Err(e) => last_lines(&format!("{e:#}"), 15),
         },
     });
+    if manifest.kind == crate::bridge::Kind::CAbi
+        && let Some(lib) = &library
+    {
+        checks.push(c_exports_check(lib, &manifest));
+    }
 
     if let Some(why) = crate::recording::stale(crate_dir, &manifest) {
         checks.push(Check {
@@ -644,6 +657,96 @@ pub fn unexplained_unsafe(port: &str) -> Vec<usize> {
         .collect()
 }
 
+/// Lines (1-based) of a C unit's `port.mojo` that name a pointer type: pointers belong in the
+/// generated exports, which hand the port spans and optional values.
+pub fn c_port_pointers(port: &str) -> Vec<usize> {
+    port.lines()
+        .enumerate()
+        .filter(|(_, l)| l.split('#').next().unwrap_or("").contains("Pointer"))
+        .map(|(i, _)| i + 1)
+        .collect()
+}
+
+fn c_pointers_check(unit_dir: &Path) -> Check {
+    let port = std::fs::read_to_string(unit_dir.join("port.mojo")).unwrap_or_default();
+    let lines = c_port_pointers(&port);
+    Check {
+        name: "pointers",
+        passed: lines.is_empty(),
+        detail: if lines.is_empty() {
+            "port.mojo uses no pointers".into()
+        } else {
+            format!(
+                "port.mojo lines {} use pointers",
+                lines
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        },
+        fix: (!lines.is_empty()).then(|| "move pointer handling to exports.mojo".into()),
+    }
+}
+
+/// The names in `names` that `nm` output does not list as defined text symbols (`T`).
+pub fn missing_exports(nm: &str, names: &[String]) -> Vec<String> {
+    let defined: std::collections::BTreeSet<&str> = nm
+        .lines()
+        .filter_map(|l| {
+            let mut parts = l.split_whitespace().rev();
+            let name = parts.next()?;
+            let kind = parts.next()?;
+            (kind == "T").then(|| name.trim_start_matches('_'))
+        })
+        .collect();
+    names
+        .iter()
+        .filter(|n| !defined.contains(n.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Every manifest function is exported from the built drop-in library under its C name.
+fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
+    let mut cmd = std::process::Command::new("nm");
+    if cfg!(target_os = "macos") {
+        cmd.arg("-gU");
+    } else {
+        cmd.args(["-D", "--defined-only"]);
+    }
+    cmd.arg(lib);
+    let names: Vec<String> = manifest.exports.iter().map(|f| f.name.clone()).collect();
+    match crate::process::output(&mut cmd, crate::process::QUICK) {
+        Ok(out) if out.success() => {
+            let missing = missing_exports(&out.stdout_text(), &names);
+            Check {
+                name: "exports",
+                passed: missing.is_empty(),
+                detail: if missing.is_empty() {
+                    format!("{} exports {}", lib.display(), names.join(", "))
+                } else {
+                    format!("{} does not export {}", lib.display(), missing.join(", "))
+                },
+                fix: (!missing.is_empty())
+                    .then(|| "check the `@export` names in exports.mojo".into()),
+            }
+        }
+        Ok(out) => Check {
+            name: "exports",
+            passed: false,
+            detail: format!("nm failed: {}", out.stderr_text()),
+            fix: None,
+        },
+        Err(e) => Check {
+            name: "exports",
+            passed: false,
+            detail: format!("could not run nm: {e:#}"),
+            fix: None,
+        },
+    }
+}
+
 /// The checks for a Mojo port's own sources: format, tests, stubs and unexplained unsafe code.
 /// The build (warnings are errors) and the replay are the shared checks in [`gate`].
 pub fn mojo_checks(unit_dir: &Path) -> Vec<Check> {
@@ -793,7 +896,10 @@ fn last_lines(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Check, fix_for, mojo_stubs, stubs, unexplained_unsafe, unsafe_blocks};
+    use super::{
+        Check, c_port_pointers, fix_for, missing_exports, mojo_stubs, stubs, unexplained_unsafe,
+        unsafe_blocks,
+    };
 
     #[test]
     fn mojo_stub_count() {
@@ -813,6 +919,26 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn c_exports_check_lists_missing() {
+        let nm =
+            "0000000000001130 T av_add_q\n0000000000001150 T av_sub_q\n                 U abort\n";
+        let names: Vec<String> = ["av_add_q", "av_mul_q", "av_sub_q"]
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(missing_exports(nm, &names), ["av_mul_q"]);
+        // macOS `nm -gU` prefixes an underscore.
+        assert!(missing_exports("0000000000003f20 T _av_mul_q\n", &names[1..2]).is_empty());
+    }
+
+    #[test]
+    fn c_port_without_pointers() {
+        let port = "from std.os import abort\n\n\ndef f(p: Pointer[Int8, MutAnyOrigin]) -> Int32:\n    # a Pointer in a comment is fine\n    return 0\n";
+        assert_eq!(c_port_pointers(port), [4]);
+        assert!(c_port_pointers("def f(s: Span[UInt8, ImmutAnyOrigin]) -> Int32:\n").is_empty());
     }
 
     #[test]
