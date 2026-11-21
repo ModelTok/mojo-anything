@@ -10,6 +10,7 @@ where used, `inputs.jsonl` (extra inputs passed to `mojo-anything record --input
 | `go-path-rs` | Go's `path` package | `$(go env GOROOT)/src/path` (Go 1.24), as module `example.com/gopath`, with `internal/bytealg` calls replaced by their `strings` equivalents |
 | `ruby-shellwords-rs` | Ruby's `shellwords.rb` | `RbConfig::CONFIG["rubylibdir"]/shellwords.rb` (Ruby 3.3), as `lib/shellwords.rb` of a project with a `Gemfile` |
 | `python-colorsys-rs` | Python's `colorsys.py` | CPython 3.13's `Lib/colorsys.py`, as `src/colorsys_pkg/colorsys.py` of a project with a `pyproject.toml` |
+| `python-colorsys-mojo` | Python's `colorsys.py`, ported to Mojo | the same project as `python-colorsys-rs`; its `cases.jsonl` is that crate's recording; build it in Linux or macOS (Mojo 1.2.0 from its `pixi.toml`) |
 | `java-jdk-rs` | JDK 21 behind `original/Jdk.java` | `original/Jdk.java` in `src/main/java/com/example/jdk/` of a project with a `pom.xml` |
 | `c-libc-rs` | glibc behind `original/facade.c` | `original/facade.c` in `src/` of a project with a `Makefile` |
 | `vercel-ms-rs` | [vercel/ms](https://github.com/vercel/ms) (MIT) | a clone at commit `4ff48ce`, with the crate at `rust/index-rs` (where `bench_batch.mjs` finds `src/index.ts`) |

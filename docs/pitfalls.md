@@ -37,6 +37,10 @@ read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that 
 
 ## Recording
 
+**A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,
+whose paths name the original folder, and `mojo build` in the copy failed. Copy a unit without
+`.pixi/` (pixi recreates it), as with `target/` for a Rust crate.
+
 **Capture code tripped the project's coverage threshold.** Code `record --from-tests` appends to
 the original counted against Jest's limit. Wrap anything added to user files in
 `/* c8 ignore start */` and `/* istanbul ignore next */`.
