@@ -509,6 +509,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
     let manifest = Manifest::load(crate_dir)?;
     match manifest.kind {
         Kind::Pyo3 => crate::harness_py::build(crate_dir, &manifest),
+        Kind::MojoPy => bail!("building a Mojo Python extension is not wired yet"),
         Kind::Ffi if manifest.language == crate::lang::Lang::Ruby => {
             crate::harness_ruby::build(crate_dir, &manifest)
         }

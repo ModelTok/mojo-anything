@@ -42,6 +42,8 @@ pub enum Bridge {
     /// Keep in the source language (named for JS, the first language; applies to all).
     KeepInJs,
     Pyo3,
+    /// A Python extension module written in Mojo.
+    MojoPy,
     /// A C ABI: drop-in `extern "C"` functions for C.
     CAbi,
     /// Go through cgo over a C ABI.
@@ -61,6 +63,7 @@ impl Bridge {
             Self::WasmBindgen => "wasm-bindgen",
             Self::KeepInJs => "keep",
             Self::Pyo3 => "PyO3",
+            Self::MojoPy => "Mojo (Python extension)",
             Self::CAbi => "C ABI",
             Self::Cgo => "cgo",
             Self::Fiddle => "Fiddle (C ABI)",
@@ -74,7 +77,7 @@ impl Bridge {
     pub fn for_lang(lang: Lang) -> Self {
         match lang {
             Lang::Ts => Self::NapiRs,
-            Lang::Python => Self::Pyo3,
+            Lang::Python => Self::MojoPy,
             Lang::C => Self::CAbi,
             Lang::Go => Self::Cgo,
             Lang::Ruby => Self::Fiddle,
@@ -1154,6 +1157,12 @@ fn topological(deps_of: &[Vec<usize>]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn python_bridges_to_mojo_py() {
+        assert_eq!(Bridge::for_lang(Lang::Python), Bridge::MojoPy);
+        assert_eq!(Bridge::MojoPy.label(), "Mojo (Python extension)");
+    }
 
     #[test]
     fn normalizes_paths() {

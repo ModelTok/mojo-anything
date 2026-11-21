@@ -34,6 +34,9 @@ pub enum Kind {
     CAbi,
     /// A JSON dispatcher over the port, called from a generated Go, Ruby or Java wrapper.
     Ffi,
+    /// A Python extension module written in Mojo, imported by a generated wrapper package.
+    #[serde(rename = "mojo-py")]
+    MojoPy,
 }
 
 /// The global allocator of a crate with batches (`bridge --allocator`).
@@ -342,6 +345,23 @@ impl RType {
             Self::Vec(t) => format!("Vec<{}>", t.rust()),
             Self::Opt(t) => format!("Option<{}>", t.rust()),
             Self::Json => "serde_json::Value".into(),
+        }
+    }
+
+    /// The Mojo type a port uses for this value. Python's numbers keep their int-or-float,
+    /// unbounded semantics (`PyNum`); structured values stay Python objects.
+    pub fn mojo(&self, lang: crate::lang::Lang) -> String {
+        use crate::lang::Lang;
+        match self {
+            Self::Str => "String".into(),
+            Self::F64 | Self::Int if lang == Lang::Python => "PyNum".into(),
+            Self::F64 => "Float64".into(),
+            Self::Int => "Int".into(),
+            Self::Bool => "Bool".into(),
+            Self::Unit => "None".into(),
+            Self::Vec(t) => format!("List[{}]", t.mojo(lang)),
+            Self::Opt(t) => format!("Optional[{}]", t.mojo(lang)),
+            Self::Json => "PythonObject".into(),
         }
     }
 
@@ -1065,7 +1085,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::WasmBindgen => Kind::Wasm,
-        Bridge::Pyo3 => Kind::Pyo3,
+        // Python units stay on PyO3 until the Mojo build is wired (milestone 1, task 6).
+        Bridge::Pyo3 | Bridge::MojoPy => Kind::Pyo3,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
         _ => Kind::Napi,
@@ -1607,6 +1628,7 @@ fn readme(m: &Manifest) -> String {
             Kind::Napi => "napi-rs",
             Kind::Wasm => "wasm-bindgen",
             Kind::Pyo3 => "PyO3",
+            Kind::MojoPy => "a Mojo Python extension",
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
         },
@@ -1689,6 +1711,32 @@ mod tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mojo_types_from_ts() {
+        use crate::lang::Lang;
+        let ts = |t: &str, l: Lang| RType::from_ts(t).mojo(l);
+        assert_eq!(ts("string", Lang::Ts), "String");
+        assert_eq!(ts("number", Lang::Ts), "Float64");
+        assert_eq!(ts("int", Lang::Go), "Int");
+        assert_eq!(ts("boolean", Lang::Ts), "Bool");
+        assert_eq!(ts("void", Lang::Ts), "None");
+        assert_eq!(ts("string[]", Lang::Ts), "List[String]");
+        assert_eq!(ts("string | null", Lang::Ts), "Optional[String]");
+        assert_eq!(ts("(string | null)[]", Lang::Ts), "List[Optional[String]]");
+        assert_eq!(ts("unknown", Lang::Python), "PythonObject");
+        // Python's `number` and `int` keep Python's int-or-float, unbounded semantics.
+        assert_eq!(ts("number", Lang::Python), "PyNum");
+        assert_eq!(ts("int", Lang::Python), "PyNum");
+        assert_eq!(ts("number[]", Lang::Python), "List[PyNum]");
+    }
+
+    #[test]
+    fn mojo_py_kind_serialises() {
+        assert_eq!(serde_json::to_string(&Kind::MojoPy).unwrap(), "\"mojo-py\"");
+        let k: Kind = serde_json::from_str("\"mojo-py\"").unwrap();
+        assert_eq!(k, Kind::MojoPy);
+    }
 
     #[test]
     fn loads_old_manifest_name() {

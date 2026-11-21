@@ -166,6 +166,7 @@ pub fn package(opts: &Options) -> Result<Outcome> {
     let mut module = None;
     let mut platforms = Vec::new();
     match manifest.kind {
+        Kind::MojoPy => bail!("packaging a Mojo Python extension is not supported yet"),
         Kind::Pyo3 => {
             let m = python_module(&manifest);
             python_files(&crate_dir, &manifest, &name, &version, &m, &out, &mut files)?;

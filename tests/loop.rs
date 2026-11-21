@@ -398,7 +398,7 @@ fn async_functions_get_async_bindings() {
                 assert!(cargo.contains("features = [\"async\"]") && cargo.contains("futures"))
             }
             Kind::Wasm => assert!(cargo.contains("wasm-bindgen-futures")),
-            Kind::Pyo3 | Kind::CAbi | Kind::Ffi => {}
+            Kind::Pyo3 | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {}
         }
         let index = std::fs::read_to_string(dir.join("index.cjs")).unwrap();
         assert!(
