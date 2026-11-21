@@ -923,7 +923,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
             root: &fixtures.join(fixture),
             unit,
-            kind: None,
+            kind: (lang == "python").then_some(mojo_anything::bridge::Kind::Pyo3),
             out: Some(dir.clone()),
             name: None,
             force: false,

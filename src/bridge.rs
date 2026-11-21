@@ -924,6 +924,21 @@ pub struct Refreshed {
 /// `port.rs`, and adds the dependencies they need to Cargo.toml. Never touches `port.rs`.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
+    if manifest.kind == Kind::MojoPy {
+        let port =
+            std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
+        let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+        match_export_names(&manifest, &mut api);
+        if api.functions.is_empty() {
+            bail!("port.mojo has no public `def`: nothing to bind");
+        }
+        let files = mojo_py_bindings(&manifest, &api)?;
+        write_files(crate_dir, &files)?;
+        return Ok(Refreshed {
+            functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
+            files: files.into_iter().map(|(p, _)| p).collect(),
+        });
+    }
     if manifest.kind == Kind::CAbi {
         let port = std::fs::read_to_string(crate_dir.join("src/port.rs"))
             .context("reading src/port.rs")?;
@@ -1085,8 +1100,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::WasmBindgen => Kind::Wasm,
-        // Python units stay on PyO3 until the Mojo build is wired (milestone 1, task 6).
-        Bridge::Pyo3 | Bridge::MojoPy => Kind::Pyo3,
+        Bridge::Pyo3 => Kind::Pyo3,
+        Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
         _ => Kind::Napi,
@@ -1262,12 +1277,13 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
                 }
             })
             .collect();
-        format!("{}-rs", clean.trim_matches('-'))
+        let suffix = if kind == Kind::MojoPy { "mojo" } else { "rs" };
+        format!("{}-{suffix}", clean.trim_matches('-'))
     });
-    let crate_dir = opts
-        .out
-        .clone()
-        .unwrap_or_else(|| root.join("rust").join(&crate_name));
+    let crate_dir = opts.out.clone().unwrap_or_else(|| {
+        let folder = if kind == Kind::MojoPy { "mojo" } else { "rust" };
+        root.join(folder).join(&crate_name)
+    });
     if crate_dir.exists() && std::fs::read_dir(&crate_dir)?.next().is_some() {
         bail!(
             "{} already exists and is not empty; mojo-anything never overwrites a port in progress",
@@ -1298,6 +1314,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     if kind == Kind::Ffi {
         return bridge_ffi(&manifest, &crate_dir, &js_only);
+    }
+    if kind == Kind::MojoPy {
+        return bridge_mojo_py(&manifest, &crate_dir, &js_only);
     }
     let port = codegen::port_rs(&manifest);
     let fns = codegen::parse_port(&port);
@@ -1384,6 +1403,112 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
             .collect(),
         notes,
     })
+}
+
+/// The generated layers of a Python unit's Mojo port: the extension module, `PyNum` when the
+/// port uses Python numbers, and the wrapper package.
+fn mojo_py_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
+    use crate::codegen_mojo_py as py;
+    let mut files = vec![
+        (
+            format!("{}.mojo", py::NATIVE),
+            py::native_mojo(m, api).map_err(anyhow::Error::msg)?,
+        ),
+        (
+            format!("python/{}/__init__.py", m.lib_name()),
+            py::package_init_mojo(m, api),
+        ),
+    ];
+    if py::needs_py_num(api) {
+        files.push(("py_num.mojo".into(), py::PY_NUM_MOJO.into()));
+    }
+    Ok(files)
+}
+
+fn bridge_mojo_py(m: &Manifest, crate_dir: &Path, js_only: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_mojo::port_mojo(m);
+    let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+    match_export_names(m, &mut api);
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        ("pixi.toml".into(), crate::codegen_mojo_py::pixi_toml(m)),
+        (
+            ".gitignore".into(),
+            ".pixi/
+.mojo-anything/
+*.so
+__pycache__/
+"
+            .into(),
+        ),
+        ("README.md".into(), mojo_readme(m)),
+        (
+            MANIFEST.into(),
+            serde_json::to_string_pretty(m)?
+                + "
+",
+        ),
+    ];
+    files.extend(mojo_py_bindings(m, &api)?);
+    write_files(crate_dir, &files)?;
+    let mut notes = vec![format!(
+        "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+        crate_dir.display()
+    )];
+    for c in &m.classes {
+        notes.push(format!(
+            "Class `{}` is not bridged to Mojo yet; it stays in Python.",
+            c.name
+        ));
+    }
+    for j in js_only {
+        notes.push(format!(
+            "`{}` stays in {}: {}.",
+            j.name,
+            m.language.name(),
+            j.reason
+        ));
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: m.kind,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: m.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
+}
+
+fn mojo_readme(m: &Manifest) -> String {
+    let mut out = format!(
+        "# {}
+
+Mojo port of `{}`, a Python extension module. Generated by mojo-anything.
+
+## Functions
+
+",
+        m.crate_name, m.unit
+    );
+    for f in &m.exports {
+        out.push_str(&format!(
+            "- `{}` (`{}:{}`)
+",
+            f.name, f.file, f.line
+        ));
+    }
+    out.push_str(
+        "
+## Loop
+
+```sh
+mojo-anything record .   # record what the Python code does
+         mojo-anything build .    # build the Mojo extension module
+         mojo-anything diff .     # replay the recorded cases against Mojo
+         mojo-anything gate .     # format, warnings, tests, ported, API, diff
+```
+",
+    );
+    out
 }
 
 fn write_files(crate_dir: &Path, files: &[(String, String)]) -> Result<()> {

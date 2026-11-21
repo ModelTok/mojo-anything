@@ -46,7 +46,11 @@ fn bridged(repo: &Path, unit: &str) -> PathBuf {
     bridge::bridge(&bridge::Options {
         root: repo,
         unit,
-        kind: None,
+        // Python units stay on PyO3 here until it is removed (milestone 1, task 9).
+        kind: repo
+            .join("pyproject.toml")
+            .exists()
+            .then_some(bridge::Kind::Pyo3),
         out: None,
         name: None,
         force: false,

@@ -24,11 +24,6 @@ pub fn needs_py_num(api: &PortApi) -> bool {
         .any(|f| f.ret.contains("PyNum") || f.params.iter().any(|(_, t)| t.contains("PyNum")))
 }
 
-/// The Python package name: the crate name with `-` and `.` replaced.
-pub fn package_name(m: &Manifest) -> String {
-    m.crate_name.replace(['-', '.'], "_")
-}
-
 /// The unit's `pixi.toml`, pinning the Mojo that mojo-anything itself was tested with.
 pub fn pixi_toml(m: &Manifest) -> String {
     let quote = |items: &[&str]| {
@@ -49,84 +44,98 @@ pub fn pixi_toml(m: &Manifest) -> String {
     )
 }
 
-/// The Mojo expression converting the Python value `v` to type `ty`, or `None` when the type
-/// is not one the bindings convert.
-fn from_py(ty: &str, v: &str) -> Option<String> {
-    Some(match ty {
-        "PythonObject" => v.to_string(),
-        "PyNum" => format!("PyNum(py={v})"),
-        "String" => format!("String(py={v})"),
-        "Float64" => format!("Float64(py={v})"),
-        "Int" => format!("Int(py={v})"),
-        "Bool" => format!("Bool({v})"),
-        _ => return None,
-    })
+/// The suffix naming a type's converters: `List[Optional[String]]` is `List_Optional_String`.
+fn mangle(ty: &str) -> String {
+    ty.chars()
+        .filter(|c| !c.is_whitespace() && *c != ']')
+        .map(|c| if c == '[' { '_' } else { c })
+        .collect()
 }
 
-/// The Mojo expression converting the port's value `v` of type `ty` back to Python.
-fn to_py(ty: &str, v: &str) -> Option<String> {
-    Some(match ty {
-        "PythonObject" => v.to_string(),
-        "PyNum" => format!("{v}.to_python()"),
-        "String" | "Float64" | "Int" | "Bool" => format!("PythonObject({v})"),
-        _ => return None,
-    })
+fn inner<'a>(ty: &'a str, wrapper: &str) -> Option<&'a str> {
+    ty.strip_prefix(wrapper)?
+        .strip_prefix('[')?
+        .strip_suffix(']')
 }
 
-/// Statements binding `name` (a `PythonObject` parameter) to the port's type as `a_<name>`.
-fn convert_arg(out: &mut String, name: &str, ty: &str) -> Result<(), String> {
-    let var = format!("a_{name}");
-    if let Some(expr) = from_py(ty, name) {
-        let _ = writeln!(out, "    var {var} = {expr}");
-    } else if let Some(inner) = ty.strip_prefix("List[").and_then(|t| t.strip_suffix(']')) {
-        let item = from_py(inner, "item").ok_or_else(|| format!("`{ty}` cannot cross"))?;
-        let _ = writeln!(
-            out,
-            "    var {var} = List[{inner}]()\n    for item in {name}:\n        {var}.append({item})"
-        );
-    } else if let Some(inner) = ty
-        .strip_prefix("Optional[")
-        .and_then(|t| t.strip_suffix(']'))
-    {
-        let value = from_py(inner, name).ok_or_else(|| format!("`{ty}` cannot cross"))?;
-        let _ = writeln!(
-            out,
-            "    var {var} = Optional[{inner}](None)\n    if not ({name} is Python.none()):\n        {var} = Optional[{inner}]({value})"
-        );
-    } else {
-        return Err(format!("`{ty}` cannot cross the Python bridge"));
+/// Emits `_from_py_<T>` (Python value to `ty`) and the converters it needs, once each.
+fn from_py(out: &mut Converters, ty: &str) -> Result<String, String> {
+    let name = format!("_from_py_{}", mangle(ty));
+    if out.done.contains(&name) {
+        return Ok(name);
     }
-    Ok(())
+    let body = match ty {
+        "PythonObject" => "return v".to_string(),
+        "PyNum" => "return PyNum(py=v)".into(),
+        "String" => "return String(py=v)".into(),
+        "Float64" => "return Float64(py=v)".into(),
+        "Int" => "return Int(py=v)".into(),
+        "Bool" => "return Bool(v)".into(),
+        _ => {
+            if let Some(t) = inner(ty, "List") {
+                let item = from_py(out, t)?;
+                format!(
+                    "var items = List[{t}]()\n    for item in v:\n        items.append({item}(item))\n    return items^"
+                )
+            } else if let Some(t) = inner(ty, "Optional") {
+                let value = from_py(out, t)?;
+                format!(
+                    "if v is Python.none():\n        return Optional[{t}](None)\n    return Optional[{t}]({value}(v))"
+                )
+            } else {
+                return Err(format!("`{ty}` cannot cross the Python bridge"));
+            }
+        }
+    };
+    let _ = writeln!(
+        out.text,
+        "\n\ndef {name}(v: PythonObject) raises -> {ty}:\n    {body}"
+    );
+    out.done.insert(name.clone());
+    Ok(name)
 }
 
-/// Statements returning the port's result `r` of type `ty` to Python.
-fn convert_ret(out: &mut String, ty: &str) -> Result<(), String> {
-    if ty == "None" {
-        out.push_str("    return Python.none()\n");
-    } else if let Some(expr) = to_py(ty, "r") {
-        let _ = writeln!(out, "    return {expr}");
-    } else if let Some(inner) = ty.strip_prefix("List[").and_then(|t| t.strip_suffix(']')) {
-        let item = to_py(inner, "v").ok_or_else(|| format!("`{ty}` cannot cross"))?;
-        let _ = writeln!(
-            out,
-            "    var py_list = Python.list()\n    for v in r:\n        _ = py_list.append({item})\n    return py_list"
-        );
-    } else if let Some(inner) = ty
-        .strip_prefix("Optional[")
-        .and_then(|t| t.strip_suffix(']'))
-    {
-        let value = to_py(inner, "r.value()").ok_or_else(|| format!("`{ty}` cannot cross"))?;
-        let _ = writeln!(
-            out,
-            "    if not r:\n        return Python.none()\n    return {value}"
-        );
-    } else {
-        return Err(format!("`{ty}` cannot cross the Python bridge"));
+/// Emits `_to_py_<T>` (`ty` back to a Python value) and the converters it needs, once each.
+fn to_py(out: &mut Converters, ty: &str) -> Result<String, String> {
+    let name = format!("_to_py_{}", mangle(ty));
+    if out.done.contains(&name) {
+        return Ok(name);
     }
-    Ok(())
+    let body = match ty {
+        "PythonObject" => "return v".to_string(),
+        "PyNum" => "return v.to_python()".into(),
+        "String" | "Float64" | "Int" | "Bool" => "return PythonObject(v)".into(),
+        _ => {
+            if let Some(t) = inner(ty, "List") {
+                let item = to_py(out, t)?;
+                format!(
+                    "var items = Python.list()\n    for item in v:\n        _ = items.append({item}(item))\n    return items"
+                )
+            } else if let Some(t) = inner(ty, "Optional") {
+                let value = to_py(out, t)?;
+                format!("if not v:\n        return Python.none()\n    return {value}(v.value())")
+            } else {
+                return Err(format!("`{ty}` cannot cross the Python bridge"));
+            }
+        }
+    };
+    let _ = writeln!(
+        out.text,
+        "\n\ndef {name}(v: {ty}) raises -> PythonObject:\n    {body}"
+    );
+    out.done.insert(name.clone());
+    Ok(name)
 }
 
-fn binding(out: &mut String, f: &PortFn) -> Result<(), String> {
+/// The type converters a module needs, each written once.
+#[derive(Default)]
+struct Converters {
+    text: String,
+    done: std::collections::BTreeSet<String>,
+}
+
+fn binding(out: &mut String, conv: &mut Converters, f: &PortFn) -> Result<(), String> {
+    let at = |e: String| format!("`{}`: {e}", f.rust_name);
     let params: Vec<String> = f
         .params
         .iter()
@@ -138,26 +147,24 @@ fn binding(out: &mut String, f: &PortFn) -> Result<(), String> {
         f.rust_name,
         params.join(", ")
     );
-    if !f.params.is_empty() {
-        // A value the port's type cannot hold is a TypeError, as Python's own checks give.
-        out.push_str("    try:\n");
-        let mut args = String::new();
-        for (n, t) in &f.params {
-            convert_arg(&mut args, n, t).map_err(|e| format!("`{}`: {e}", f.rust_name))?;
-        }
-        for line in args.lines() {
-            let _ = writeln!(out, "    {line}");
-        }
-        out.push_str("    except e:\n        raise Error(String(\"TypeError: \", e))\n");
+    // A value the port's type cannot hold is a TypeError, as Python's own checks give.
+    for (n, t) in &f.params {
+        let from = from_py(conv, t).map_err(at)?;
+        let _ = writeln!(out, "    var a_{n}: {t}");
+        let _ = writeln!(
+            out,
+            "    try:\n        a_{n} = {from}({n})\n    except e:\n        raise Error(String(\"TypeError: \", e))"
+        );
     }
     let call_args: Vec<String> = f.params.iter().map(|(n, _)| format!("a_{n}")).collect();
     let call = format!("port.{}({})", f.rust_name, call_args.join(", "));
     if f.ret == "None" {
-        let _ = writeln!(out, "    {call}");
+        let _ = writeln!(out, "    {call}\n    return Python.none()");
     } else {
-        let _ = writeln!(out, "    var r = {call}");
+        let to = to_py(conv, &f.ret).map_err(at)?;
+        let _ = writeln!(out, "    return {to}({call})");
     }
-    convert_ret(out, &f.ret).map_err(|e| format!("`{}`: {e}", f.rust_name))
+    Ok(())
 }
 
 /// `_native.mojo`: the extension module binding every port function under its source name.
@@ -189,9 +196,11 @@ pub fn native_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
         "        return module.finalize()\n    except e:\n        \
          abort(String(\"failed to create the Python module: \", e))\n",
     );
+    let mut conv = Converters::default();
     for f in &api.functions {
-        binding(&mut out, f)?;
+        binding(&mut out, &mut conv, f)?;
     }
+    out.push_str(&conv.text);
     Ok(out)
 }
 
@@ -288,19 +297,37 @@ mod tests {
         let native = native_mojo(&m, &api).unwrap();
         assert!(native.contains("def PyInit__native() abi(\"C\") -> PythonObject:"));
         assert!(native.contains("module.def_function[_bind_rgb_to_yiq](\"rgb_to_yiq\")"));
-        assert!(native.contains("var a_r = PyNum(py=r)"), "{native}");
-        assert!(native.contains("var a_sep = String(py=sep)"), "{native}");
+        assert!(native.contains("a_r = _from_py_PyNum(r)"), "{native}");
+        assert!(native.contains("return PyNum(py=v)"), "{native}");
+        assert!(native.contains("return String(py=v)"), "{native}");
         assert!(
-            native.contains("var r = port.rgb_to_yiq(a_r, a_sep)"),
+            native.contains("return _to_py_PythonObject(port.rgb_to_yiq(a_r, a_sep))"),
             "{native}"
         );
         assert!(native.contains("from py_num import PyNum"));
     }
 
     #[test]
+    fn nested_types_get_one_converter_each() {
+        let api = parse_port_mojo(
+            "def chunk(items: List[PyNum], size: PyNum) raises -> List[List[PyNum]]:\n    pass\n\n\
+             def first(items: List[PyNum]) raises -> Optional[PyNum]:\n    pass\n",
+        );
+        let native = native_mojo(&manifest("x-mojo", "number"), &api).unwrap();
+        for name in [
+            "def _from_py_List_PyNum(v: PythonObject) raises -> List[PyNum]:",
+            "def _to_py_List_List_PyNum(v: List[List[PyNum]]) raises -> PythonObject:",
+            "def _to_py_List_PyNum(v: List[PyNum]) raises -> PythonObject:",
+            "def _to_py_Optional_PyNum(v: Optional[PyNum]) raises -> PythonObject:",
+        ] {
+            assert_eq!(native.matches(name).count(), 1, "{name}\n{native}");
+        }
+    }
+
+    #[test]
     fn lib_mojo_names_for_hyphenated_unit() {
-        let m = manifest("colorsys-pkg.mojo", "number");
-        assert_eq!(package_name(&m), "colorsys_pkg_mojo");
+        let m = manifest("colorsys-pkg-mojo", "number");
+        assert_eq!(m.lib_name(), "colorsys_pkg_mojo");
         let api = parse_port_mojo(&port_mojo(&m));
         assert!(native_mojo(&m, &api).unwrap().contains("PyInit__native()"));
     }

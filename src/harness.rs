@@ -458,6 +458,10 @@ fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
     let built = match manifest.kind {
         Kind::Napi => crate_dir.join(format!("{}.node", manifest.lib_name())),
         Kind::Pyo3 => crate::harness_py::native_file(crate_dir, manifest),
+        Kind::MojoPy => {
+            let built = crate::harness_mojo_py::native_file(crate_dir, manifest);
+            return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
+        }
         _ => return None,
     };
     sources_newer_than(crate_dir, &built).then_some(built)
@@ -509,7 +513,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
     let manifest = Manifest::load(crate_dir)?;
     match manifest.kind {
         Kind::Pyo3 => crate::harness_py::build(crate_dir, &manifest),
-        Kind::MojoPy => bail!("building a Mojo Python extension is not wired yet"),
+        Kind::MojoPy => crate::harness_mojo_py::build(crate_dir, &manifest),
         Kind::Ffi if manifest.language == crate::lang::Lang::Ruby => {
             crate::harness_ruby::build(crate_dir, &manifest)
         }

@@ -218,7 +218,7 @@ fn unported_stubs_never_match_in_python() {
     let Some(python) = common::python() else {
         return;
     };
-    stubs_fail(&fixture("python"), "src/textkit/", None, python);
+    stubs_fail(&fixture("python"), "src/textkit/", Some(Kind::Pyo3), python);
 }
 
 #[test]
@@ -787,7 +787,7 @@ fn python_batches_build_and_run_on_rusty_alloc() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "tally/",
-        kind: None,
+        kind: Some(Kind::Pyo3),
         out: Some(dir.clone()),
         name: None,
         force: false,

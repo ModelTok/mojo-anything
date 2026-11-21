@@ -35,7 +35,7 @@ fn record_leaves_the_callers_working_directory_untouched() {
     assert!(bridged.status.success(), "{bridged:?}");
     let recorded = Command::new(cli)
         .arg("record")
-        .arg("../notes/rust/notes-rs")
+        .arg("../notes/mojo/notes-mojo")
         .current_dir(&elsewhere)
         .output()
         .unwrap();
@@ -45,7 +45,7 @@ fn record_leaves_the_callers_working_directory_untouched() {
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect();
-    let cases = std::fs::read_to_string(project.join("rust/notes-rs/cases.jsonl")).unwrap();
+    let cases = std::fs::read_to_string(project.join("mojo/notes-mojo/cases.jsonl")).unwrap();
     std::fs::remove_dir_all(&root).unwrap();
     assert!(
         left.is_empty(),

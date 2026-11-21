@@ -725,7 +725,7 @@ fn python_required_optional_port_local_type_compiles() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/textkit/",
-        kind: None,
+        kind: Some(Kind::Pyo3),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -785,7 +785,7 @@ fn python_modules_bridge_record_and_diff() {
     let outcome = bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/textkit/",
-        kind: None,
+        kind: Some(Kind::Pyo3),
         out: Some(dir.clone()),
         name: None,
         force: false,
