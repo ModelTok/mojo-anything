@@ -18,6 +18,7 @@ pub mod codegen_ffi;
 pub mod codegen_go;
 pub mod codegen_java;
 pub mod codegen_kotlin;
+pub mod codegen_mojo;
 pub mod codegen_py;
 pub mod codegen_ruby;
 pub mod codegen_tswire;
