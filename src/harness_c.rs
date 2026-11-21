@@ -1,5 +1,5 @@
 //! The C side of record, build, diff and bench: the original is compiled into a shared
-//! library, and Python's ctypes calls it and the Rust library with the same signatures.
+//! library, and Python's ctypes calls it and the Mojo library with the same signatures.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -176,49 +176,6 @@ pub fn record(crate_dir: &Path, manifest: &Manifest, cases: &[Value]) -> Result<
     Ok(out)
 }
 
-/// The Rust library: `lib<name>.so`, `.dylib` or `.dll`.
-pub fn build(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
-    let target = crate_dir.join("target");
-    run(
-        Command::new("cargo")
-            .args(["build", "--release", "--manifest-path"])
-            .arg(crate_dir.join("Cargo.toml"))
-            .env("CARGO_TARGET_DIR", &target),
-        "cargo build",
-    )?;
-    let lib = manifest.lib_name();
-    let release = target.join("release");
-    [
-        format!("lib{lib}.so"),
-        format!("lib{lib}.dylib"),
-        format!("{lib}.dll"),
-    ]
-    .iter()
-    .map(|n| release.join(n))
-    .find(|p| p.exists())
-    .with_context(|| format!("no shared library for `{lib}` in {}", release.display()))
-}
-
-/// The built Rust library of a crate.
-pub fn built_library(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
-    let lib = manifest.lib_name();
-    let release = crate_dir.join("target/release");
-    [
-        format!("lib{lib}.so"),
-        format!("lib{lib}.dylib"),
-        format!("{lib}.dll"),
-    ]
-    .iter()
-    .map(|n| release.join(n))
-    .find(|p| p.exists())
-    .with_context(|| {
-        format!(
-            "no built library in {} (run `mojo-anything build` first)",
-            release.display()
-        )
-    })
-}
-
 pub fn diff(crate_dir: &Path, manifest: &Manifest) -> Result<DiffOutcome> {
     let cases = crate_dir.join(CASES);
     if !cases.exists() {
@@ -227,14 +184,14 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest) -> Result<DiffOutcome> {
             crate_dir.display()
         );
     }
-    let rust = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
+    let port = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
     let (driver, sigs) = driver(crate_dir, manifest)?;
     let out = crate_dir.join(WORK_DIR).join("diff.json");
     run(
         python()
             .arg(&driver)
             .arg("diff")
-            .arg(&rust)
+            .arg(&port)
             .arg(&sigs)
             .arg(&cases)
             .arg(&out),
@@ -251,7 +208,7 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
             crate_dir.display()
         );
     }
-    let rust = crate::harness_mojo_c::built_library(crate_dir, manifest, true)?.canonical()?;
+    let port = crate::harness_mojo_c::built_library(crate_dir, manifest, true)?.canonical()?;
     let work = crate_dir.canonical()?.join(WORK_DIR);
     std::fs::create_dir_all(&work)?;
     let cases: Vec<Value> = std::fs::read_to_string(&cases_path)?
@@ -272,10 +229,10 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
     }
     cmd.args(include_args(&include_dirs));
     cmd.args(&sources)
-        .arg(&rust)
+        .arg(&port)
         .arg(format!(
             "-Wl,-rpath,{}",
-            rust.parent()
+            port.parent()
                 .map_or_else(String::new, |p| p.display().to_string())
         ))
         .arg("-lm");

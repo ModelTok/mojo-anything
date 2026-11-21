@@ -520,7 +520,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
             crate::harness_ruby::build(crate_dir, &manifest)
         }
         Kind::CAbi => crate::harness_mojo_c::build(crate_dir, &manifest),
-        Kind::Ffi => crate::harness_c::build(crate_dir, &manifest),
+        Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
         Kind::Napi => {
             let target = crate_dir.join("target");
             run(

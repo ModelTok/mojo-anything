@@ -35,6 +35,7 @@ pub mod fuzz;
 pub mod gate;
 pub mod harness;
 pub mod harness_c;
+pub mod harness_cargo;
 pub mod harness_go;
 pub mod harness_java;
 pub mod harness_kotlin;

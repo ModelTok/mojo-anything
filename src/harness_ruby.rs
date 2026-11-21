@@ -161,7 +161,7 @@ pub fn bench(crate_dir: &Path, m: &Manifest, min_ms: u64) -> Result<Vec<BenchRow
 
 /// Builds the extension and puts it beside the wrapper as `ruby/<lib>_native.so`.
 pub fn build(crate_dir: &Path, m: &Manifest) -> Result<PathBuf> {
-    let lib = crate::harness_c::build(crate_dir, m)?;
+    let lib = crate::harness_cargo::build(crate_dir, m)?;
     let ext = if cfg!(target_os = "macos") {
         "bundle"
     } else {

@@ -207,6 +207,12 @@ impl Manifest {
         }
         let mut manifest: Self =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        if manifest.kind == Kind::CAbi && crate_dir.join("Cargo.toml").exists() {
+            bail!(
+                "{} is a Rust C ABI crate, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
+                crate_dir.display()
+            );
+        }
         if manifest.root.is_relative() {
             let resolved = crate_dir.join(&manifest.root);
             let resolved = resolved.canonical().unwrap_or(resolved);
@@ -1881,6 +1887,25 @@ mod tests {
         .unwrap();
         let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
         assert!(err.contains("bridge again"), "{err}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn rust_c_unit_says_rebridge() {
+        let dir = std::env::temp_dir().join(format!("mojo-anything-rust-c-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            r#"{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "x.c", "language": "c", "kind": "c-abi", "crate_name": "x-rs", "exports": []}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x-rs\"\n").unwrap();
+        let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
+        assert!(err.contains("bridge again"), "{err}");
+        // The same manifest without the Rust crate is a Mojo unit and loads.
+        std::fs::remove_file(dir.join("Cargo.toml")).unwrap();
+        assert!(Manifest::load(&dir).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

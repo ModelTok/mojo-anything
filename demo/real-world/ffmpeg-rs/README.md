@@ -1,5 +1,10 @@
 # ffmpeg-rs
 
+> **Rust reference.** mojo-anything no longer generates Rust for C; these crates were made
+> before it targeted Mojo and stay as the reference until each unit is ported again in
+> [`../ffmpeg-mojo`](../ffmpeg-mojo) (`rational.c` is). Re-running `scripts/verify.sh` needs the
+> rust-anything release that made them; `scripts/prepare.sh` is shared with `ffmpeg-mojo`.
+
 Portable C from [FFmpeg](https://ffmpeg.org)'s `libavutil` (tag `n7.1`, commit `b08d796`)
 ported to Rust with mojo-anything, one unit at a time, each proven against recordings of the
 real ffmpeg functions and passing `mojo-anything gate`. The case study is in

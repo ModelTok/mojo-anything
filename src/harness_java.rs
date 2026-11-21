@@ -139,7 +139,7 @@ fn driver_command(
     let mut cmd = Command::new("java");
     cmd.arg("-Dfile.encoding=UTF-8");
     if rust {
-        let lib = crate::harness_c::built_library(crate_dir, m)?;
+        let lib = crate::harness_cargo::built_library(crate_dir, m)?;
         cmd.arg(format!(
             "-Dmojo-anything.lib.{}={}",
             m.lib_name(),
