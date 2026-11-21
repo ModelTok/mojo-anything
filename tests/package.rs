@@ -256,59 +256,6 @@ fn napi_package_without_a_fallback_says_so() {
 }
 
 #[test]
-fn python_package_is_a_maturin_project_named_like_the_original() {
-    let root = project(
-        "pyo3",
-        &[
-            (
-                "pyproject.toml",
-                "[project]\nname = \"shout\"\nversion = \"1.5.0\"\n",
-            ),
-            ("src/shout/__init__.py", ""),
-            (
-                "src/shout/words.py",
-                "def shout(text: str) -> str:\n    return text + \"!\"\n",
-            ),
-        ],
-    );
-    let dir = bridged(&root, "src/shout/words.py", Kind::Pyo3);
-    let outcome = package::package(&options(&dir)).unwrap();
-    assert_eq!(outcome.module.as_deref(), Some("shout.words"));
-    assert_eq!(outcome.version, "1.5.0");
-    let out = &outcome.out;
-    for file in [
-        "Cargo.toml",
-        "src/port.rs",
-        "src/lib.rs",
-        "python/shout/words/__init__.py",
-        ".github/workflows/words-rs-wheels.yml",
-    ] {
-        assert!(out.join(file).exists(), "{file}: {:?}", outcome.files);
-    }
-    let pyproject = std::fs::read_to_string(out.join("pyproject.toml")).unwrap();
-    assert!(pyproject.contains("module-name = \"shout.words._native\""));
-    assert!(pyproject.contains("version = \"1.5.0\""));
-    assert!(pyproject.contains("build-backend = \"maturin\""));
-    let cargo = std::fs::read_to_string(out.join("Cargo.toml")).unwrap();
-    assert!(cargo.contains("abi3-py39"), "{cargo}");
-    assert!(cargo.contains("[workspace]"), "{cargo}");
-    let workflow =
-        std::fs::read_to_string(out.join(".github/workflows/words-rs-wheels.yml")).unwrap();
-    for target in [
-        "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
-        "x86_64-pc-windows-msvc",
-    ] {
-        assert!(workflow.contains(target), "{target}");
-    }
-    assert!(workflow.contains("manylinux: auto"));
-    assert!(!workflow.contains("command: publish") && !workflow.contains("twine"));
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn wasm_package_needs_a_build() {
     let root = project(
         "wasm",

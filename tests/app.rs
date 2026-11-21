@@ -912,7 +912,6 @@ fn lift_strips_bridge_bindings_in_every_language() {
     let _ = std::fs::remove_dir_all(&base);
     let units = [
         ("mini", "packages/a/src/util.ts", "ts"),
-        ("python", "src/textkit/", "python"),
         ("c", "src/text.c", "c"),
         ("go", "strkit/", "go"),
         ("ruby", "lib/textkit/", "ruby"),
@@ -923,7 +922,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
             root: &fixtures.join(fixture),
             unit,
-            kind: (lang == "python").then_some(mojo_anything::bridge::Kind::Pyo3),
+            kind: None,
             out: Some(dir.clone()),
             name: None,
             force: false,
@@ -945,15 +944,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         let removed = lift::strip_unit(&dir).unwrap();
         assert!(!removed.is_empty(), "{lang}");
         let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        for binding in [
-            "cdylib",
-            "staticlib",
-            "napi",
-            "pyo3",
-            "magnus",
-            "jni",
-            "build =",
-        ] {
+        for binding in ["cdylib", "staticlib", "napi", "magnus", "jni", "build ="] {
             assert!(!cargo.contains(binding), "{lang}: {cargo}");
         }
         let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();

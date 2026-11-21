@@ -398,7 +398,7 @@ fn async_functions_get_async_bindings() {
                 assert!(cargo.contains("features = [\"async\"]") && cargo.contains("futures"))
             }
             Kind::Wasm => assert!(cargo.contains("wasm-bindgen-futures")),
-            Kind::Pyo3 | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {}
+            Kind::MojoPy | Kind::CAbi | Kind::Ffi => {}
         }
         let index = std::fs::read_to_string(dir.join("index.cjs")).unwrap();
         assert!(
@@ -717,54 +717,6 @@ fn record_resolves_workspace_packages_to_source() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-#[test]
-fn python_required_optional_port_local_type_compiles() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/python");
-    let dir =
-        std::env::temp_dir().join(format!("mojo-anything-python-local-{}", std::process::id()));
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/textkit/",
-        kind: Some(Kind::Pyo3),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let mut manifest = Manifest::load(&dir).unwrap();
-    let clipped = manifest
-        .exports
-        .iter_mut()
-        .find(|f| f.name == "clipped")
-        .unwrap();
-    clipped.params[1].optional = false;
-    clipped.params[1].default = None;
-    manifest.save(&dir).unwrap();
-    std::fs::write(
-        dir.join("src/port.rs"),
-        "pub type Settings = serde_json::Value;\n\
-         pub fn clipped(text: String, limits: Option<Settings>) -> String { let _ = limits; text }\n",
-    )
-    .unwrap();
-    bridge::refresh(&dir).unwrap();
-    let output = Command::new("cargo")
-        .arg("check")
-        .current_dir(&dir)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
 fn error_checks(dir: &Path, fails: &str) -> Vec<mojo_anything::gate::Check> {
     let checks = mojo_anything::error_paths::checks(dir, &Manifest::load(dir).unwrap());
     let errors = &checks[0];
@@ -775,105 +727,6 @@ fn error_checks(dir: &Path, fails: &str) -> Vec<mojo_anything::gate::Check> {
         "{fails} fails in the original: {errors:?}"
     );
     checks
-}
-
-#[test]
-fn python_modules_bridge_record_and_diff() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/python");
-    let dir = std::env::temp_dir().join(format!("mojo-anything-python-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let outcome = bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/textkit/",
-        kind: Some(Kind::Pyo3),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    assert_eq!(outcome.kind, Kind::Pyo3);
-    let manifest = Manifest::load(&dir).unwrap();
-    let kept: Vec<&str> = manifest.js_only.iter().map(|j| j.name.as_str()).collect();
-    assert_eq!(kept, ["walk", "apply", "configure", "Limits"]);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    // A literal default stays a plain value; `None` as default is an Option.
-    assert!(
-        port.contains("pub fn slugify(text: String, sep: String, max_length: Option<i64>)"),
-        "{port}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains(r#"signature = (text, sep=String::from("-"), *, max_length=None)"#),
-        "{lib}"
-    );
-    // An optional object parameter binds as `Option<Bound>` so `None` is accepted.
-    assert!(lib.contains("limits: Option<Bound<'_, PyAny>>"), "{lib}");
-    assert!(lib.contains(r#"signature = (text, limits=None)"#), "{lib}");
-    assert!(lib.contains("#[pyclass(name = \"Stack\")]"));
-    let build_rs = std::fs::read_to_string(dir.join("build.rs")).unwrap();
-    assert!(build_rs.contains("dynamic_lookup"), "{build_rs}");
-    if !common::have("python3") {
-        return;
-    }
-    let recorded = harness::record(&RecordOptions {
-        crate_dir: &dir,
-        count: 60,
-        inputs: None,
-        module: None,
-        resolve_from: None,
-        node_args: &[],
-    })
-    .unwrap();
-    assert!(recorded.cases > 200);
-    error_checks(&dir, "chunk");
-    let port_path = dir.join("src/port.rs");
-    let port = std::fs::read_to_string(&port_path).unwrap();
-    let start = port.find("pub fn chunk(").unwrap();
-    let body = start + port[start..].find('{').unwrap() + 1;
-    let mut panicky = port.clone();
-    panicky.insert_str(body, "\n    let _ = \"1\".parse::<i64>().unwrap();");
-    std::fs::write(&port_path, &panicky).unwrap();
-    let checks = error_checks(&dir, "chunk");
-    assert!(
-        !checks[1].passed && checks[1].detail.contains("in chunk"),
-        "{checks:?}"
-    );
-    std::fs::write(&port_path, &port).unwrap();
-    // A pure-Python stand-in for the built package: `page_count` truncates instead of flooring.
-    let package = dir.join("python/textkit_rs");
-    std::fs::create_dir_all(&package).unwrap();
-    let original = std::fs::read_to_string(root.join("src/textkit/words.py")).unwrap();
-    let stack = std::fs::read_to_string(root.join("src/textkit/stack.py")).unwrap();
-    let buggy = original.replace(
-        "return -(-total // per_page)",
-        "return int(-(-total / per_page))",
-    );
-    std::fs::write(package.join("__init__.py"), format!("{buggy}\n{stack}")).unwrap();
-    let diff = |dir: &Path| {
-        harness::diff(&DiffOptions {
-            crate_dir: dir,
-            module: None,
-            ignore_key_order: false,
-            float_tolerance: None,
-            node_args: &[],
-        })
-        .unwrap()
-    };
-    let buggy = diff(&dir);
-    assert!(
-        buggy.failed > 0 && buggy.mismatches.iter().all(|m| m["fn"] == "page_count"),
-        "{:?}",
-        buggy.mismatches
-    );
-    std::fs::write(package.join("__init__.py"), format!("{original}\n{stack}")).unwrap();
-    let fixed = diff(&dir);
-    assert_eq!(fixed.failed, 0, "{:?}", fixed.mismatches);
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

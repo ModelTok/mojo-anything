@@ -46,11 +46,7 @@ fn bridged(repo: &Path, unit: &str) -> PathBuf {
     bridge::bridge(&bridge::Options {
         root: repo,
         unit,
-        // Python units stay on PyO3 here until it is removed (milestone 1, task 9).
-        kind: repo
-            .join("pyproject.toml")
-            .exists()
-            .then_some(bridge::Kind::Pyo3),
+        kind: None,
         out: None,
         name: None,
         force: false,
@@ -210,47 +206,6 @@ fn a_ts_library_moves_unit_by_unit() {
     .unwrap();
     assert!(!broken.failures.is_empty());
     assert!(broken.failures.iter().all(|f| f.case == "text: shout"));
-    std::fs::remove_dir_all(&repo).unwrap();
-}
-
-#[test]
-fn a_python_library_keeps_what_cannot_move() {
-    if !common::have("python3") || !common::have("cargo") {
-        return;
-    }
-    let repo = fixture("python");
-    door(&repo, false);
-    let dir = bridged(&repo, "src/textkit/");
-    record(&dir, 30);
-    let package = dir.join("python/textkit_rs");
-    std::fs::create_dir_all(&package).unwrap();
-    let words = std::fs::read_to_string(repo.join("src/textkit/words.py")).unwrap();
-    let stack = std::fs::read_to_string(repo.join("src/textkit/stack.py")).unwrap();
-    std::fs::write(package.join("__init__.py"), format!("{words}\n{stack}")).unwrap();
-
-    let wired = wire(&repo, "textkit-rs", true);
-    let replay = wired.replay.unwrap();
-    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
-    let fallback = replay.fallback.unwrap();
-    assert_eq!(
-        fallback.names,
-        [
-            "src/textkit/: walk",
-            "src/textkit/: apply",
-            "src/textkit/: configure",
-            "src/textkit/: Limits"
-        ],
-        "kept in Python by bridge: {fallback:?}"
-    );
-    let blocked = lift::lift(&LiftOptions { repo: &repo }).unwrap();
-    assert!(
-        blocked
-            .blockers
-            .iter()
-            .any(|b| b.contains("still only in the original") && b.contains("walk")),
-        "{:?}",
-        blocked.blockers
-    );
     std::fs::remove_dir_all(&repo).unwrap();
 }
 

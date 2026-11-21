@@ -1,9 +1,7 @@
-//! Step 6: turn a gated port into packages end users install, the way maturin and
-//! `@napi-rs/cli` lay them out. Writes files only: it never builds for other platforms (the
+//! Step 6: turn a gated port into packages end users install, the way `@napi-rs/cli` lays
+//! them out. Writes files only: it never builds for other platforms (the
 //! generated GitHub Actions workflow does) and never publishes.
 //!
-//! - PyO3: a self-contained maturin project (abi3 wheel, importable under the original's module
-//!   name) and a workflow that builds wheels for macOS, Linux (manylinux) and Windows.
 //! - napi-rs: a main npm package whose loader picks `<name>-<platform>` from its
 //!   `optionalDependencies` and falls back to the original JS, one package per platform holding
 //!   one `.node`, and a workflow that builds and packs them.
@@ -163,20 +161,10 @@ pub fn package(opts: &Options) -> Result<Outcome> {
         }),
     };
     let mut files: Vec<(String, Content)> = Vec::new();
-    let mut module = None;
+
     let mut platforms = Vec::new();
     match manifest.kind {
         Kind::MojoPy => bail!("packaging a Mojo Python extension is not supported yet"),
-        Kind::Pyo3 => {
-            let m = python_module(&manifest);
-            python_files(&crate_dir, &manifest, &name, &version, &m, &out, &mut files)?;
-            notes.push(format!(
-                "pip install {0} builds the wheel locally (maturin, from PyPI); `maturin build \
-                 --release` in {0} writes it to target/wheels. The wheel installs `import {m}`.",
-                out.display()
-            ));
-            module = Some(m);
-        }
         Kind::Napi => {
             validate_npm_name(&name)?;
             platforms = PLATFORMS
@@ -196,11 +184,11 @@ pub fn package(opts: &Options) -> Result<Outcome> {
             ));
         }
         Kind::CAbi | Kind::Ffi => bail!(
-            "package covers napi-rs, wasm-bindgen and PyO3 crates; this one is {:?}",
+            "package covers napi-rs and wasm-bindgen crates; this one is {:?}",
             manifest.kind
         ),
     }
-    if matches!(manifest.kind, Kind::Pyo3 | Kind::Napi) {
+    if manifest.kind == Kind::Napi {
         let (workflow, note) = workflow_file(&manifest, &name, &version, &crate_dir, &out)?;
         files.push(workflow);
         notes.push(note);
@@ -215,7 +203,7 @@ pub fn package(opts: &Options) -> Result<Outcome> {
         name,
         version,
         out,
-        module,
+        module: None,
         platforms,
         files: listed,
         dry_run: opts.dry_run,
@@ -394,82 +382,6 @@ pub fn python_module(manifest: &Manifest) -> String {
         start = usize::from(matches!(parts.first(), Some(&"src" | &"lib")) && parts.len() > 1);
     }
     parts[start..].join(".")
-}
-
-#[allow(clippy::too_many_arguments)]
-fn python_files(
-    crate_dir: &Path,
-    manifest: &Manifest,
-    name: &str,
-    version: &str,
-    module: &str,
-    out: &Path,
-    files: &mut Vec<(String, Content)>,
-) -> Result<()> {
-    if out.starts_with(crate_dir.join("src")) || out.starts_with(crate_dir.join("python")) {
-        bail!("--out cannot be inside the crate's src/ or python/ folder");
-    }
-    let (wrapper_dir, wrapper_name) = crate::harness_py::package(crate_dir, manifest);
-    let wrapper = wrapper_dir.join(&wrapper_name);
-    if !wrapper.join("__init__.py").exists() {
-        bail!(
-            "{} has no __init__.py; run `mojo-anything refresh {}`",
-            wrapper.display(),
-            crate_dir.display()
-        );
-    }
-    let cargo =
-        std::fs::read_to_string(crate_dir.join("Cargo.toml")).context("reading Cargo.toml")?;
-    let mut doc: toml_edit::DocumentMut = cargo.parse().context("parsing Cargo.toml")?;
-    if !doc.contains_key("workspace") {
-        doc.insert("workspace", toml_edit::Item::Table(toml_edit::Table::new()));
-    }
-    files.push(("Cargo.toml".into(), Content::Text(doc.to_string())));
-    for extra in ["Cargo.lock", "build.rs"] {
-        if crate_dir.join(extra).exists() {
-            files.push((extra.into(), Content::Copy(crate_dir.join(extra))));
-        }
-    }
-    for file in tree(&crate_dir.join("src"))? {
-        files.push((
-            format!("src/{}", slash(&file)),
-            Content::Copy(crate_dir.join("src").join(&file)),
-        ));
-    }
-    let module_dir = format!("python/{}", module.replace('.', "/"));
-    for file in tree(&wrapper)? {
-        let file_name = file.file_name().unwrap_or_default().to_string_lossy();
-        if file_name.starts_with("_native.")
-            || file.components().any(|c| c.as_os_str() == "__pycache__")
-        {
-            continue;
-        }
-        files.push((
-            format!("{module_dir}/{}", slash(&file)),
-            Content::Copy(wrapper.join(&file)),
-        ));
-    }
-    files.push((
-        "pyproject.toml".into(),
-        Content::Text(pyproject(manifest, name, version, module)),
-    ));
-    files.push((
-        ".gitignore".into(),
-        Content::Text("target/\ndist/\n*.so\n*.pyd\n__pycache__/\n".into()),
-    ));
-    Ok(())
-}
-
-fn pyproject(manifest: &Manifest, name: &str, version: &str, module: &str) -> String {
-    format!(
-        "[build-system]\nrequires = [\"maturin>=1.7,<2\"]\nbuild-backend = \"maturin\"\n\n\
-         [project]\nname = \"{name}\"\nversion = \"{version}\"\n\
-         description = \"Rust port of `{unit}`, generated by mojo-anything\"\n\
-         requires-python = \">=3.9\"\n\
-         classifiers = [\"Programming Language :: Rust\", \"Programming Language :: Python :: Implementation :: CPython\"]\n\n\
-         [tool.maturin]\nbindings = \"pyo3\"\nmodule-name = \"{module}._native\"\npython-source = \"python\"\n",
-        unit = manifest.unit
-    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -767,19 +679,11 @@ fn workflow_file(
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    let (file, text) = match manifest.kind {
-        Kind::Pyo3 => (
-            format!("{slug}-wheels.yml"),
-            wheels_yml(name, version, &python_module(manifest), &out_rel),
-        ),
-        _ => {
-            let crate_rel = relative(out, crate_dir).context("relating the crate to --out")?;
-            (
-                format!("{slug}-npm.yml"),
-                npm_yml(name, version, &manifest.lib_name(), &out_rel, &crate_rel),
-            )
-        }
-    };
+    let crate_rel = relative(out, crate_dir).context("relating the crate to --out")?;
+    let (file, text) = (
+        format!("{slug}-npm.yml"),
+        npm_yml(name, version, &manifest.lib_name(), &out_rel, &crate_rel),
+    );
     let path = format!(".github/workflows/{file}");
     let note = match &repo {
         Some(repo) => format!(
@@ -794,73 +698,6 @@ fn workflow_file(
         ),
     };
     Ok(((path, Content::Text(text)), note))
-}
-
-fn wheels_yml(name: &str, version: &str, module: &str, dir: &str) -> String {
-    format!(
-        r#"# Generated by `mojo-anything package`: abi3 wheels of {name} {version} (one per platform,
-# every CPython from 3.9 on) and an sdist, uploaded as artifacts. Nothing is published.
-name: {name} wheels
-
-on:
-  workflow_dispatch:
-  push:
-    tags: ['v*']
-
-defaults:
-  run:
-    shell: bash
-    working-directory: {dir}
-
-jobs:
-  wheels:
-    name: ${{{{ matrix.target }}}}
-    runs-on: ${{{{ matrix.os }}}}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {{ os: macos-latest, target: aarch64-apple-darwin, check: true }}
-          - {{ os: macos-latest, target: x86_64-apple-darwin, check: false }}
-          - {{ os: ubuntu-latest, target: x86_64-unknown-linux-gnu, check: true }}
-          - {{ os: ubuntu-latest, target: aarch64-unknown-linux-gnu, check: false }}
-          - {{ os: windows-latest, target: x86_64-pc-windows-msvc, check: true }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{{{ matrix.target }}}}
-          manylinux: auto
-          args: --release --out dist
-          working-directory: {dir}
-      - name: Import check
-        if: matrix.check
-        run: |
-          python -m pip install {name} --no-index --find-links dist --force-reinstall
-          python -c "import {module}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{{{ matrix.target }}}}
-          path: {dir}/dist
-
-  sdist:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-          working-directory: {dir}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: {dir}/dist
-"#
-    )
 }
 
 fn npm_yml(name: &str, version: &str, lib: &str, dir: &str, crate_rel: &str) -> String {

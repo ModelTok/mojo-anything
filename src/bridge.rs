@@ -28,7 +28,6 @@ pub const OLD_MANIFEST: &str = "rust-anything.json";
 pub enum Kind {
     Napi,
     Wasm,
-    Pyo3,
     /// `extern "C"` functions with the original names: a drop-in replacement for C code.
     #[serde(rename = "c-abi")]
     CAbi,
@@ -198,6 +197,14 @@ impl Manifest {
                 path.display()
             )
         })?;
+        if serde_json::from_str::<serde_json::Value>(&text)
+            .is_ok_and(|v| v["kind"] == serde_json::json!("pyo3"))
+        {
+            bail!(
+                "{} was bridged with PyO3, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
+                path.display()
+            );
+        }
         let mut manifest: Self =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         if manifest.root.is_relative() {
@@ -730,7 +737,7 @@ fn format_wrapper(crate_dir: &Path) {
 /// `lib.rs` of a JS crate: the bindings, and the binary wire when functions use it.
 fn js_lib_rs(m: &Manifest, api: &codegen::PortApi, modules: &codegen::Modules) -> Result<String> {
     let mut lib = with_allocator(m, codegen::lib_rs(m, api, modules));
-    if m.kind != Kind::Pyo3 && !m.batches.is_empty() {
+    if !m.batches.is_empty() {
         lib.push_str(&crate::codegen_batch::js_rs(m, api).map_err(anyhow::Error::msg)?);
     }
     if !crate::codegen_tswire::uses_wire(m, api) {
@@ -878,21 +885,15 @@ fn with_rayon(m: &Manifest, cargo: String) -> Result<String> {
     Ok(doc.to_string())
 }
 
-/// The language-side loader: `index.cjs` for JS, the wrapper package for Python.
+/// The language-side loader, `index.cjs`.
 fn loader_file(m: &Manifest, api: &codegen::PortApi) -> (String, String) {
-    match m.kind {
-        Kind::Pyo3 => (
-            format!("python/{}/__init__.py", m.lib_name()),
-            crate::codegen_py::package_init(m, api),
-        ),
-        _ => (
-            "index.cjs".into(),
-            codegen::index_cjs(m, api)
-                + &crate::codegen_tswire::index_cjs(m, api)
-                + &crate::codegen_batch::index_cjs(m, api)
-                + &codegen::guard_cjs(api, &crate::codegen_tswire::wired(m, api)),
-        ),
-    }
+    (
+        "index.cjs".into(),
+        codegen::index_cjs(m, api)
+            + &crate::codegen_tswire::index_cjs(m, api)
+            + &crate::codegen_batch::index_cjs(m, api)
+            + &codegen::guard_cjs(api, &crate::codegen_tswire::wired(m, api)),
+    )
 }
 
 /// A port function whose doc line does not name an export (`/// Port of \`Integer.toString\``)
@@ -1000,14 +1001,9 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     if crate::codegen_tswire::uses_wire(&manifest, &fns) {
         files.push(("src/wire.rs".into(), crate::wire::WIRE_RS.into()));
     }
-    let extension = manifest.kind == Kind::Pyo3
-        || (manifest.kind == Kind::Ffi && manifest.language == crate::lang::Lang::Ruby);
+    let extension = manifest.kind == Kind::Ffi && manifest.language == crate::lang::Lang::Ruby;
     if extension && !crate_dir.join("build.rs").exists() {
         files.push(("build.rs".into(), DYNAMIC_LOOKUP_BUILD_RS.into()));
-    }
-    if manifest.kind == Kind::Pyo3 && fns.needs_json() {
-        files.push(("src/pyconv.rs".into(), crate::codegen_py::PYCONV_RS.into()));
-        files.push(("src/pynum.rs".into(), crate::codegen_py::PYNUM_RS.into()));
     }
     let cargo_path = crate_dir.join("Cargo.toml");
     let cargo = std::fs::read_to_string(&cargo_path).context("reading Cargo.toml")?;
@@ -1100,7 +1096,6 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::WasmBindgen => Kind::Wasm,
-        Bridge::Pyo3 => Kind::Pyo3,
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
@@ -1342,13 +1337,11 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
             serde_json::to_string_pretty(&manifest)? + "\n",
         ),
     ];
-    match kind {
-        Kind::Napi => files.push((
+    if kind == Kind::Napi {
+        files.push((
             "build.rs".into(),
             "fn main() {\n    napi_build::setup();\n}\n".into(),
-        )),
-        Kind::Pyo3 => files.push(("build.rs".into(), DYNAMIC_LOOKUP_BUILD_RS.into())),
-        _ => {}
+        ));
     }
     if utf16 {
         files.push(("src/utf16.rs".into(), UTF16_RS.into()));
@@ -1358,10 +1351,6 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     if crate::codegen_tswire::uses_wire(&manifest, &fns) {
         files.push(("src/wire.rs".into(), crate::wire::WIRE_RS.into()));
-    }
-    if manifest.kind == Kind::Pyo3 && fns.needs_json() {
-        files.push(("src/pyconv.rs".into(), crate::codegen_py::PYCONV_RS.into()));
-        files.push(("src/pynum.rs".into(), crate::codegen_py::PYNUM_RS.into()));
     }
     for (path, text) in &files {
         let target = crate_dir.join(path);
@@ -1752,7 +1741,6 @@ fn readme(m: &Manifest) -> String {
         kind = match m.kind {
             Kind::Napi => "napi-rs",
             Kind::Wasm => "wasm-bindgen",
-            Kind::Pyo3 => "PyO3",
             Kind::MojoPy => "a Mojo Python extension",
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
@@ -1861,6 +1849,21 @@ mod tests {
         assert_eq!(serde_json::to_string(&Kind::MojoPy).unwrap(), "\"mojo-py\"");
         let k: Kind = serde_json::from_str("\"mojo-py\"").unwrap();
         assert_eq!(k, Kind::MojoPy);
+    }
+
+    #[test]
+    fn pyo3_manifest_says_rebridge() {
+        let dir = std::env::temp_dir().join(format!("mojo-anything-pyo3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.py", "language": "python", "kind": "pyo3", "crate_name": "x-rs", "exports": []}"#,
+        )
+        .unwrap();
+        let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
+        assert!(err.contains("bridge again"), "{err}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

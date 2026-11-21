@@ -143,23 +143,6 @@ pub(crate) fn lib_rs(state: &State, lifted: bool) -> String {
 
 pub(crate) const CARGO_CONFIG: &str = ".cargo/config.toml";
 
-/// A PyO3 unit's `cdylib` gets linked when `rust/app` depends on it; on macOS the Python symbols
-/// are only there at load time.
-pub(crate) fn allow_python_symbols(app_dir: &Path) -> Result<()> {
-    let path = app_dir.join(CARGO_CONFIG);
-    if path.exists() {
-        return Ok(());
-    }
-    std::fs::create_dir_all(app_dir.join(".cargo"))?;
-    std::fs::write(
-        &path,
-        "[target.'cfg(target_os = \"macos\")']
-         rustflags = [\"-C\", \"link-arg=-undefined\", \"-C\", \"link-arg=dynamic_lookup\"]
-",
-    )?;
-    Ok(())
-}
-
 pub(crate) fn cargo_build_lib(app_dir: &Path, target_dir: Option<&Path>) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.args(["build", "--quiet", "--manifest-path"])

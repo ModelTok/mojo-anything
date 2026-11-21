@@ -19,13 +19,11 @@ use crate::front_door::{self, APP_DIR, AppKind, MAIN_RS, STATE_FILE, State};
 use crate::front_door_http as http_door;
 use crate::gate::{self, Check};
 
-const BINDING_DEPS: [&str; 9] = [
+const BINDING_DEPS: [&str; 7] = [
     "napi",
     "napi-derive",
     "napi-build",
     "wasm-bindgen",
-    "pyo3",
-    "pyo3-build-config",
     "magnus",
     "rb-sys",
     "jni",

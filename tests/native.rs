@@ -117,33 +117,6 @@ fn napi_addon_builds_loads_and_matches_in_space_and_unicode_path() {
     );
 }
 
-#[test]
-fn pyo3_extension_builds_imports_and_matches() {
-    if common::python().is_none() {
-        return;
-    }
-    let root = project(
-        "pyo3",
-        &[
-            (
-                "pyproject.toml",
-                "[project]\nname = \"shout\"\nversion = \"0.1.0\"\n",
-            ),
-            (
-                "shout/__init__.py",
-                "def shout(text: str) -> str:\n    return text + \"!\"\n",
-            ),
-        ],
-    );
-    round_trip(
-        &root,
-        "shout/",
-        Kind::Pyo3,
-        "shout",
-        "Ok(format!(\"{text}!\"))",
-    );
-}
-
 /// A freshly bridged crate is all `unimplemented!` stubs: replaying it must pass no case, even
 /// where the original throws the same kind of error a panic turns into.
 fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
@@ -218,7 +191,10 @@ fn unported_stubs_never_match_in_python() {
     let Some(python) = common::python() else {
         return;
     };
-    stubs_fail(&fixture("python"), "src/textkit/", Some(Kind::Pyo3), python);
+    if !mojo_anything::mojo::available() {
+        return;
+    }
+    stubs_fail(&fixture("python"), "src/textkit/", None, python);
 }
 
 #[test]
@@ -759,72 +735,6 @@ console.log(JSON.stringify([batch.run(), batch instanceof WrapBatch, refused, ne
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         r#"[["<>","<a>","<é>","<😀x>","<日本>","<b�c>","<ascii only>"],true,["TypeError","TypeError"],[]]"#,
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn python_batches_build_and_run_on_rusty_alloc() {
-    if !common::have("python3") {
-        return;
-    }
-    let root = project(
-        "rusty-alloc",
-        &[
-            (
-                "pyproject.toml",
-                "[project]\nname = \"tally\"\nversion = \"0.1.0\"\n",
-            ),
-            ("tally/__init__.py", ""),
-            (
-                "tally/words.py",
-                "def shout(text: str) -> str:\n    return \" \".join(w.upper() + \"!\" for w in text.split())\n",
-            ),
-        ],
-    );
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "tally/",
-        kind: Some(Kind::Pyo3),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: vec!["shout:text".into()],
-        as_json: Vec::new(),
-        allocator: bridge::Allocator::RustyAlloc,
-    })
-    .unwrap();
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    let port = port.replacen(
-        "unimplemented!(\"port `shout` from tally/words.py\")",
-        "Ok(text\n        .split_whitespace()\n        .map(|w| format!(\"{}!\", w.to_uppercase()))\n        .collect::<Vec<_>>()\n        .join(\" \"))",
-        1,
-    );
-    assert!(port.contains("to_uppercase"), "{port}");
-    std::fs::write(dir.join("src/port.rs"), &port).unwrap();
-    harness::build(&dir).unwrap();
-    let script = r#"
-import sys
-sys.path[:0] = [sys.argv[1] + "/python", sys.argv[2]]
-from tally_rs import ShoutBatch
-from tally.words import shout
-items = [f"item {i} of the batch, {'x' * (i % 50)}" for i in range(5000)]
-print(ShoutBatch(items).run() == [shout(t) for t in items])
-"#;
-    let output = Command::new("python3")
-        .args(["-c", script])
-        .arg(&dir)
-        .arg(&root)
-        .output()
-        .unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "True",
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );

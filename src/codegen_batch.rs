@@ -600,54 +600,6 @@ const splitResults = name => {
 }
 "#;
 
-/// Batch classes for a PyO3 `lib.rs`, and the names to register.
-pub fn py_rs(m: &Manifest, api: &PortApi) -> Result<(String, Vec<String>), String> {
-    let mut out = String::new();
-    let mut classes = Vec::new();
-    for b in &m.batches {
-        let s = spec(b, api)?;
-        if !s.custom {
-            out.push_str(&default_index(&s, true));
-        }
-        let fixed = fixed(&s);
-        let params: Vec<String> = fixed.iter().map(|(n, t)| format!("{n}: {t}")).collect();
-        let names: Vec<&str> = fixed.iter().map(|(n, _)| n.as_str()).collect();
-        let ret = s.f.ret.trim();
-        let sep = if params.is_empty() { "" } else { ", " };
-        let _ = write!(
-            out,
-            "\n/// `{js}` over many `{param}` values kept in Rust: `run` maps them all in one call, on all\n\
-             /// cores, without the GIL; `rank` returns the indexes of results >= `min`, best first.\n\
-             #[pyclass(name = \"{class}\")]\npub struct {class} {{\n    inner: {index},\n}}\n\n#[pymethods]\nimpl {class} {{\n    \
-             #[new]\n    fn new(items: Vec<{item}>) -> Self {{\n        Self {{ inner: {index}::new(items) }}\n    }}\n\n    \
-             /// The result for every item, in order.\n    fn run(&self, py: Python<'_>{sep}{params}) -> PyResult<Vec<{ret}>> {{\n        \
-             py.detach(|| self.inner.run({names})).map_err(error)\n    }}\n",
-            js = s.f.js_name,
-            param = b.param,
-            class = s.class,
-            index = s.index,
-            item = s.item_ty,
-            params = params.join(", "),
-            names = names.join(", "),
-        );
-        if let Some(rank) = rank_for(&s) {
-            let from = out.len();
-            let _ = write!(
-                out,
-                "\n    /// Indexes of the items whose result is at least `min`, highest result first.\n    \
-                 fn rank(&self, py: Python<'_>{sep}{params}, min: f64) -> PyResult<Vec<u32>> {{\n        \
-                 let out = py.detach(|| self.inner.run({names})).map_err(error)?;\n        {rank}\n        Ok(order)\n    }}\n",
-                params = params.join(", "),
-                names = names.join(", "),
-            );
-            use_custom_rank(&mut out, from, &s, &names);
-        }
-        out.push_str("}\n");
-        classes.push(s.class);
-    }
-    Ok((out, classes))
-}
-
 /// Whether the crate depends on rayon: every crate with batches. Wasm gets it too, so a
 /// `port.rs` index using it builds for both kinds: without threads, rayon runs on the calling
 /// thread.

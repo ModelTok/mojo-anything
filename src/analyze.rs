@@ -41,7 +41,6 @@ pub enum Bridge {
     WasmBindgen,
     /// Keep in the source language (named for JS, the first language; applies to all).
     KeepInJs,
-    Pyo3,
     /// A Python extension module written in Mojo.
     MojoPy,
     /// A C ABI: drop-in `extern "C"` functions for C.
@@ -62,7 +61,6 @@ impl Bridge {
             Self::NapiRs => "napi-rs",
             Self::WasmBindgen => "wasm-bindgen",
             Self::KeepInJs => "keep",
-            Self::Pyo3 => "PyO3",
             Self::MojoPy => "Mojo (Python extension)",
             Self::CAbi => "C ABI",
             Self::Cgo => "cgo",

@@ -196,7 +196,7 @@ pub fn port_rs(m: &Manifest) -> String {
 }
 
 /// A parameter's type in the port. Python parameters with a literal default (`sep="-"`) are
-/// plain values: PyO3 fills in the default, and an explicit `None` stays an error, as in Python.
+/// plain values: the binding fills in the default, and an explicit `None` stays an error, as in Python.
 fn port_param_type(m: &Manifest, p: &crate::ts::exports::Param) -> RType {
     if matches!(
         m.language,
@@ -495,9 +495,6 @@ pub struct Modules {
 }
 
 pub fn lib_rs(m: &Manifest, api: &PortApi, modules: &Modules) -> String {
-    if m.kind == Kind::Pyo3 {
-        return crate::codegen_py::lib_rs(m, api, modules);
-    }
     let mut out = format!(
         "//! JS bindings for `{}`: generated from the signatures in `port.rs` by mojo-anything.\n\
          //! Regenerate with `mojo-anything refresh` after changing them.\n\n",
@@ -660,8 +657,7 @@ fn bind_class(out: &mut String, kind: Kind, c: &PortClass) {
             }
             out.push_str("}\n");
         }
-        // PyO3 bindings come from `codegen_py`.
-        Kind::Wasm | Kind::Pyo3 | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
             let _ = writeln!(
                 out,
                 "\nfn {snake}_new_inner({ctor_params}) -> Result<port::{name}, String> {{\n{}}}",
@@ -775,8 +771,7 @@ fn bind(out: &mut String, kind: Kind, f: &PortFn) {
             }
             out.push_str("}\n");
         }
-        // PyO3 bindings come from `codegen_py`.
-        Kind::Wasm | Kind::Pyo3 | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
             // `?` needs a function boundary: the body lives in a private helper.
             let inner = format!("{}_inner", f.rust_name.trim_start_matches("r#"));
             let _ = writeln!(
@@ -859,7 +854,7 @@ pub fn index_cjs(m: &Manifest, api: &PortApi) -> String {
             "// Loads the native module built by `mojo-anything build`.\nconst native = require('./{}.node')\n",
             m.lib_name()
         ),
-        Kind::Wasm | Kind::Pyo3 | Kind::MojoPy | Kind::CAbi | Kind::Ffi => format!(
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => format!(
             "// Loads the wasm-bindgen (nodejs target) output built by `mojo-anything build`.\nconst native = require('./pkg/{}.js')\n",
             m.lib_name()
         ),
@@ -1193,13 +1188,6 @@ pub fn required_deps(kind: Kind, api: &PortApi) -> Vec<(&'static str, String)> {
         }
         // A Mojo unit has no Cargo dependencies.
         Kind::MojoPy => {}
-        Kind::Pyo3 => {
-            // abi3: one build for every Python from 3.9 on.
-            deps.push((
-                "pyo3",
-                r#"{ version = "0.30", features = ["extension-module", "abi3-py39"] }"#.into(),
-            ));
-        }
         // The C ABI needs no binding crate.
         Kind::CAbi | Kind::Ffi => {}
         Kind::Wasm => {

@@ -821,9 +821,6 @@ fn library_wire(
     dep.insert("path", path.as_str().into());
     doc["dependencies"][crate_name.as_str()] = value(dep);
     std::fs::write(&cargo_path, doc.to_string())?;
-    if manifest.kind == crate::bridge::Kind::Pyo3 {
-        crate::library::allow_python_symbols(&app_dir)?;
-    }
     let lib = app_dir.join("src/lib.rs");
     std::fs::write(&lib, crate::library::lib_rs(&state, false))?;
     rustfmt(&lib);
