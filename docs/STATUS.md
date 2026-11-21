@@ -1,6 +1,6 @@
 # Status
 
-What works, and how each part was last checked. Updated 2026-11-20.
+What works, and how each part was last checked. Updated 2026-11-21.
 
 **Verified**: run end to end (bridge, record, port, diff, gate) on real code someone else wrote,
 named below. **Tested**: covered by this repository's tests on fixtures written for them, not yet
@@ -16,7 +16,7 @@ front door); units cannot be bridged yet.
 | Go | Verified | `path` from Go 1.24 (2026-11-16) | 2,642/2,642; gate passes |
 | Ruby | Verified | `shellwords.rb` from Ruby 3.3 (2026-11-16) | 1,617/1,617; gate passes |
 | Java | Verified | JDK 21 behind a facade (2026-11-16) | 4,492/4,492; gate passes |
-| C | Verified | [ffmpeg](real-world.md#ffmpeg)'s libavutil n7.1 (2026-11-20), glibc behind a facade (2026-11-16) | ffmpeg: 10 units (six with libavutil's own signatures, four through one-shot wrappers over context APIs), 226,447/226,447, gate passes on each; glibc: 1,859/1,859 after dropping one undefined-behavior case |
+| C | Verified | to Mojo 1.2.0 (2026-11-21): ffmpeg libavutil n7.1's `rational.c`, glibc behind a facade | Mojo: `rational.c` 46,764/46,764 with ffmpeg's own signatures (`demo/real-world/ffmpeg-mojo`), glibc facade 2,488/2,488 on a fresh recording and 1,859/1,859 on the Rust-era one (`demo/real-world/c-libc-mojo`), gate passes on both. The other nine ffmpeg units are Rust ports only (`demo/real-world/ffmpeg-rs`, 2026-11-20), not ported to Mojo yet |
 | Kotlin | Tested | none | `analyze`, detection, JNI-shaped exports, bridge, record and diff on a Gradle fixture (`tests/loop.rs`); needs `kotlinc` on PATH, so CI skips it |
 | Kotlin for Android | Tested | none | `build --profile android` builds one installed ABI per test run into `jniLibs/` with every JNI entry point and the 16 KB alignment checked; all three ABIs were also built by hand, and the `armeabi-v7a` library was loaded on an Android 11 TV and called through JNI. `record --profile android` replayed the Kotlin unit under ART on that TV (291 cases) and `diff --profile android` matched 279/291 against the Android `.so`. Needs the NDK/device, so CI skips it |
 | PHP | Whole apps | none | `analyze` and whole apps only; units cannot be bridged yet |

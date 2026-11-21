@@ -102,6 +102,16 @@ recording against the number of input lines.
 to stdout, so the replay's stdout differed. Java test apps run with `-XX:-UsePerfData`; an app
 recorded on a busy machine needs it too.
 
+**Undefined behaviour was recorded from a different compiler.** `av_q2intfloat` overflows on
+`INT_MIN`; the Rust port matched clang -O3 on macOS, and the Mojo port's recording (gcc 13,
+`-O1`, which `record` uses) answered differently on 75 cases. A port follows the recording it
+is diffed against; say which compiler made it, and expect such cases to move when it changes.
+
+**ffmpeg's tree did not link on Linux.** `random_seed.c` calls `avpriv_fopen_utf8`, which lives
+in `file_open.c`, and `record` loads the original with every symbol resolved, so the recording
+failed before the first case. `prepare.sh` now copies `file_open.c`; ffmpeg's configure also needs
+`nasm`. When `record` reports an undefined symbol, add the file that defines it to the tree.
+
 ## Numbers and claims
 
 **Benchmarks taken while other builds ran were off by a wide margin.** Run `bench` on a quiet

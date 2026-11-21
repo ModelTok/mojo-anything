@@ -31,7 +31,7 @@ cp "$FF/config.h" "$FF/config_components.h" "$TREE/"
 (cd "$FF" && find compat -name '*.h' | while read -r h; do
   mkdir -p "$TREE/$(dirname "$h")" && cp "$h" "$TREE/$h"; done)
 for c in adler32 base64 crc md5 sha murmur3 avstring parseutils rational mathematics \
-         bprint eval random_seed time log mem reverse; do
+         bprint eval random_seed file_open time log mem reverse; do
   cp "$FF/libavutil/$c.c" "$TREE/libavutil/"
 done
 cp "$HERE"/wrappers/*.c "$TREE/libavutil/"
