@@ -221,14 +221,25 @@ pub struct GateOutcome {
 
 pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     let manifest = Manifest::load(crate_dir)?;
-    let lockfile = lockfile_check(crate_dir);
-    let mut checks = rust_checks(crate_dir, &crate_dir.join("target"));
-    checks.extend(lockfile);
-    checks.extend(advisories_check(crate_dir));
-    checks.push(ported_check(crate_dir));
-
-    checks.extend(size_check(crate_dir, &manifest));
-    checks.extend(crate::error_paths::checks(crate_dir, &manifest));
+    let mut checks = if manifest.kind == crate::bridge::Kind::MojoPy {
+        let mut checks = mojo_checks(crate_dir);
+        // The recorded error paths apply to any port; the panics check reads Rust only.
+        checks.extend(
+            crate::error_paths::checks(crate_dir, &manifest)
+                .into_iter()
+                .filter(|c| c.name != "panics"),
+        );
+        checks
+    } else {
+        let lockfile = lockfile_check(crate_dir);
+        let mut checks = rust_checks(crate_dir, &crate_dir.join("target"));
+        checks.extend(lockfile);
+        checks.extend(advisories_check(crate_dir));
+        checks.push(ported_check(crate_dir));
+        checks.extend(size_check(crate_dir, &manifest));
+        checks.extend(crate::error_paths::checks(crate_dir, &manifest));
+        checks
+    };
     let built = harness::build(crate_dir);
     let built_ok = built.is_ok();
     checks.push(Check {
@@ -604,6 +615,176 @@ fn unsafe_blocks(src: &Path) -> (Vec<String>, usize) {
     (unexplained, explained)
 }
 
+// ---- Mojo ports ------------------------------------------------------------------------------
+
+/// How many stubs `port.mojo` still has.
+pub fn mojo_stubs(port: &str) -> usize {
+    port.matches(crate::codegen_mojo::STUB_MARK).count()
+}
+
+/// Lines (1-based) of `port.mojo` that use `abort`, raw pointers or `external_call` without a
+/// `# SAFETY:` comment on the line or the line above.
+pub fn unexplained_unsafe(port: &str) -> Vec<usize> {
+    const RISKY: &[&str] = &["abort(", "UnsafePointer", "external_call", "unsafe_"];
+    let lines: Vec<&str> = port.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            let code = l.split('#').next().unwrap_or("");
+            RISKY.iter().any(|r| code.contains(r))
+        })
+        .filter(|(i, l)| {
+            let here = l.contains("# SAFETY:");
+            let above = *i > 0 && lines[i - 1].trim_start().starts_with("# SAFETY:");
+            !here && !above
+        })
+        .map(|(i, _)| i + 1)
+        .collect()
+}
+
+/// The checks for a Mojo port's own sources: format, tests, stubs and unexplained unsafe code.
+/// The build (warnings are errors) and the replay are the shared checks in [`gate`].
+pub fn mojo_checks(unit_dir: &Path) -> Vec<Check> {
+    let port = std::fs::read_to_string(unit_dir.join("port.mojo")).unwrap_or_default();
+    let mut checks = vec![
+        mojo_format_check(unit_dir, &port),
+        mojo_test_check(unit_dir),
+    ];
+    let stubs = mojo_stubs(&port);
+    checks.push(Check {
+        name: "ported",
+        passed: stubs == 0,
+        detail: if stubs == 0 {
+            "every function in port.mojo is ported".into()
+        } else {
+            format!(
+                "{stubs} function(s) in port.mojo still raise `{}`",
+                crate::codegen_mojo::STUB_MARK
+            )
+        },
+        fix: (stubs > 0).then(|| {
+            "port the functions still stubbed in port.mojo, then `mojo-anything gate` again".into()
+        }),
+    });
+    let unsafe_lines = unexplained_unsafe(&port);
+    checks.push(Check {
+        name: "unsafe",
+        passed: unsafe_lines.is_empty(),
+        detail: if unsafe_lines.is_empty() {
+            "no unexplained abort, pointer or external_call".into()
+        } else {
+            format!(
+                "port.mojo lines {} need a `# SAFETY:` comment saying why",
+                unsafe_lines
+                    .iter()
+                    .map(|l| l.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        },
+        fix: (!unsafe_lines.is_empty()).then(|| {
+            "add a `# SAFETY:` comment above each listed line, or remove the unsafe code".into()
+        }),
+    });
+    checks
+}
+
+/// `mojo format` has no check mode: format a copy and compare.
+fn mojo_format_check(unit_dir: &Path, port: &str) -> Check {
+    let fix = Some(format!(
+        "pixi run --manifest-path {}/pixi.toml mojo format port.mojo",
+        unit_dir.display()
+    ));
+    let scratch = unit_dir.join(".mojo-anything/format");
+    let copy = scratch.join("port.mojo");
+    let result = std::fs::create_dir_all(&scratch)
+        .and_then(|()| std::fs::write(&copy, port))
+        .map_err(anyhow::Error::from)
+        .and_then(|()| {
+            let mut cmd = crate::mojo::command(unit_dir)?;
+            cmd.arg("format").arg("--quiet").arg(&copy);
+            crate::process::output(&mut cmd, crate::process::QUICK)
+        });
+    match result {
+        Ok(out) if out.success() => {
+            let formatted = std::fs::read_to_string(&copy).unwrap_or_default();
+            let passed = formatted == port;
+            Check {
+                name: "mojo format",
+                passed,
+                detail: if passed {
+                    "port.mojo is formatted".into()
+                } else {
+                    "port.mojo is not formatted as `mojo format` writes it".into()
+                },
+                fix: (!passed).then_some(fix).flatten(),
+            }
+        }
+        Ok(out) => Check {
+            name: "mojo format",
+            passed: false,
+            detail: last_lines(&out.stderr_text(), 15),
+            fix,
+        },
+        Err(e) => Check {
+            name: "mojo format",
+            passed: false,
+            detail: format!("{e:#}"),
+            fix: None,
+        },
+    }
+}
+
+/// Runs every `test_*.mojo` in the unit with `mojo run` (Mojo 1.2 has no `mojo test`).
+fn mojo_test_check(unit_dir: &Path) -> Check {
+    let mut tests: Vec<PathBuf> = std::fs::read_dir(unit_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|x| x == "mojo")
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("test_"))
+        })
+        .collect();
+    tests.sort();
+    if tests.is_empty() {
+        return Check {
+            name: "mojo test",
+            passed: true,
+            detail: "no test_*.mojo files".into(),
+            fix: None,
+        };
+    }
+    for test in &tests {
+        let result = crate::mojo::command(unit_dir).and_then(|mut cmd| {
+            cmd.current_dir(unit_dir).arg("run").arg(test);
+            crate::process::output(&mut cmd, crate::process::TESTS)
+        });
+        let failed = match result {
+            Ok(out) if out.success() => continue,
+            Ok(out) => last_lines(&format!("{}{}", out.stdout_text(), out.stderr_text()), 15),
+            Err(e) => format!("{e:#}"),
+        };
+        let name = test.file_name().unwrap_or_default().to_string_lossy();
+        return Check {
+            name: "mojo test",
+            passed: false,
+            detail: format!("{name} failed:\n{failed}"),
+            fix: Some(format!("pixi run mojo run {name}, then fix the failure")),
+        };
+    }
+    Check {
+        name: "mojo test",
+        passed: true,
+        detail: format!("{} test file(s) pass", tests.len()),
+        fix: None,
+    }
+}
+
 fn last_lines(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     lines[lines.len().saturating_sub(n)..].join("\n")
@@ -611,7 +792,55 @@ fn last_lines(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Check, fix_for, stubs, unsafe_blocks};
+    use super::{Check, fix_for, mojo_stubs, stubs, unexplained_unsafe, unsafe_blocks};
+
+    #[test]
+    fn mojo_stub_count() {
+        let stub = |n: &str| {
+            format!(
+                "def {n}() raises:
+    raise Error(\"not ported: {n}\")
+"
+            )
+        };
+        assert_eq!(mojo_stubs(&(stub("a") + &stub("b"))), 2);
+        assert_eq!(
+            mojo_stubs(
+                "def ok() -> Int:
+    return 1
+"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn mojo_unsafe_needs_reason() {
+        assert_eq!(
+            unexplained_unsafe(
+                "def f():
+    abort()
+"
+            ),
+            [2]
+        );
+        assert!(
+            unexplained_unsafe(
+                "def f():
+    # SAFETY: unreachable, x checked above
+    abort()
+"
+            )
+            .is_empty()
+        );
+        assert!(
+            unexplained_unsafe(
+                "# abort() in a comment is fine
+"
+            )
+            .is_empty()
+        );
+    }
 
     #[test]
     fn counts_every_kind_of_stub() {
