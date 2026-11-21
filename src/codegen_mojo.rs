@@ -44,11 +44,15 @@ const MOJO_RESERVED: &[&str] = &[
 /// A source name as a Mojo identifier: snake case, with `_` after a Mojo keyword (`out_`).
 pub fn mojo_ident(name: &str) -> String {
     let s = snake_case(name);
-    let s = s.strip_prefix("r#").unwrap_or(&s);
-    if MOJO_RESERVED.contains(&s) {
-        format!("{s}_")
+    mojo_escape(s.strip_prefix("r#").unwrap_or(&s))
+}
+
+/// A name kept as it is, with `_` after a Mojo keyword (`out_`): for C names.
+pub fn mojo_escape(name: &str) -> String {
+    if MOJO_RESERVED.contains(&name) {
+        format!("{name}_")
     } else {
-        s.to_string()
+        name.to_string()
     }
 }
 

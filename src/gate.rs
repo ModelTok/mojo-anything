@@ -632,7 +632,8 @@ pub fn unexplained_unsafe(port: &str) -> Vec<usize> {
         .enumerate()
         .filter(|(_, l)| {
             let code = l.split('#').next().unwrap_or("");
-            RISKY.iter().any(|r| code.contains(r))
+            // A stub's `abort` is counted by the `ported` check instead.
+            RISKY.iter().any(|r| code.contains(r)) && !code.contains(crate::codegen_mojo::STUB_MARK)
         })
         .filter(|(i, l)| {
             let here = l.contains("# SAFETY:");
