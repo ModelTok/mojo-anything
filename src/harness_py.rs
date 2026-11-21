@@ -26,9 +26,10 @@ fn python() -> &'static str {
 
 fn run(cmd: &mut Command) -> Result<()> {
     let _scratch = crate::harness::scratch_cwd(cmd)?;
-    let output = cmd.output().context("running python")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    // A port that never returns is stopped at the time limit instead of hanging the run.
+    let output = crate::process::output(cmd, crate::process::TESTS).context("running python")?;
+    if !output.success() {
+        let stderr = output.stderr_text();
         let tail: Vec<&str> = stderr.lines().rev().take(25).collect();
         bail!(
             "python failed ({}):\n{}",

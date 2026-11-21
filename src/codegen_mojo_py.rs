@@ -8,8 +8,9 @@
 
 use std::fmt::Write as _;
 
-use crate::bridge::{Manifest, snake_case};
+use crate::bridge::Manifest;
 use crate::codegen::{PortApi, PortFn};
+use crate::codegen_mojo::mojo_ident;
 use crate::codegen_py::has_literal_default;
 
 /// `PyNum` and its helpers, written into a unit whose port uses Python numbers.
@@ -58,6 +59,15 @@ fn inner<'a>(ty: &'a str, wrapper: &str) -> Option<&'a str> {
         .strip_suffix(']')
 }
 
+/// The check that `v` is an instance of `types` (Python's `builtins` as `b`), raising the
+/// message a TypeError carries: the port's types would otherwise convert anything (`str(5)`).
+fn expect(types: &str, what: &str) -> String {
+    format!(
+        "var b = Python.import_module(\"builtins\")\n    if not b.isinstance(v, {types}):\n        \
+         raise Error(String(\"expected {what}, got \", b.type(v).__name__))\n    "
+    )
+}
+
 /// Emits `_from_py_<T>` (Python value to `ty`) and the converters it needs, once each.
 fn from_py(out: &mut Converters, ty: &str) -> Result<String, String> {
     let name = format!("_from_py_{}", mangle(ty));
@@ -66,16 +76,23 @@ fn from_py(out: &mut Converters, ty: &str) -> Result<String, String> {
     }
     let body = match ty {
         "PythonObject" => "return v".to_string(),
-        "PyNum" => "return PyNum(py=v)".into(),
-        "String" => "return String(py=v)".into(),
-        "Float64" => "return Float64(py=v)".into(),
-        "Int" => "return Int(py=v)".into(),
-        "Bool" => "return Bool(v)".into(),
+        "PyNum" => format!(
+            "{}return PyNum(py=v)",
+            expect("Python.tuple(b.int, b.float)", "a number")
+        ),
+        "String" => format!("{}return String(py=v)", expect("b.str", "a str")),
+        "Float64" => format!(
+            "{}return Float64(py=v)",
+            expect("Python.tuple(b.int, b.float)", "a number")
+        ),
+        "Int" => format!("{}return Int(py=v)", expect("b.int", "an int")),
+        "Bool" => format!("{}return Bool(v)", expect("b.bool", "a bool")),
         _ => {
             if let Some(t) = inner(ty, "List") {
                 let item = from_py(out, t)?;
                 format!(
-                    "var items = List[{t}]()\n    for item in v:\n        items.append({item}(item))\n    return items^"
+                    "{}var items = List[{t}]()\n    for item in v:\n        items.append({item}(item))\n    return items^",
+                    expect("b.list", "a list")
                 )
             } else if let Some(t) = inner(ty, "Optional") {
                 let value = from_py(out, t)?;
@@ -139,7 +156,7 @@ fn binding(out: &mut String, conv: &mut Converters, f: &PortFn) -> Result<(), St
     let params: Vec<String> = f
         .params
         .iter()
-        .map(|(n, _)| format!("{n}: PythonObject"))
+        .map(|(n, _)| format!("p_{n}: PythonObject"))
         .collect();
     let _ = writeln!(
         out,
@@ -153,7 +170,7 @@ fn binding(out: &mut String, conv: &mut Converters, f: &PortFn) -> Result<(), St
         let _ = writeln!(out, "    var a_{n}: {t}");
         let _ = writeln!(
             out,
-            "    try:\n        a_{n} = {from}({n})\n    except e:\n        raise Error(String(\"TypeError: \", e))"
+            "    try:\n        a_{n} = {from}(p_{n})\n    except e:\n        raise Error(String(\"TypeError: \", e))"
         );
     }
     let call_args: Vec<String> = f.params.iter().map(|(n, _)| format!("a_{n}")).collect();
@@ -204,7 +221,8 @@ pub fn native_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
     Ok(out)
 }
 
-const CALL_PY: &str = r#"
+/// The wrapper's `_call`: re-raises a Mojo error as the builtin exception its text names.
+pub const CALL_PY: &str = r#"
 import builtins as _builtins
 
 
@@ -217,8 +235,16 @@ def _call(f, *args):
             raise
         name, sep, message = str(e).partition(": ")
         cls = getattr(_builtins, name, None)
-        if sep and isinstance(cls, type) and issubclass(cls, BaseException):
-            raise cls(message) from None
+        if not (sep and isinstance(cls, type) and issubclass(cls, BaseException)):
+            raise
+        # Some builtins take several arguments (`UnicodeDecodeError`): use the nearest base
+        # that takes a message alone.
+        for base in cls.__mro__:
+            try:
+                error = base(message)
+            except TypeError:
+                continue
+            raise error from None
         raise
 "#;
 
@@ -235,7 +261,7 @@ pub fn package_init_mojo(m: &Manifest, api: &PortApi) -> String {
         let source = m
             .exports
             .iter()
-            .find(|e| e.name == f.js_name || snake_case(&e.name) == f.rust_name);
+            .find(|e| e.name == f.js_name || mojo_ident(&e.name) == f.rust_name);
         let params: Vec<String> = match source {
             Some(e) => e
                 .params
@@ -267,6 +293,36 @@ pub fn package_init_mojo(m: &Manifest, api: &PortApi) -> String {
         );
         names.push(format!("\"{}\"", f.js_name));
     }
+    let kept: Vec<(String, String)> = m
+        .classes
+        .iter()
+        .map(|c| (c.name.clone(), c.file.clone()))
+        .chain(m.js_only.iter().map(|j| (j.name.clone(), j.file.clone())))
+        .collect();
+    if !kept.is_empty() {
+        let table: Vec<String> = kept
+            .iter()
+            .map(|(name, file)| {
+                format!(
+                    "    \"{name}\": \"{}\",",
+                    crate::package::python_module_path(&m.root, file)
+                )
+            })
+            .collect();
+        let _ = writeln!(
+            out,
+            "\n\n# Not ported: these stay in Python and come from the original module.\n\
+             _KEPT = {{\n{}\n}}\n\n\n\
+             def __getattr__(name):\n    if name in _KEPT:\n        \
+             import importlib\n\n        try:\n            module = importlib.import_module(_KEPT[name])\n        \
+             except ImportError as error:\n            raise AttributeError(\n                \
+             f\"{{name!r}} stays in Python, in {{_KEPT[name]}}, which cannot be imported: {{error}}\"\n            \
+             ) from error\n        return getattr(module, name)\n    \
+             raise AttributeError(f\"module {{__name__!r}} has no attribute {{name!r}}\")",
+            table.join("\n")
+        );
+        names.extend(kept.iter().map(|(name, _)| format!("\"{name}\"")));
+    }
     let _ = writeln!(out, "\n\n__all__ = [{}]", names.join(", "));
     out
 }
@@ -297,7 +353,7 @@ mod tests {
         let native = native_mojo(&m, &api).unwrap();
         assert!(native.contains("def PyInit__native() abi(\"C\") -> PythonObject:"));
         assert!(native.contains("module.def_function[_bind_rgb_to_yiq](\"rgb_to_yiq\")"));
-        assert!(native.contains("a_r = _from_py_PyNum(r)"), "{native}");
+        assert!(native.contains("a_r = _from_py_PyNum(p_r)"), "{native}");
         assert!(native.contains("return PyNum(py=v)"), "{native}");
         assert!(native.contains("return String(py=v)"), "{native}");
         assert!(

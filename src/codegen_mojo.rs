@@ -10,6 +10,48 @@ use std::fmt::Write as _;
 use crate::bridge::{Manifest, RType, param_type, snake_case};
 use crate::codegen::{PortApi, PortFn};
 
+/// Names Mojo 1.2 rejects as parameter or function names (checked by building a probe), and
+/// the type names a parameter would shadow.
+const MOJO_RESERVED: &[&str] = &[
+    "match",
+    "case",
+    "out",
+    "var",
+    "mut",
+    "ref",
+    "read",
+    "deinit",
+    "comptime",
+    "fn",
+    "struct",
+    "trait",
+    "Self",
+    "async",
+    "await",
+    "yield",
+    "imm",
+    "Int",
+    "String",
+    "List",
+    "Optional",
+    "Float64",
+    "Bool",
+    "PyNum",
+    "PythonObject",
+    "Python",
+];
+
+/// A source name as a Mojo identifier: snake case, with `_` after a Mojo keyword (`out_`).
+pub fn mojo_ident(name: &str) -> String {
+    let s = snake_case(name);
+    let s = s.strip_prefix("r#").unwrap_or(&s);
+    if MOJO_RESERVED.contains(&s) {
+        format!("{s}_")
+    } else {
+        s.to_string()
+    }
+}
+
 /// The text every stub raises, which `gate` counts to find functions still to port.
 pub const STUB_MARK: &str = "not ported: ";
 
@@ -37,7 +79,7 @@ pub fn port_mojo(m: &Manifest) -> String {
         let params: Vec<String> = f
             .params
             .iter()
-            .map(|p| format!("{}: {}", snake_case(&p.name), param_mojo(m, p)))
+            .map(|p| format!("{}: {}", mojo_ident(&p.name), param_mojo(m, p)))
             .collect();
         let ret = ret_mojo(m, &f.returns)
             .map(|t| format!(" -> {t}"))
@@ -51,14 +93,14 @@ pub fn port_mojo(m: &Manifest) -> String {
             let _ = writeln!(
                 body,
                 "# `{}` defaults to `{}` in the source.",
-                snake_case(&p.name),
+                mojo_ident(&p.name),
                 p.default.as_deref().unwrap_or_default()
             );
         }
         let _ = writeln!(
             body,
             "def {}({}) raises{ret}:\n    raise Error(\"{STUB_MARK}{}\")",
-            snake_case(&f.name),
+            mojo_ident(&f.name),
             params.join(", "),
             f.name
         );

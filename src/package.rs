@@ -363,11 +363,15 @@ fn cargo_version(crate_dir: &Path) -> Option<String> {
 /// `src/textkit/words.py` is `textkit.words`. Folders above count while they are packages
 /// (hold `__init__.py`); without the sources, a leading `src/` or `lib/` is dropped.
 pub fn python_module(manifest: &Manifest) -> String {
-    let unit = manifest.unit.trim_end_matches('/');
+    python_module_path(&manifest.root, &manifest.unit)
+}
+
+/// The dotted module a source path under `root` is imported as (see [`python_module`]).
+pub fn python_module_path(root: &std::path::Path, unit: &str) -> String {
+    let unit = unit.trim_end_matches('/');
     let unit = unit.strip_suffix("/__init__.py").unwrap_or(unit);
     let unit = unit.strip_suffix(".py").unwrap_or(unit);
     let parts: Vec<&str> = unit.split('/').filter(|p| !p.is_empty()).collect();
-    let root = &manifest.root;
     let mut start = parts.len().saturating_sub(1);
     if root.join(unit).exists() || root.join(format!("{unit}.py")).exists() {
         while start > 0

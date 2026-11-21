@@ -83,3 +83,25 @@ fn py_num_keeps_int_and_float() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn call_py_rebuilds_exceptions_with_several_arguments() {
+    let script = format!(
+        "{}\n\
+         def f():\n    raise Exception('UnicodeDecodeError: bad byte')\n\
+         try:\n    _call(f)\n\
+         except UnicodeError as e:\n    print(type(e).__name__, e)\n",
+        mojo_anything::codegen_mojo_py::CALL_PY
+    );
+    let out = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "UnicodeError bad byte\n",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

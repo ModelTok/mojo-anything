@@ -35,6 +35,16 @@ harness and in generated `from_json`; a test reads a 200-deep line.
 **A bridge found no functions in a module that exports a list.** `export { a, b as c }` was not
 read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that way.
 
+**A Python name broke the Mojo build.** Parameters named `out`, `match` or `type` came out
+as Rust raw identifiers (`r#type`) or Mojo keywords, and one named `port` hid the port module
+inside the binding. Names go through `codegen_mojo::mojo_ident` (a `_` after the keywords a
+probe build rejected), and binding parameters carry a `p_` prefix; check a new name in
+`tests/fixtures/python-mojo-names`.
+
+**The Mojo wrapper converted anything it was given.** `String(py=v)` calls `str()`, and a
+`List` takes any iterable, so `lookup(5)` looked up `"5"`. Converters check `isinstance` first
+and raise a TypeError.
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,
