@@ -1,7 +1,7 @@
 //! Runtime checks shared by the integration tests.
 //!
 //! A test whose runtime is missing is skipped with a note, unless `MOJO_ANYTHING_REQUIRE` names
-//! that runtime (comma-separated: `node,python3,go,ruby,java`): then the test fails, so CI notices
+//! that runtime (comma-separated: `node,python3,go,ruby,java,mojo`): then the test fails, so CI notices
 //! when a language suite stops running. `java` covers `javac` too.
 
 #![allow(dead_code)]
@@ -43,6 +43,12 @@ fn missing(runtime: &str, why: &str) -> bool {
 /// Whether `program` runs; skips (or, when required, fails) the test when it does not.
 pub fn have(program: &str) -> bool {
     runs(program, version_args(program)) || missing(program, "was not found")
+}
+
+/// Whether Mojo (through pixi) is available; skips (or, when `mojo` is required, fails) the
+/// test when it is not.
+pub fn have_mojo() -> bool {
+    mojo_anything::mojo::available() || missing("mojo", &mojo_anything::mojo::missing_message())
 }
 
 /// Whether `program args` succeeds, for runtimes that need more than to exist (a minimum version).

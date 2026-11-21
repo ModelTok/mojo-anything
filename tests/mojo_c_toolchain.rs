@@ -14,8 +14,7 @@ const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// Builds the probe library and the C program that calls it; returns the program's output.
 fn probe(tag: &str) -> Option<(PathBuf, String)> {
-    if !mojo::available() {
-        eprintln!("skipping: {}", mojo::missing_message());
+    if !common::have_mojo() {
         return None;
     }
     if !common::have("cc") {

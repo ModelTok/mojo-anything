@@ -223,7 +223,7 @@ fn diff(dir: &Path) -> harness::DiffOutcome {
 
 #[test]
 fn structs_by_value_and_pointers_into_strings_cross_the_c_bridge() {
-    if !common::have("cc") || common::python().is_none() || !mojo_anything::mojo::available() {
+    if !common::have("cc") || common::python().is_none() || !common::have_mojo() {
         return;
     }
     let repo = project();

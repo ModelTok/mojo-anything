@@ -1731,6 +1731,12 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
                 .unwrap_or_default(),
             manifest.lib_name()
         ),
+        "The library is not self-contained yet: once it uses the Mojo standard library it needs \
+         libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's \
+         .pixi/envs/default/lib, and it finds it \
+         there through an absolute RUNPATH. Ship that file beside it (and set the runpath to \
+         $ORIGIN) before linking it into a program that runs elsewhere."
+            .to_string(),
     ];
     for j in kept {
         notes.push(format!("`{}` stays in C: {}.", j.name, j.reason));

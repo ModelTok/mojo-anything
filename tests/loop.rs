@@ -740,7 +740,7 @@ fn c_bridge_string_helper_does_not_collide_with_source_names() {
     )
     .unwrap();
     let dir = root.join("bridge");
-    bridge::bridge(&bridge::Options {
+    let outcome = bridge::bridge(&bridge::Options {
         root: &root,
         unit: "names.c",
         kind: None,
@@ -756,7 +756,16 @@ fn c_bridge_string_helper_does_not_collide_with_source_names() {
     .unwrap();
     let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
     assert!(exports.contains("def c_str(a_c_str: "), "{exports}");
-    if mojo_anything::mojo::available() {
+    // The drop-in library is not self-contained: the note says what it needs at run time.
+    assert!(
+        outcome
+            .notes
+            .iter()
+            .any(|n| n.contains("libKGENCompilerRTShared")),
+        "{:?}",
+        outcome.notes
+    );
+    if common::have_mojo() {
         harness::build(&dir).unwrap();
     }
     std::fs::remove_dir_all(root).unwrap();
@@ -841,7 +850,7 @@ fn c_units_bridge_record_and_diff() {
         header.contains("bool is_palindrome(const char *s);"),
         "{header}"
     );
-    if !(common::have("cc") && common::have("python3") && mojo_anything::mojo::available()) {
+    if !(common::have("cc") && common::have("python3") && common::have_mojo()) {
         return;
     }
     let recorded = harness::record(&RecordOptions {

@@ -1,6 +1,8 @@
 //! The pinned Mojo builds a Python extension module that CPython imports. Skips where Mojo cannot
 //! run (Windows, or no pixi).
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -9,8 +11,7 @@ use mojo_anything::mojo;
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 fn build_probe(tag: &str) -> Option<PathBuf> {
-    if !mojo::available() {
-        eprintln!("skipping: {}", mojo::missing_message());
+    if !common::have_mojo() {
         return None;
     }
     let dir = std::env::temp_dir().join(format!("mojo-probe-{tag}-{}", std::process::id()));

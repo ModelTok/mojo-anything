@@ -112,7 +112,7 @@ fn project(tag: &str) -> PathBuf {
 }
 
 fn ready() -> bool {
-    common::have("cc") && common::python().is_some() && mojo_anything::mojo::available()
+    common::have("cc") && common::python().is_some() && common::have_mojo()
 }
 
 /// Bridged, recorded from `INPUTS`, with `port` in place of the stubs, and built.

@@ -866,9 +866,42 @@ fn find_unit(repo: &Path, unit: &str) -> Result<PathBuf> {
             }
         }
     }
+    refuse_mojo_unit(repo, unit)?;
     bail!(
         "no unit crate `{unit}`: give the crate folder (`rust/<name>`, as `bridge` made it) or the unit id"
     )
+}
+
+/// Fails with a clear message when `unit` names a Mojo unit (a folder or a unit id under
+/// `mojo/`): the front door, `wire` and `lift` still build a Rust app around Rust crates.
+fn refuse_mojo_unit(repo: &Path, unit: &str) -> Result<()> {
+    let mojo = repo.join("mojo");
+    let wanted = unit.trim_end_matches('/');
+    let mut candidates = vec![repo.join(unit), PathBuf::from(unit), mojo.join(unit)];
+    if let Ok(entries) = std::fs::read_dir(&mojo) {
+        candidates.extend(entries.flatten().map(|e| e.path()));
+    }
+    for dir in candidates {
+        if !dir.join(crate::bridge::MANIFEST).is_file() {
+            continue;
+        }
+        let Ok(m) = crate::bridge::Manifest::load(&dir) else {
+            continue;
+        };
+        let named = dir == repo.join(unit) || dir == Path::new(unit) || dir == mojo.join(unit);
+        if matches!(
+            m.kind,
+            crate::bridge::Kind::MojoPy | crate::bridge::Kind::CAbi
+        ) && (named || m.unit.trim_end_matches('/') == wanted)
+        {
+            bail!(
+                "{} is a Mojo unit: the whole-app flow (front door, wire, lift) still builds a Rust \
+                 app and cannot take Mojo units yet; check the unit on its own with diff, shadow and gate",
+                dir.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 pub struct WireOptions<'a> {
@@ -1086,6 +1119,32 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wire_refuses_a_mojo_unit_clearly() {
+        let repo =
+            std::env::temp_dir().join(format!("mojo-anything-wire-mojo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        for (dir, kind, lang, unit) in [
+            ("mojo/text-mojo", "c-abi", "c", "text.c"),
+            ("mojo/colorsys-mojo", "mojo-py", "python", "colorsys.py"),
+        ] {
+            let unit_dir = repo.join(dir);
+            std::fs::create_dir_all(&unit_dir).unwrap();
+            std::fs::write(
+                unit_dir.join(crate::bridge::MANIFEST),
+                format!(
+                    r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "{unit}", "language": "{lang}", "kind": "{kind}", "crate_name": "x-mojo", "exports": []}}"#
+                ),
+            )
+            .unwrap();
+            for given in [dir, unit] {
+                let err = format!("{:#}", find_unit(&repo, given).unwrap_err());
+                assert!(err.contains("is a Mojo unit"), "{given}: {err}");
+            }
+        }
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
 
     fn case(args: &[&str], ok: bool) -> (Vec<String>, bool) {
         (args.iter().map(|a| a.to_string()).collect(), ok)

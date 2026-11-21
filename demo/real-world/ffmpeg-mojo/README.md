@@ -27,7 +27,10 @@ top. `av_gcd_q` and `av_find_nearest_q_idx` stay in C, as in the Rust port.
 The unit builds `.mojo-anything/build/librational_mojo.so`, which exports the eight functions
 under their C names with ffmpeg's signatures (`include/rational_mojo.h`): link it instead of
 `rational.o` and callers do not change. `port.mojo` holds no pointers; `exports.mojo` reads and
-writes them.
+writes them. This library needs nothing at run time (`readelf -d` lists no `NEEDED` entry), but
+it carries an absolute RUNPATH into the unit's `.pixi`; a unit that uses more of the Mojo
+standard library (the glibc facade does) also needs `libKGENCompilerRTShared.so` from there.
+Packaging such a library to run elsewhere is not done yet.
 
 ## Found along the way
 

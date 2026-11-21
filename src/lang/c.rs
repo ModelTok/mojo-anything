@@ -359,6 +359,17 @@ pub fn lookup(header: &str) -> Option<CrateMatch> {
 
 // ---- exports ---------------------------------------------------------------------------------
 
+/// Whether plain `char` is signed on a target (`std::env::consts` names). The original is
+/// compiled and the port built on the same host, so the host decides: Linux on arm, PowerPC,
+/// RISC-V and s390x makes `char` unsigned; Apple's arm64 ABI and x86 make it signed.
+pub fn plain_char_is_signed(arch: &str, os: &str) -> bool {
+    let unsigned_arch = matches!(
+        arch,
+        "aarch64" | "arm" | "powerpc" | "powerpc64" | "riscv32" | "riscv64" | "s390x"
+    );
+    !(unsigned_arch && os != "macos" && os != "ios" && os != "windows")
+}
+
 /// A C scalar type: (dialect type, Rust type in the port, Rust type at the C ABI, ctypes name).
 pub fn scalar(c: &str) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
     let c = c
@@ -379,7 +390,10 @@ pub fn scalar(c: &str) -> Option<(&'static str, &'static str, &'static str, &'st
         "unsigned long long" | "unsigned long long int" => {
             ("int", "u64", "std::ffi::c_ulonglong", "c_ulonglong")
         }
-        "char" => ("int", "i8", "std::ffi::c_char", "c_byte"),
+        "char" if plain_char_is_signed(std::env::consts::ARCH, std::env::consts::OS) => {
+            ("int", "i8", "std::ffi::c_char", "c_byte")
+        }
+        "char" => ("int", "u8", "std::ffi::c_char", "c_ubyte"),
         "signed char" => ("int", "i8", "std::ffi::c_schar", "c_byte"),
         "unsigned char" => ("int", "u8", "std::ffi::c_uchar", "c_ubyte"),
         "int8_t" => ("int", "i8", "i8", "c_int8"),
@@ -1102,6 +1116,23 @@ pub fn defines_main(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_char_follows_the_target() {
+        assert!(plain_char_is_signed("x86_64", "linux"));
+        assert!(plain_char_is_signed("x86_64", "macos"));
+        assert!(plain_char_is_signed("aarch64", "macos"));
+        assert!(!plain_char_is_signed("aarch64", "linux"));
+        assert!(!plain_char_is_signed("arm", "linux"));
+        assert!(!plain_char_is_signed("riscv64", "linux"));
+        let host = plain_char_is_signed(std::env::consts::ARCH, std::env::consts::OS);
+        let (_, port, _, ctype) = scalar("char").unwrap();
+        assert_eq!(port, if host { "i8" } else { "u8" });
+        assert_eq!(ctype, if host { "c_byte" } else { "c_ubyte" });
+        // `signed char` and `unsigned char` do not depend on the target.
+        assert_eq!(scalar("signed char").unwrap().1, "i8");
+        assert_eq!(scalar("unsigned char").unwrap().1, "u8");
+    }
 
     #[test]
     fn reads_drop_in_candidates() {

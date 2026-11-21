@@ -1,6 +1,8 @@
 //! `PyNum` keeps Python's numbers: ints stay ints, floats floats, big ints exact, `-0.0` kept,
 //! and errors carry Python's exception type. Skips where Mojo cannot run.
 
+mod common;
+
 use std::path::Path;
 use std::process::Command;
 
@@ -38,8 +40,7 @@ print("ok")
 
 #[test]
 fn py_num_keeps_int_and_float() {
-    if !mojo::available() {
-        eprintln!("skipping: {}", mojo::missing_message());
+    if !common::have_mojo() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("mojo-py-num-{}", std::process::id()));

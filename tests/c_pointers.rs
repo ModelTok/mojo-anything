@@ -183,7 +183,7 @@ fn bridged(repo: &Path) -> PathBuf {
 
 #[test]
 fn pointer_arguments_cross_the_c_bridge() {
-    if !common::have("cc") || common::python().is_none() || !mojo_anything::mojo::available() {
+    if !common::have("cc") || common::python().is_none() || !common::have_mojo() {
         return;
     }
     let repo = project();

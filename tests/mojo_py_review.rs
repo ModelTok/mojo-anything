@@ -40,7 +40,7 @@ fn fixture() -> PathBuf {
 }
 
 fn ready() -> bool {
-    if !mojo_anything::mojo::available() {
+    if !common::have_mojo() {
         eprintln!("skipping: {}", mojo_anything::mojo::missing_message());
         return false;
     }
