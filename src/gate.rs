@@ -34,17 +34,17 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
         "cargo test" => format!("cargo test {manifest}"),
         "unsafe" => "add a `// SAFETY:` comment above each listed `unsafe`, or remove it".into(),
         "ported" => {
-            "port the functions still stubbed in src/port.rs, then `rust-anything gate` again"
+            "port the functions still stubbed in src/port.rs, then `mojo-anything gate` again"
                 .into()
         }
-        "size" => "use the crates `rust-anything analyze` lists and fold repeated code".into(),
-        "build" => format!("fix the compile error above, then `rust-anything build {c}`"),
-        "recording" => format!("rust-anything record {c}"),
+        "size" => "use the crates `mojo-anything analyze` lists and fold repeated code".into(),
+        "build" => format!("fix the compile error above, then `mojo-anything build {c}`"),
+        "recording" => format!("mojo-anything record {c}"),
         "behavior" if check.detail.contains("no recorded cases") => {
-            format!("rust-anything record {c}")
+            format!("mojo-anything record {c}")
         }
         "behavior" => format!(
-            "rust-anything diff {c} to see each mismatch; fix the port, or list an intended difference in {}",
+            "mojo-anything diff {c} to see each mismatch; fix the port, or list an intended difference in {}",
             crate::recording::KNOWN_DIFFS
         ),
         "known diffs" => format!(
@@ -52,10 +52,10 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
             crate::recording::KNOWN_DIFFS
         ),
         "api" => {
-            format!("export the missing functions from src/port.rs, then `rust-anything build {c}`")
+            format!("export the missing functions from src/port.rs, then `mojo-anything build {c}`")
         }
         "error cases" | "panics" => {
-            format!("rust-anything diff {c} to see the cases where the port's errors differ")
+            format!("mojo-anything diff {c} to see the cases where the port's errors differ")
         }
         _ => return None,
     })
@@ -266,7 +266,7 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
             fix: None,
             name: "behavior",
             passed: false,
-            detail: "no recorded cases: run `rust-anything record` first".into(),
+            detail: "no recorded cases: run `mojo-anything record` first".into(),
         });
     } else if built_ok {
         match harness::diff(&DiffOptions {
@@ -635,11 +635,11 @@ mod tests {
         let dir = std::path::Path::new("port");
         assert_eq!(
             fix_for(&check("recording", "changed"), dir).as_deref(),
-            Some("rust-anything record port")
+            Some("mojo-anything record port")
         );
         assert_eq!(
             fix_for(&check("behavior", "no recorded cases: run"), dir).as_deref(),
-            Some("rust-anything record port")
+            Some("mojo-anything record port")
         );
         assert!(fix_for(&check("fmt", ""), dir).is_some_and(|f| f.starts_with("cargo fmt")));
         assert_eq!(fix_for(&check("coverage", ""), dir), None);
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn requires_safety_comments() {
-        let dir = std::env::temp_dir().join(format!("rust-anything-gate-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mojo-anything-gate-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("a.rs"),

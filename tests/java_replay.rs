@@ -2,7 +2,7 @@ mod common;
 
 use std::{path::Path, process::Command};
 
-use rust_anything::{
+use mojo_anything::{
     codegen_java::{DRIVER_JAVA, JSON_JAVA},
     harness::DiffOutcome,
 };
@@ -13,7 +13,7 @@ fn java_replay_distinguishes_null_from_a_rejected_argument() {
         return;
     }
 
-    let root = std::env::temp_dir().join(format!("rust-anything-java-null-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("mojo-anything-java-null-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let result = replay(&root);
     std::fs::remove_dir_all(root).unwrap();
@@ -24,8 +24,8 @@ fn java_replay_distinguishes_null_from_a_rejected_argument() {
 }
 
 fn replay(root: &Path) -> anyhow::Result<DiffOutcome> {
-    std::fs::write(root.join("RustAnythingDriver.java"), DRIVER_JAVA)?;
-    std::fs::write(root.join("RustAnythingJson.java"), JSON_JAVA)?;
+    std::fs::write(root.join("MojoAnythingDriver.java"), DRIVER_JAVA)?;
+    std::fs::write(root.join("MojoAnythingJson.java"), JSON_JAVA)?;
     std::fs::write(
         root.join("Port.java"),
         "public class Port { public static String value(int input) { return null; } }",
@@ -41,14 +41,14 @@ fn replay(root: &Path) -> anyhow::Result<DiffOutcome> {
     run(Command::new("javac").current_dir(root).args([
         "-d",
         ".",
-        "RustAnythingDriver.java",
-        "RustAnythingJson.java",
+        "MojoAnythingDriver.java",
+        "MojoAnythingJson.java",
         "Port.java",
     ]))?;
     run(Command::new("java").current_dir(root).args([
         "-cp",
         ".",
-        "rustanything.RustAnythingDriver",
+        "mojoanything.MojoAnythingDriver",
         "diff",
         "targets.json",
         "cases.jsonl",

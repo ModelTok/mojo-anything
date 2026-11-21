@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-We want rust-anything to be a welcoming project for everyone, whatever their age, body, disability,
+We want mojo-anything to be a welcoming project for everyone, whatever their age, body, disability,
 ethnicity, gender identity and expression, level of experience, education, nationality, personal
 appearance, race, religion, or sexual identity and orientation.
 

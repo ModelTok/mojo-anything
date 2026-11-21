@@ -1,6 +1,6 @@
 mod common;
 
-use rust_anything::{bridge, harness};
+use mojo_anything::{bridge, harness};
 
 #[test]
 fn ruby_recording_fails_on_unencodable_results_and_preserves_cases() {
@@ -13,7 +13,7 @@ fn ruby_recording_fails_on_unencodable_results_and_preserves_cases() {
     }
 
     let root =
-        std::env::temp_dir().join(format!("rust-anything-ruby-record-{}", std::process::id()));
+        std::env::temp_dir().join(format!("mojo-anything-ruby-record-{}", std::process::id()));
     let lib = root.join("lib");
     std::fs::create_dir_all(&lib).unwrap();
     std::fs::write(root.join("textkit.gemspec"), "").unwrap();
@@ -32,7 +32,7 @@ fn ruby_recording_fails_on_unencodable_results_and_preserves_cases() {
         name: None,
         force: false,
         keep: Vec::new(),
-        lang: Some(rust_anything::lang::Lang::Ruby),
+        lang: Some(mojo_anything::lang::Lang::Ruby),
         batch: Vec::new(),
         as_json: Vec::new(),
         allocator: Default::default(),

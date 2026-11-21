@@ -6,14 +6,14 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rust_anything::bridge::{self, Kind};
-use rust_anything::harness::{self, DiffOptions, RecordOptions};
+use mojo_anything::bridge::{self, Kind};
+use mojo_anything::harness::{self, DiffOptions, RecordOptions};
 
-const CLI: &str = env!("CARGO_BIN_EXE_rust-anything");
+const CLI: &str = env!("CARGO_BIN_EXE_mojo-anything");
 
 /// A TS repository with one file, bridged with napi into `<repo>/rust/unit`.
 fn bridged(name: &str, file: &str, source: &str, port: &str) -> (PathBuf, PathBuf) {
-    let repo = std::env::temp_dir().join(format!("rust-anything-{name}-{}", std::process::id()));
+    let repo = std::env::temp_dir().join(format!("mojo-anything-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&repo);
     std::fs::create_dir_all(repo.join("src")).unwrap();
     std::fs::write(
@@ -66,7 +66,7 @@ fn diff(dir: &Path) -> harness::DiffOutcome {
 }
 
 fn behavior(dir: &Path) -> bool {
-    let gate = rust_anything::gate::gate(dir, &[]).unwrap();
+    let gate = mojo_anything::gate::gate(dir, &[]).unwrap();
     gate.checks
         .iter()
         .find(|c| c.name == "behavior")
@@ -162,10 +162,10 @@ fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_rust_port() {
          let first = (pinned::random() * sides).floor();\n    \
          Ok(first + (pinned::random() * sides).floor())\n}\n",
     );
-    let helper = rust_anything::pin::set(&dir, true).unwrap();
-    assert_eq!(helper, Some(dir.join(rust_anything::pin::HELPER)));
+    let helper = mojo_anything::pin::set(&dir, true).unwrap();
+    assert_eq!(helper, Some(dir.join(mojo_anything::pin::HELPER)));
     let first = record(&dir, 20);
-    assert_eq!(first.pinned, Some(rust_anything::pin::Pin::default()));
+    assert_eq!(first.pinned, Some(mojo_anything::pin::Pin::default()));
     let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
     assert!(cases.contains("@1700000000000/1700000000000#"), "{cases}");
     record(&dir, 20);
@@ -185,10 +185,10 @@ fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_rust_port() {
         .status()
         .unwrap();
     assert!(fmt.success());
-    let gate = rust_anything::gate::gate(&dir, &[]).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
     assert!(gate.passed, "{:?}", gate.checks);
 
-    rust_anything::pin::set(&dir, false).unwrap();
-    assert!(!dir.join(rust_anything::pin::FILE).exists());
+    mojo_anything::pin::set(&dir, false).unwrap();
+    assert!(!dir.join(mojo_anything::pin::FILE).exists());
     std::fs::remove_dir_all(&repo).unwrap();
 }

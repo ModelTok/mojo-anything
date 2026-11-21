@@ -1,5 +1,5 @@
 // Batches against the original Go functions: same results, same errors, and time.
-// Run after `rust-anything build ..`: go run .
+// Run after `mojo-anything build ..`: go run .
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	orig "example.com/strkit/strkit"
-	rs "rust-anything.local/strkit_rs"
+	rs "mojo-anything.local/strkit_rs"
 )
 
 func main() {

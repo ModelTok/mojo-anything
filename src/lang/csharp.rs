@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn classifies_test_sources_in_a_root_project_without_test_suffixes() {
         let dir = std::env::temp_dir().join(format!(
-            "rust-anything-csharp-test-root-{}",
+            "mojo-anything-csharp-test-root-{}",
             std::process::id()
         ));
         std::fs::create_dir_all(dir.join("src")).unwrap();

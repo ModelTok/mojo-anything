@@ -1,4 +1,4 @@
-# rust-anything
+# mojo-anything
 
 @docs/pitfalls.md
 

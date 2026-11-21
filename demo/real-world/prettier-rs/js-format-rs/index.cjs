@@ -1,4 +1,4 @@
-// Loads the native module built by `rust-anything build`.
+// Loads the native module built by `mojo-anything build`.
 const native = require('./js_format_rs.node')
 
 // Structured values cross as JSON text. JSON has no `undefined`, NaN, -0, bigint, Date, Map, Set

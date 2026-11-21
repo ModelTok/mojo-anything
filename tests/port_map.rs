@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use rust_anything::bridge::{self, Manifest};
-use rust_anything::{port_map, recording};
+use mojo_anything::bridge::{self, Manifest};
+use mojo_anything::{port_map, recording};
 
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
@@ -19,7 +19,7 @@ fn copy_dir(from: &Path, to: &Path) {
 #[test]
 fn map_lists_ports_and_marks_upstream_changes() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini");
-    let repo = std::env::temp_dir().join(format!("rust-anything-map-{}", std::process::id()));
+    let repo = std::env::temp_dir().join(format!("mojo-anything-map-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&repo);
     copy_dir(&fixture, &repo);
     let unit = "packages/a/src/util.ts";
@@ -62,10 +62,10 @@ fn map_lists_ports_and_marks_upstream_changes() {
     assert_eq!(map.changed(), 1);
     let md = port_map::markdown(&map);
     assert!(md.contains("**1 changed upstream**"), "{md}");
-    assert!(md.contains("`rust-anything record rust/util-rs`"), "{md}");
+    assert!(md.contains("`mojo-anything record rust/util-rs`"), "{md}");
 
     let outside =
-        std::env::temp_dir().join(format!("rust-anything-map-out-{}", std::process::id()));
+        std::env::temp_dir().join(format!("mojo-anything-map-out-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&outside);
     bridge::bridge(&bridge::Options {
         root: &repo,

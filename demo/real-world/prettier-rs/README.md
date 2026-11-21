@@ -47,7 +47,7 @@ postcss-media-query-parser 0.2.3
 | `DECISIONS.md`, `MAP.md` | the choices made before porting, and what is ported |
 
 To rebuild it: clone Prettier at `3.6.2`, `corepack yarn install` and `corepack yarn build
---no-minify`, put this folder at `rust/` of the clone, and point each `rust-anything.json`'s
+--no-minify`, put this folder at `rust/` of the clone, and point each `mojo-anything.json`'s
 `root` at the clone. Then, from a scratch folder holding a copy of `dist/prettier` as
 `node_modules/prettier` (so Prettier's own config does not apply to the cases):
 
@@ -59,17 +59,17 @@ node scripts/gen-graphql-inputs.mjs <prettier clone> graphql-inputs.jsonl && cat
 node scripts/gen-yaml-inputs.mjs <prettier clone> <folder with the real repositories> yaml-inputs.jsonl && cat yaml-inputs.jsonl >> inputs.jsonl
 node scripts/gen-markdown-inputs.mjs <prettier clone> <folder with the real repositories> md-inputs.jsonl && cat md-inputs.jsonl >> inputs.jsonl
 node scripts/gen-css-inputs.mjs <prettier clone> <folder with the real repositories> css-inputs.jsonl && cat css-inputs.jsonl >> inputs.jsonl
-rust-anything app record . --name prettier --inputs inputs.jsonl -- node node_modules/prettier/bin/prettier.cjs
-rust-anything app front-door .
-rust-anything record <clone>/rust/doc-printer-rs --count 0 --inputs doc-inputs.jsonl
-rust-anything gate <clone>/rust/doc-printer-rs
-rust-anything record <clone>/rust/js-format-rs --count 0 --inputs format-inputs.jsonl
-rust-anything gate <clone>/rust/js-format-rs
-rust-anything app wire . <clone>/rust/js-format-rs --command prettier
-rust-anything app replay . --build rust/app/target/release/prettier
+mojo-anything app record . --name prettier --inputs inputs.jsonl -- node node_modules/prettier/bin/prettier.cjs
+mojo-anything app front-door .
+mojo-anything record <clone>/rust/doc-printer-rs --count 0 --inputs doc-inputs.jsonl
+mojo-anything gate <clone>/rust/doc-printer-rs
+mojo-anything record <clone>/rust/js-format-rs --count 0 --inputs format-inputs.jsonl
+mojo-anything gate <clone>/rust/js-format-rs
+mojo-anything app wire . <clone>/rust/js-format-rs --command prettier
+mojo-anything app replay . --build rust/app/target/release/prettier
 ```
 
-The two unit crates were made with `rust-anything bridge`; each `rust-anything.json` names the
+The two unit crates were made with `mojo-anything bridge`; each `mojo-anything.json` names the
 unit and the exports kept in JavaScript. `doc-inputs.jsonl` is what `scripts/harvest-docs.mjs`
 and `scripts/synthetic-docs.mjs` write. The real repositories are ms `3.0.0-canary.1`, Fuse.js `v7.1.0` and json-server
 `v1.0.0-beta.3`. `format-inputs.jsonl` comes from `scripts/format-inputs.mjs` and the list of

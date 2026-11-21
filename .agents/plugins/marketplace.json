@@ -1,8 +1,8 @@
 {
-  "name": "rust-anything",
+  "name": "mojo-anything",
   "plugins": [
     {
-      "name": "rust-anything",
+      "name": "mojo-anything",
       "source": {
         "source": "local",
         "path": "./plugin"

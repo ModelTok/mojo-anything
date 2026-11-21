@@ -3,12 +3,12 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, ExitCode, ExitStatus};
 
-const ROOT: &str = match option_env!("RUST_ANYTHING_REPO") {
+const ROOT: &str = match option_env!("MOJO_ANYTHING_REPO") {
     Some(root) => root,
     None => concat!(env!("CARGO_MANIFEST_DIR"), "/../.."),
 };
 const RUN: &[&str] = &["node", "node_modules/eslint/bin/eslint.js"];
-const FALLBACK_LOG: &str = "RUST_ANYTHING_FALLBACK_LOG";
+const FALLBACK_LOG: &str = "MOJO_ANYTHING_FALLBACK_LOG";
 
 fn resolve(word: &str) -> OsString {
     if word.starts_with('-') {
@@ -31,7 +31,7 @@ fn log() -> Option<std::fs::File> {
         .ok()
 }
 
-/// Tells `rust-anything app replay` this build counts its fallbacks, even when it makes none.
+/// Tells `mojo-anything app replay` this build counts its fallbacks, even when it makes none.
 pub fn report_fallbacks() {
     let _ = log();
 }

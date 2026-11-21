@@ -1,9 +1,9 @@
-use rust_anything::walk::Canonical;
+use mojo_anything::walk::Canonical;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-/// `println!` that stops quietly when stdout is closed (`rust-anything ... | head`).
+/// `println!` that stops quietly when stdout is closed (`mojo-anything ... | head`).
 macro_rules! say {
     ($($arg:tt)*) => {{
         let _ = writeln!(std::io::stdout().lock(), $($arg)*);
@@ -18,11 +18,11 @@ macro_rules! say_raw {
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use rust_anything::{analyze, app, bridge, front_door, gate, harness, lift, mcp, report, shadow};
+use mojo_anything::{analyze, app, bridge, front_door, gate, harness, lift, mcp, report, shadow};
 
 #[derive(Parser)]
 #[command(
-    name = "rust-anything",
+    name = "mojo-anything",
     version,
     about = "Rewrite TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin apps in Rust, one verified piece at a time",
     after_help = "Loop per unit: analyze -> bridge -> record -> port src/port.rs -> build -> diff -> shadow -> gate"
@@ -53,7 +53,7 @@ enum Cmd {
         /// Repository root.
         #[arg(default_value = ".")]
         root: PathBuf,
-        /// Print the machine-readable report (schema `rust-anything/analyze@1`) instead of Markdown.
+        /// Print the machine-readable report (schema `mojo-anything/analyze@1`) instead of Markdown.
         #[arg(long)]
         json: bool,
         /// Write to this file instead of stdout.
@@ -61,7 +61,7 @@ enum Cmd {
         out: Option<PathBuf>,
         /// Source language; detected from the repository when omitted.
         #[arg(long, value_enum)]
-        lang: Option<rust_anything::lang::Lang>,
+        lang: Option<mojo_anything::lang::Lang>,
         /// Plan a whole-app port: entry points and shape, every dependency (imported or
         /// declared) with its crate, pieces in port order, and decisions for the user.
         #[arg(long)]
@@ -97,7 +97,7 @@ enum Cmd {
         #[arg(long, value_name = "TYPE_PARAM")]
         as_json: Vec<String>,
         /// Global allocator for crates with batches: `mimalloc` (C; wasm keeps Rust's default)
-        /// or `rusty_alloc` (pure Rust, no C compiler; wasm too). Kept in `rust-anything.json`.
+        /// or `rusty_alloc` (pure Rust, no C compiler; wasm too). Kept in `mojo-anything.json`.
         #[arg(long, value_enum, default_value = "mimalloc")]
         allocator: bridge::Allocator,
     },
@@ -237,7 +237,7 @@ enum Cmd {
         /// Append the mismatching cases (`--keep`) or every fresh case (`--keep=all`) to
         /// `cases.jsonl`, so the next diff and gate check them.
         #[arg(long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "mismatches")]
-        keep: Option<rust_anything::fuzz::Keep>,
+        keep: Option<mojo_anything::fuzz::Keep>,
         /// Resolve npm packages the original imports from this folder's `node_modules`.
         #[arg(long)]
         resolve_from: Option<PathBuf>,
@@ -247,7 +247,7 @@ enum Cmd {
         node_args: Vec<String>,
     },
     /// Run a real workload under the language's profiler and say what to port: hot functions,
-    /// their callers, and loops to batch. `rust-anything profile <repo> -- node bench.mjs` (also
+    /// their callers, and loops to batch. `mojo-anything profile <repo> -- node bench.mjs` (also
     /// `python3 x.py`, `go test -bench . ./pkg`, `java ...`, `ruby x.rb`)
     Profile {
         /// Repository root.
@@ -256,7 +256,7 @@ enum Cmd {
         json: bool,
         /// Source language; detected from the repository when omitted.
         #[arg(long, value_enum)]
-        lang: Option<rust_anything::lang::Lang>,
+        lang: Option<mojo_anything::lang::Lang>,
         /// The workload, after `--`.
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -308,20 +308,20 @@ enum Cmd {
     },
     /// Serve every step as MCP tools over stdio.
     Mcp,
-    /// Register rust-anything with your coding agents (Claude Code, Codex, Cursor, Gemini CLI,
+    /// Register mojo-anything with your coding agents (Claude Code, Codex, Cursor, Gemini CLI,
     /// OpenCode): the MCP server and, where the agent reads skills, the workflow skill. Keeps your
     /// other settings; run it again any time.
     Setup {
         /// Agents to set up (repeatable); every agent found by default.
         #[arg(long = "agent", value_enum)]
-        agents: Vec<rust_anything::setup::Agent>,
-        /// Take the rust-anything entries out again.
+        agents: Vec<mojo_anything::setup::Agent>,
+        /// Take the mojo-anything entries out again.
         #[arg(long)]
         remove: bool,
         /// Show what would change, write nothing.
         #[arg(long)]
         dry_run: bool,
-        /// Change settings files in place without saving a `.rust-anything.bak` copy first.
+        /// Change settings files in place without saving a `.mojo-anything.bak` copy first.
         #[arg(long)]
         no_backup: bool,
         #[arg(long)]
@@ -359,7 +359,7 @@ enum Cmd {
 enum AppCmd {
     /// Run the original CLI on cases (its own examples, `--inputs`, semantic traps), twice
     /// each, and store them as trycmd files in `<repo>/rust/app-cases/`.
-    /// `rust-anything app record . -- python3 cli.py`
+    /// `mojo-anything app record . -- python3 cli.py`
     Record {
         /// Repository root.
         #[arg(default_value = ".")]
@@ -415,7 +415,7 @@ enum AppCmd {
         #[arg(long = "float-file", value_name = "PATH=FORMAT")]
         float_files: Vec<String>,
         /// Record what leaves the process too: `http` runs a local sink that answers every
-        /// request (set as HTTP_PROXY, http_proxy and RUST_ANYTHING_HTTP_SINK), `smtp` a local
+        /// request (set as HTTP_PROXY, http_proxy and MOJO_ANYTHING_HTTP_SINK), `smtp` a local
         /// mail server (SMTP_HOST, SMTP_PORT). Each case stores what reached them, in order,
         /// and replay compares it. Comma-separated or repeated. Saved with the cases.
         #[arg(long, value_name = "KINDS")]
@@ -482,7 +482,7 @@ enum AppCmd {
     },
     /// Hand commands to a unit's `port.rs` (after it passes gate): adds the crate to `rust/app`,
     /// a glue file to write once, the routing and a kill switch
-    /// (`RUST_ANYTHING_UNIT_<NAME>=original`), then builds and replays.
+    /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays.
     Wire {
         /// Repository root.
         repo: PathBuf,
@@ -556,11 +556,11 @@ fn run() -> Result<ExitCode> {
             lang,
             whole_app,
         } => {
-            let lang = lang.unwrap_or_else(|| rust_anything::lang::Lang::detect(&root));
+            let lang = lang.unwrap_or_else(|| mojo_anything::lang::Lang::detect(&root));
             let mut report = analyze::analyze_lang(&root, lang)
                 .with_context(|| format!("analyzing {}", root.display()))?;
             if whole_app {
-                report.whole_app = Some(rust_anything::whole_app::whole_app(&root, &report));
+                report.whole_app = Some(mojo_anything::whole_app::whole_app(&root, &report));
             }
             let text = if json {
                 serde_json::to_string_pretty(&report)? + "\n"
@@ -639,7 +639,7 @@ fn run() -> Result<ExitCode> {
                 "a command after `--` is the test suite for `--from-tests`; add the flag"
             );
             let inputs = if from_tests {
-                let c = rust_anything::from_tests::capture(&crate_dir, &test_command)?;
+                let c = mojo_anything::from_tests::capture(&crate_dir, &test_command)?;
                 say!(
                     "Captured {} call(s) from the tests{}:",
                     c.per_function.values().sum::<usize>(),
@@ -655,7 +655,7 @@ fn run() -> Result<ExitCode> {
                 for s in &c.skipped {
                     say!("  not captured: {s}");
                 }
-                Some(rust_anything::from_tests::with_own_inputs(
+                Some(mojo_anything::from_tests::with_own_inputs(
                     &crate_dir,
                     inputs.as_deref(),
                     &c.inputs,
@@ -665,11 +665,11 @@ fn run() -> Result<ExitCode> {
             };
             if let Some(t) = float_tolerance {
                 let mut manifest = bridge::Manifest::load(&crate_dir)?;
-                manifest.float_tolerance = (rust_anything::tolerance::check(t)? > 0.0).then_some(t);
+                manifest.float_tolerance = (mojo_anything::tolerance::check(t)? > 0.0).then_some(t);
                 manifest.save(&crate_dir)?;
             }
             if (pin_clock || no_pin_clock)
-                && let Some(helper) = rust_anything::pin::set(&crate_dir, pin_clock)?
+                && let Some(helper) = mojo_anything::pin::set(&crate_dir, pin_clock)?
             {
                 say!(
                     "Wrote {}: add `mod pinned;` to port.rs and call `pinned::now_ms()` and \
@@ -708,7 +708,7 @@ fn run() -> Result<ExitCode> {
                     "Clock pinned at {} ms (UTC), random numbers from seed {} ({})",
                     pin.now_ms,
                     pin.seed,
-                    rust_anything::pin::FILE
+                    mojo_anything::pin::FILE
                 );
             }
             if !outcome.regex_functions.is_empty() {
@@ -720,7 +720,7 @@ fn run() -> Result<ExitCode> {
             if !outcome.timed_out.is_empty() {
                 say!(
                     "Left out {} input(s) the original ran too long on (over the per-case limit, \
-                     RUST_ANYTHING_CASE_TIMEOUT seconds, 10 by default). The original does this \
+                     MOJO_ANYTHING_CASE_TIMEOUT seconds, 10 by default). The original does this \
                      itself, so the port need not match it there:",
                     outcome.timed_out.len()
                 );
@@ -731,7 +731,7 @@ fn run() -> Result<ExitCode> {
             if let Some(line) = outcome
                 .coverage
                 .as_ref()
-                .and_then(rust_anything::recording::coverage_line)
+                .and_then(mojo_anything::recording::coverage_line)
             {
                 say!("Coverage: {line}");
             }
@@ -767,9 +767,9 @@ fn run() -> Result<ExitCode> {
             Profile::Android => {
                 let report = harness::build_android(
                     &crate_dir,
-                    &rust_anything::android::Options {
+                    &mojo_anything::android::Options {
                         abis: abi,
-                        api: api.unwrap_or(rust_anything::android::DEFAULT_API),
+                        api: api.unwrap_or(mojo_anything::android::DEFAULT_API),
                         ndk,
                         out: jni_libs,
                     },
@@ -813,9 +813,9 @@ fn run() -> Result<ExitCode> {
                     harness::diff_android(&opts, device.as_deref(), jni_libs.as_deref())?
                 }
             };
-            let stale = rust_anything::bridge::Manifest::load(&crate_dir)
+            let stale = mojo_anything::bridge::Manifest::load(&crate_dir)
                 .ok()
-                .and_then(|m| rust_anything::recording::stale(&crate_dir, &m));
+                .and_then(|m| mojo_anything::recording::stale(&crate_dir, &m));
             if json {
                 say!("{}", serde_json::to_string_pretty(&d)?);
             } else {
@@ -828,7 +828,7 @@ fn run() -> Result<ExitCode> {
                         d.passed,
                         d.total,
                         d.accepted,
-                        rust_anything::recording::KNOWN_DIFFS
+                        mojo_anything::recording::KNOWN_DIFFS
                     );
                 } else {
                     say!("{}/{} cases match", d.passed, d.total);
@@ -839,7 +839,7 @@ fn run() -> Result<ExitCode> {
                         "Stalled: the last {} changes to port.rs gained no matching case ({} of {}). \
                          Stop and look at the remaining mismatches with a person, or keep these \
                          functions in the original for now.",
-                        rust_anything::recording::STALL_AFTER,
+                        mojo_anything::recording::STALL_AFTER,
                         shown.join(", "),
                         t.total
                     );
@@ -847,7 +847,7 @@ fn run() -> Result<ExitCode> {
                 for e in &d.stale_known {
                     say!(
                         "Known diff no longer happens, remove it from {}: {}({})",
-                        rust_anything::recording::KNOWN_DIFFS,
+                        mojo_anything::recording::KNOWN_DIFFS,
                         e["fn"].as_str().unwrap_or_default(),
                         e["args"]
                     );
@@ -892,7 +892,7 @@ fn run() -> Result<ExitCode> {
                     Ok(std::time::Duration::from_secs_f64(t))
                 })
                 .transpose()?;
-            let f = rust_anything::fuzz::fuzz(&rust_anything::fuzz::FuzzOptions {
+            let f = mojo_anything::fuzz::fuzz(&mojo_anything::fuzz::FuzzOptions {
                 crate_dir: &crate_dir,
                 cases,
                 seed,
@@ -996,11 +996,11 @@ fn run() -> Result<ExitCode> {
             lang,
             command,
         } => {
-            let report = rust_anything::profile::profile(&root, &command, lang)?;
+            let report = mojo_anything::profile::profile(&root, &command, lang)?;
             if json {
                 say!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                say!("{}", rust_anything::profile::markdown(&report));
+                say!("{}", mojo_anything::profile::markdown(&report));
             }
         }
         Cmd::Shadow { crate_dir, out } => {
@@ -1012,15 +1012,15 @@ fn run() -> Result<ExitCode> {
             );
             if outcome.path.extension().is_some_and(|e| e == "java") {
                 say!(
-                    "Call the <Class>Shadow classes in place of the originals; compile them with the originals and java/rust-anything. -Drust-anything.mode=old|shadow|new switches at runtime."
+                    "Call the <Class>Shadow classes in place of the originals; compile them with the originals and java/mojo-anything. -Dmojo-anything.mode=old|shadow|new switches at runtime."
                 );
             } else if outcome.path.extension().is_some_and(|e| e == "rb") {
                 say!(
-                    "Require it after the original files. RUST_ANYTHING_MODE=old|shadow|new switches at runtime."
+                    "Require it after the original files. MOJO_ANYTHING_MODE=old|shadow|new switches at runtime."
                 );
             } else if outcome.path.extension().is_some_and(|e| e == "go") {
                 say!(
-                    "Import it in place of the original package (require and replace both modules in go.mod). RUST_ANYTHING_MODE=old|shadow|new switches at runtime."
+                    "Import it in place of the original package (require and replace both modules in go.mod). MOJO_ANYTHING_MODE=old|shadow|new switches at runtime."
                 );
             } else if outcome.path.extension().is_some_and(|e| e == "c") {
                 say!(
@@ -1028,7 +1028,7 @@ fn run() -> Result<ExitCode> {
                 );
             } else {
                 say!(
-                    "Import it in place of the original. RUST_ANYTHING_MODE=old|shadow|new switches at runtime."
+                    "Import it in place of the original. MOJO_ANYTHING_MODE=old|shadow|new switches at runtime."
                 );
             }
         }
@@ -1041,7 +1041,7 @@ fn run() -> Result<ExitCode> {
             dry_run,
             json,
         } => {
-            let outcome = rust_anything::package::package(&rust_anything::package::Options {
+            let outcome = mojo_anything::package::package(&mojo_anything::package::Options {
                 crate_dir: &crate_dir,
                 name,
                 version,
@@ -1116,11 +1116,11 @@ fn run() -> Result<ExitCode> {
             no_backup,
             json,
         } => {
-            let home = rust_anything::setup::home()?;
+            let home = mojo_anything::setup::home()?;
             let command = std::env::current_exe()
                 .and_then(|p| p.canonical())
-                .context("finding the rust-anything executable")?;
-            let report = rust_anything::setup::setup(&rust_anything::setup::Options {
+                .context("finding the mojo-anything executable")?;
+            let report = mojo_anything::setup::setup(&mojo_anything::setup::Options {
                 home: &home,
                 agents,
                 command,
@@ -1131,7 +1131,7 @@ fn run() -> Result<ExitCode> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                print!("{}", rust_anything::setup::text(&report));
+                print!("{}", mojo_anything::setup::text(&report));
             }
         }
         Cmd::Map {
@@ -1141,29 +1141,29 @@ fn run() -> Result<ExitCode> {
             check,
             json,
         } => {
-            let map = rust_anything::port_map::map(&repo, &crates)?;
+            let map = mojo_anything::port_map::map(&repo, &crates)?;
             if json {
                 say!("{}", serde_json::to_string_pretty(&map)?);
             } else if write {
-                let path = map.root.join(rust_anything::port_map::MAP_FILE);
+                let path = map.root.join(mojo_anything::port_map::MAP_FILE);
                 if let Some(dir) = path.parent() {
                     std::fs::create_dir_all(dir)?;
                 }
-                std::fs::write(&path, rust_anything::port_map::markdown(&map))?;
+                std::fs::write(&path, mojo_anything::port_map::markdown(&map))?;
                 say!("Wrote {}", path.display());
             } else {
-                say_raw!("{}", rust_anything::port_map::markdown(&map));
+                say_raw!("{}", mojo_anything::port_map::markdown(&map));
             }
             if check && map.changed() > 0 {
                 return Ok(ExitCode::FAILURE);
             }
         }
         Cmd::Doctor { json } => {
-            let report = rust_anything::doctor::run();
+            let report = mojo_anything::doctor::run();
             if json {
                 say!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                say_raw!("{}", rust_anything::doctor::text(&report));
+                say_raw!("{}", mojo_anything::doctor::text(&report));
             }
             if !report.ok() {
                 return Ok(ExitCode::FAILURE);
@@ -1196,7 +1196,7 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
             json,
             run,
         } => {
-            let effects = rust_anything::effects::EffectsConfig::from_args(
+            let effects = mojo_anything::effects::EffectsConfig::from_args(
                 &effects,
                 &effect_env,
                 db_reset.as_deref(),
@@ -1338,17 +1338,17 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
                 }
                 if !outcome.api.is_empty() {
                     say!(
-                        "Every export is still only in the original. After a unit's crate (from `bridge`) passes gate: rust-anything app wire {} <unit crate>",
+                        "Every export is still only in the original. After a unit's crate (from `bridge`) passes gate: mojo-anything app wire {} <unit crate>",
                         repo.display()
                     );
                 } else if outcome.routes.is_empty() {
                     say!(
-                        "Every command runs the original. After a unit passes gate: rust-anything app wire {} <unit> --command <name>",
+                        "Every command runs the original. After a unit passes gate: mojo-anything app wire {} <unit> --command <name>",
                         repo.display()
                     );
                 } else {
                     say!(
-                        "Every request goes to the original. After a unit passes gate: rust-anything app wire {} <unit> --route 'GET /path/{{param}}'",
+                        "Every request goes to the original. After a unit passes gate: mojo-anything app wire {} <unit> --route 'GET /path/{{param}}'",
                         repo.display()
                     );
                 }

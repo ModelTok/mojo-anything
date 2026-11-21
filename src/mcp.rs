@@ -165,7 +165,7 @@ pub fn handle(request: &Value) -> Option<Value> {
         "initialize" => json!({
             "protocolVersion": request["params"]["protocolVersion"].as_str().unwrap_or(PROTOCOL_VERSION),
             "capabilities": { "tools": {}, "prompts": {} },
-            "serverInfo": { "name": "rust-anything", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "mojo-anything", "version": env!("CARGO_PKG_VERSION") },
             "instructions": "Incremental TS/JS to Rust migration. Loop per unit: analyze -> bridge -> \
                 record -> (port src/port.rs) -> build -> diff -> shadow -> gate. Never mark a port done \
                 before gate passes.",
@@ -227,7 +227,7 @@ const FAILURES: &[FailureKind] = &[
         retryable: true,
         matches: |t| t.contains("still running after"),
         next: Some(
-            "retry; if it times out again, restart the MCP server with RUST_ANYTHING_COMMAND_TIMEOUT set higher",
+            "retry; if it times out again, restart the MCP server with MOJO_ANYTHING_COMMAND_TIMEOUT set higher",
         ),
     },
     FailureKind {
@@ -237,31 +237,31 @@ const FAILURES: &[FailureKind] = &[
             (t.contains("no recorded cases") || t.contains("no cases in"))
                 && t.contains("app record` first")
         },
-        next: Some("rust-anything app record {path} -- <command that runs the original>"),
+        next: Some("mojo-anything app record {path} -- <command that runs the original>"),
     },
     FailureKind {
         code: "no_recording",
         retryable: false,
         matches: |t| t.contains("no recorded cases"),
-        next: Some("rust-anything record {path}"),
+        next: Some("mojo-anything record {path}"),
     },
     FailureKind {
         code: "stale_recording",
         retryable: false,
         matches: |t| t.contains("changed since it was recorded"),
-        next: Some("rust-anything record {path}"),
+        next: Some("mojo-anything record {path}"),
     },
     FailureKind {
         code: "stale_build",
         retryable: false,
         matches: |t| t.contains("is older than the crate's sources"),
-        next: Some("rust-anything build {path}"),
+        next: Some("mojo-anything build {path}"),
     },
     FailureKind {
         code: "build_failed",
         retryable: false,
         matches: |t| t.contains("cargo build") && t.contains("failed"),
-        next: Some("fix the compiler errors in the message, then rust-anything build {path}"),
+        next: Some("fix the compiler errors in the message, then mojo-anything build {path}"),
     },
     FailureKind {
         code: "invalid_arguments",
@@ -399,7 +399,7 @@ fn tools() -> Value {
 }
 
 fn tool_schemas() -> Value {
-    let crate_dir = json!({ "type": "string", "description": "Folder of the generated crate (holds rust-anything.json)." });
+    let crate_dir = json!({ "type": "string", "description": "Folder of the generated crate (holds mojo-anything.json)." });
     json!([
         {
             "name": "analyze",
@@ -511,7 +511,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "shadow",
-            "description": "Generate a drop-in shadow (a TS or Python module, Go package, Ruby file, Java classes or C file) that runs the original and the Rust port side by side and reports mismatches; RUST_ANYTHING_MODE=old|shadow|new switches at runtime.",
+            "description": "Generate a drop-in shadow (a TS or Python module, Go package, Ruby file, Java classes or C file) that runs the original and the Rust port side by side and reports mismatches; MOJO_ANYTHING_MODE=old|shadow|new switches at runtime.",
             "inputSchema": { "type": "object", "properties": { "crate": crate_dir, "out": { "type": "string" } }, "required": ["crate"] },
         },
         {
@@ -552,7 +552,7 @@ fn tool_schemas() -> Value {
                 "traps": { "type": "boolean", "description": "Add semantic-trap cases (default true)." },
                 "http": { "type": "boolean", "description": "The app is a server: `run` starts it (it takes its port from PORT or {port}); cases are requests from curl lines in its docs, `inputs` ({\"name\", \"method\", \"path\", \"headers\", \"body\"}) and traps." },
                 "port": { "type": "integer", "description": "A port the server always listens on (implies http)." },
-                "effects": { "type": "array", "items": { "type": "string" }, "description": "Record what leaves the process: \"http\" (a local sink set as HTTP_PROXY, http_proxy and RUST_ANYTHING_HTTP_SINK) and \"smtp\" (a local mail server, SMTP_HOST and SMTP_PORT). Each case stores what reached them, in order, and replay compares it." },
+                "effects": { "type": "array", "items": { "type": "string" }, "description": "Record what leaves the process: \"http\" (a local sink set as HTTP_PROXY, http_proxy and MOJO_ANYTHING_HTTP_SINK) and \"smtp\" (a local mail server, SMTP_HOST and SMTP_PORT). Each case stores what reached them, in order, and replay compares it." },
                 "effect_env": { "type": "array", "items": { "type": "string" }, "description": "Point the app's own settings at a sink: VAR=http-url, VAR=smtp-host, VAR=smtp-port or VAR=smtp-url." },
                 "db_reset": { "type": "string", "description": "Shell command that resets the database before each case (each start for servers); cases then run one at a time." },
                 "db_dump": { "type": "string", "description": "Shell command that prints the database's state (e.g. `sqlite3 app.db .dump`), run after each case or request and recorded with the effects." },
@@ -585,7 +585,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "app_wire",
-            "description": "After a unit passes gate, hand its commands to its port.rs: adds the unit crate to rust/app as a library, writes a glue stub (src/units/<unit>.rs, yours to write: parse args, call <crate>::port, print what the original prints), regenerates the routing with a kill switch RUST_ANYTHING_UNIT_<NAME>=original, then builds and replays. Run it again after writing the glue: 100% passed and a lower fallback rate.",
+            "description": "After a unit passes gate, hand its commands to its port.rs: adds the unit crate to rust/app as a library, writes a glue stub (src/units/<unit>.rs, yours to write: parse args, call <crate>::port, print what the original prints), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. Run it again after writing the glue: 100% passed and a lower fallback rate.",
             "inputSchema": { "type": "object", "properties": {
                 "repo": { "type": "string", "description": "Repository root." },
                 "unit": { "type": "string", "description": "Unit crate folder, its name under rust/, or the unit id it was bridged from." },
@@ -985,7 +985,7 @@ mod tests {
     #[test]
     fn bridge_refuses_a_bad_allocator_before_writing_anything() {
         let out =
-            std::env::temp_dir().join(format!("rust-anything-mcp-alloc-{}", std::process::id()));
+            std::env::temp_dir().join(format!("mojo-anything-mcp-alloc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini");
         let err = call(
@@ -1000,7 +1000,7 @@ mod tests {
     #[test]
     fn speaks_mcp() {
         let init = handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } })).unwrap();
-        assert_eq!(init["result"]["serverInfo"]["name"], "rust-anything");
+        assert_eq!(init["result"]["serverInfo"]["name"], "mojo-anything");
         assert!(
             handle(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none()
         );
@@ -1101,28 +1101,28 @@ mod tests {
         let args = json!({ "crate": "rust/slug" });
         let cases = [
             (
-                "no recorded cases to compare; run `rust-anything record` first",
+                "no recorded cases to compare; run `mojo-anything record` first",
                 "no_recording",
                 false,
-                Some("rust-anything record rust/slug"),
+                Some("mojo-anything record rust/slug"),
             ),
             (
-                "no cases in rust/app-cases: run `rust-anything app record` first",
+                "no cases in rust/app-cases: run `mojo-anything app record` first",
                 "no_recording",
                 false,
-                Some("rust-anything app record rust/slug -- <command that runs the original>"),
+                Some("mojo-anything app record rust/slug -- <command that runs the original>"),
             ),
             (
-                "slug changed since it was recorded: re-run `rust-anything record rust/slug`",
+                "slug changed since it was recorded: re-run `mojo-anything record rust/slug`",
                 "stale_recording",
                 false,
-                Some("rust-anything record rust/slug"),
+                Some("mojo-anything record rust/slug"),
             ),
             (
                 "cargo build failed (exit status: 101):\nerror[E0308]",
                 "build_failed",
                 false,
-                Some("fix the compiler errors in the message, then rust-anything build rust/slug"),
+                Some("fix the compiler errors in the message, then mojo-anything build rust/slug"),
             ),
             (
                 "`node x.mjs` was still running after 600s and was stopped",
@@ -1174,7 +1174,7 @@ mod tests {
             .as_str()
             .unwrap();
         assert!(text.contains("`src/slug.ts`") && text.contains("/repo"));
-        assert!(text.contains("# Migration to Rust with rust-anything"));
+        assert!(text.contains("# Migration to Rust with mojo-anything"));
         assert!(!text.starts_with("---"));
         let whole = get(4, "port_whole_app", json!({ "path": "/repo" }));
         let text = whole["result"]["messages"][0]["content"]["text"]

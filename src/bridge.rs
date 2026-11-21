@@ -18,8 +18,10 @@ use crate::ts::exports::{
     ExportedClass, ExportedFn, LocalType, exported_classes, exported_functions, local_types,
 };
 
-pub const MANIFEST: &str = "rust-anything.json";
-pub const SCHEMA: &str = "rust-anything/bridge@1";
+pub const MANIFEST: &str = "mojo-anything.json";
+pub const SCHEMA: &str = "mojo-anything/bridge@1";
+/// The manifest's name before the tool was renamed from rust-anything.
+pub const OLD_MANIFEST: &str = "rust-anything.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -182,10 +184,14 @@ pub fn js_only_reason(f: &ExportedFn, local_types: &[LocalType]) -> Option<Strin
 
 impl Manifest {
     pub fn load(crate_dir: &Path) -> Result<Self> {
-        let path = crate_dir.join(MANIFEST);
+        let mut path = crate_dir.join(MANIFEST);
+        if !path.exists() && crate_dir.join(OLD_MANIFEST).exists() {
+            // Bridged before the rename; read as it is, written back under the new name.
+            path = crate_dir.join(OLD_MANIFEST);
+        }
         let text = std::fs::read_to_string(&path).with_context(|| {
             format!(
-                "reading {} (run `rust-anything bridge` first)",
+                "reading {} (run `mojo-anything bridge` first)",
                 path.display()
             )
         })?;
@@ -748,7 +754,7 @@ pub fn add_batches(crate_dir: &Path, specs: &[String]) -> Result<Refreshed> {
 }
 
 /// Cargo.toml with the dependencies and library types today's bindings need, for crates
-/// bridged by an older rust-anything; versions and features already set are kept.
+/// bridged by an older mojo-anything; versions and features already set are kept.
 fn with_template_deps(cargo: &str, template: &str) -> Result<String> {
     let mut doc: toml_edit::DocumentMut = cargo.parse().context("Cargo.toml")?;
     let template: toml_edit::DocumentMut = template.parse().context("Cargo.toml template")?;
@@ -1030,7 +1036,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let unit = match whole.cloned().or_else(single) {
         Some(unit) => unit,
         None => bail!(
-            "no unit or source file `{wanted}`; `rust-anything analyze` lists unit ids, and any \
+            "no unit or source file `{wanted}`; `mojo-anything analyze` lists unit ids, and any \
              source file inside a unit can be bridged on its own"
         ),
     };
@@ -1189,7 +1195,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         bail!(
             "`{}` is defined twice in `{}` ({} and {}), and the bridge names every export by \
              itself, so one would silently replace the other. Bridge the module you want on its \
-             own (`rust-anything bridge <root> <that file>`), or rename one of them",
+             own (`mojo-anything bridge <root> <that file>`), or rename one of them",
             pair[0].0,
             unit.id,
             pair[0].1,
@@ -1243,7 +1249,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         .unwrap_or_else(|| root.join("rust").join(&crate_name));
     if crate_dir.exists() && std::fs::read_dir(&crate_dir)?.next().is_some() {
         bail!(
-            "{} already exists and is not empty; rust-anything never overwrites a port in progress",
+            "{} already exists and is not empty; mojo-anything never overwrites a port in progress",
             crate_dir.display()
         );
     }
@@ -1288,7 +1294,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         loader_file(&manifest, &fns),
         (
             ".gitignore".into(),
-            "target/\n*.node\npkg/\n.rust-anything/\n*.so\n*.pyd\n__pycache__/\n".into(),
+            "target/\n*.node\npkg/\n.mojo-anything/\n*.so\n*.pyd\n__pycache__/\n".into(),
         ),
         ("README.md".into(), readme(&manifest)),
         (
@@ -1327,7 +1333,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
 
     format_rust(&crate_dir);
     let mut notes = vec![format!(
-        "Port each function in src/port.rs, then: rust-anything record {0} && rust-anything build {0} && rust-anything diff {0}",
+        "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
         crate_dir.display()
     )];
     if utf16 {
@@ -1466,21 +1472,21 @@ fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Str
             );
             files.push((
                 format!(
-                    "java/rustanything/{}.java",
+                    "java/mojoanything/{}.java",
                     crate::codegen_ffi::java_native_class(m)
                 ),
                 crate::codegen_java::native_class(m, api),
             ));
             files.push((
-                "java/rustanything/RustAnythingJson.java".into(),
+                "java/mojoanything/MojoAnythingJson.java".into(),
                 crate::codegen_java::JSON_JAVA.into(),
             ));
             files.push((
-                "java/rustanything/RustAnythingWire.java".into(),
+                "java/mojoanything/MojoAnythingWire.java".into(),
                 crate::codegen_java::WIRE_JAVA.into(),
             ));
             files.push((
-                "java/rustanything/RustAnythingError.java".into(),
+                "java/mojoanything/MojoAnythingError.java".into(),
                 crate::codegen_java::ERROR_JAVA.into(),
             ));
         }
@@ -1507,7 +1513,7 @@ fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
         ("src/port.rs".into(), port),
         (
             ".gitignore".into(),
-            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\n".into(),
+            "target/\n.mojo-anything/\nruby/*.so\nruby/*.bundle\n".into(),
         ),
         ("README.md".into(), readme(manifest)),
         (
@@ -1520,7 +1526,7 @@ fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
     format_rust(crate_dir);
     format_wrapper(crate_dir);
     let mut notes = vec![format!(
-        "Port each function in src/port.rs, then: rust-anything record {0} && rust-anything build {0} && rust-anything diff {0}",
+        "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
         crate_dir.display()
     )];
     for j in kept {
@@ -1549,7 +1555,7 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
         ("src/port.rs".into(), crate::codegen_c::port_rs(manifest)),
         (
             ".gitignore".into(),
-            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\n".into(),
+            "target/\n.mojo-anything/\nruby/*.so\nruby/*.bundle\n".into(),
         ),
         ("README.md".into(), readme(manifest)),
         (
@@ -1563,7 +1569,7 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
     format_rust(crate_dir);
     let mut notes = vec![
         format!(
-            "Port each function in src/port.rs, then: rust-anything record {0} && rust-anything build {0} && rust-anything diff {0}",
+            "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
             crate_dir.display()
         ),
         format!(
@@ -1591,10 +1597,10 @@ fn readme(m: &Manifest) -> String {
         .map(|f| format!("- `{}` (`{}:{}`)\n", f.name, f.file, f.line))
         .collect();
     format!(
-        "# {name}\n\nRust port of `{unit}`, bridged with {kind}. Generated by rust-anything.\n\n## Functions\n\n{functions}\n\
-         ## Loop\n\n```sh\nrust-anything record .   # record what the TS code does\nrust-anything build .    # build the {kind} module\n\
-         rust-anything diff .     # run the recorded cases against Rust\nrust-anything shadow .   # run both in the app, log mismatches\n\
-         rust-anything gate .     # fmt, clippy, tests, unsafe, API, diff\n```\n",
+        "# {name}\n\nRust port of `{unit}`, bridged with {kind}. Generated by mojo-anything.\n\n## Functions\n\n{functions}\n\
+         ## Loop\n\n```sh\nmojo-anything record .   # record what the TS code does\nmojo-anything build .    # build the {kind} module\n\
+         mojo-anything diff .     # run the recorded cases against Rust\nmojo-anything shadow .   # run both in the app, log mismatches\n\
+         mojo-anything gate .     # fmt, clippy, tests, unsafe, API, diff\n```\n",
         name = m.crate_name,
         unit = m.unit,
         kind = match m.kind {
@@ -1685,14 +1691,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loads_old_manifest_name() {
+        let dir = std::env::temp_dir().join(format!("mojo-anything-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(OLD_MANIFEST),
+            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "napi", "crate_name": "x-rs", "exports": []}"#,
+        )
+        .unwrap();
+        let m = Manifest::load(&dir).unwrap();
+        assert_eq!(m.crate_name, "x-rs");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_relative_root_is_resolved_from_the_crate_and_kept_relative() {
-        let base = std::env::temp_dir().join(format!("rust-anything-root-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("mojo-anything-root-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let crate_dir = base.join("repo/rust/x-rs");
         std::fs::create_dir_all(&crate_dir).unwrap();
         std::fs::write(
             crate_dir.join(MANIFEST),
-            r#"{"schema": "rust-anything/bridge@1", "root": "../..", "unit": "src/x.ts", "kind": "napi", "crate_name": "x-rs", "exports": []}"#,
+            r#"{"schema": "mojo-anything/bridge@1", "root": "../..", "unit": "src/x.ts", "kind": "napi", "crate_name": "x-rs", "exports": []}"#,
         )
         .unwrap();
         let m = Manifest::load(&crate_dir).unwrap();

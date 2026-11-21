@@ -28,9 +28,9 @@ impl Output {
     }
 }
 
-/// `RUST_ANYTHING_COMMAND_TIMEOUT` seconds when set, else `default`.
+/// `MOJO_ANYTHING_COMMAND_TIMEOUT` seconds when set, else `default`.
 pub fn limit(default: Duration) -> Duration {
-    std::env::var("RUST_ANYTHING_COMMAND_TIMEOUT")
+    std::env::var("MOJO_ANYTHING_COMMAND_TIMEOUT")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
         .filter(|s| s.is_finite() && *s > 0.0)
@@ -105,7 +105,7 @@ fn wait(child: &mut Child, cmd: &Command, limit: Duration) -> Result<ExitStatus>
         if start.elapsed() > limit {
             kill(child);
             bail!(
-                "`{}` was still running after {}s and was stopped (set RUST_ANYTHING_COMMAND_TIMEOUT to allow longer; a test runner in watch mode never ends, so run it once, e.g. `vitest run`)",
+                "`{}` was still running after {}s and was stopped (set MOJO_ANYTHING_COMMAND_TIMEOUT to allow longer; a test runner in watch mode never ends, so run it once, e.g. `vitest run`)",
                 shown(cmd),
                 limit.as_secs()
             );

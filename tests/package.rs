@@ -6,13 +6,13 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rust_anything::bridge::{self, Kind};
-use rust_anything::harness::{self, DiffOptions, RecordOptions};
-use rust_anything::package::{self, Options, STAMP};
+use mojo_anything::bridge::{self, Kind};
+use mojo_anything::harness::{self, DiffOptions, RecordOptions};
+use mojo_anything::package::{self, Options, STAMP};
 
 fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "rust-anything-package-{name}-{}",
+        "mojo-anything-package-{name}-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&root);
@@ -323,7 +323,7 @@ fn wasm_package_needs_a_build() {
     let dir = bridged(&root, "src/shout.ts", Kind::Wasm);
     let err = package::package(&options(&dir)).unwrap_err();
     assert!(
-        format!("{err:#}").contains("rust-anything build"),
+        format!("{err:#}").contains("mojo-anything build"),
         "{err:#}"
     );
     std::fs::remove_dir_all(root).unwrap();

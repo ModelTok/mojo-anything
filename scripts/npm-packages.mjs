@@ -20,10 +20,10 @@ if (cargoVersion !== version) {
 const platforms = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']
 
 fs.rmSync(outDir, { recursive: true, force: true })
-const pkgDir = path.join(outDir, 'rust-anything')
-fs.cpSync(path.join(root, 'npm/rust-anything'), pkgDir, { recursive: true })
+const pkgDir = path.join(outDir, 'mojo-anything')
+fs.cpSync(path.join(root, 'npm/mojo-anything'), pkgDir, { recursive: true })
 for (const key of platforms) {
-  const exe = key.startsWith('win32') ? 'rust-anything.exe' : 'rust-anything'
+  const exe = key.startsWith('win32') ? 'mojo-anything.exe' : 'mojo-anything'
   const from = path.join(binDir, `npm-${key}`, exe)
   if (!fs.existsSync(from)) {
     console.error(`missing binary for ${key}: ${from}`)

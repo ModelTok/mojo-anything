@@ -1,6 +1,6 @@
 {
     "name": "acme/textkit",
-    "description": "Text helpers used to test rust-anything's PHP support.",
+    "description": "Text helpers used to test mojo-anything's PHP support.",
     "require": {
         "php": ">=8.1",
         "ext-mbstring": "*",

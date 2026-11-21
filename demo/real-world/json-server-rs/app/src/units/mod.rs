@@ -1,4 +1,4 @@
-//! Written by `rust-anything app lift`: every route is answered in Rust.
+//! Written by `mojo-anything app lift`: every route is answered in Rust.
 
 use std::collections::HashMap;
 

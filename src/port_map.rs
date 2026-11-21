@@ -222,7 +222,7 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
 
     writeln!(out, "## Ports\n")?;
     if map.ports.is_empty() {
-        writeln!(out, "None yet: `rust-anything bridge` starts one.\n")?;
+        writeln!(out, "None yet: `mojo-anything bridge` starts one.\n")?;
     } else {
         writeln!(
             out,
@@ -241,7 +241,7 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
                 p.last_diff
                     .map_or("not run".into(), |(m, t)| format!("{m}/{t}")),
                 if p.changed_upstream.is_some() {
-                    format!("**changed**: `rust-anything record {}`", p.crate_dir)
+                    format!("**changed**: `mojo-anything record {}`", p.crate_dir)
                 } else {
                     "unchanged".into()
                 }
@@ -289,7 +289,7 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
     }
     writeln!(
         out,
-        "Regenerate with `rust-anything map --write`. Commit this file: when the original changes \
+        "Regenerate with `mojo-anything map --write`. Commit this file: when the original changes \
          upstream, the next map marks every port whose recording it outdated."
     )
 }

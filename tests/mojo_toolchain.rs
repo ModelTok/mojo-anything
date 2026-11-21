@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rust_anything::mojo;
+use mojo_anything::mojo;
 
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 

@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::bridge::Manifest;
 use crate::harness::{BenchRow, CASES, DiffOutcome};
 
-const WORK_DIR: &str = ".rust-anything";
+const WORK_DIR: &str = ".mojo-anything";
 
 fn python() -> &'static str {
     if Command::new("python3")
@@ -122,7 +122,7 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest, ignore_key_order: bool) -> Re
     let cases = crate_dir.join(CASES);
     if !cases.exists() {
         bail!(
-            "no {CASES} in {} (run `rust-anything record` first)",
+            "no {CASES} in {} (run `mojo-anything record` first)",
             crate_dir.display()
         );
     }
@@ -149,7 +149,7 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
     let cases = crate_dir.join(CASES);
     if !cases.exists() {
         bail!(
-            "no {CASES} in {} (run `rust-anything record` first)",
+            "no {CASES} in {} (run `mojo-anything record` first)",
             crate_dir.display()
         );
     }
@@ -279,17 +279,17 @@ PIN_CASE = None
 
 
 def pin_clock():
-    """With RUST_ANYTHING_NOW_MS set: a fixed clock and mulberry32 behind `random`, restarted
-    from RUST_ANYTHING_SEED by PIN_CASE before each case (see rust-anything's `pinned.rs`)."""
+    """With MOJO_ANYTHING_NOW_MS set: a fixed clock and mulberry32 behind `random`, restarted
+    from MOJO_ANYTHING_SEED by PIN_CASE before each case (see mojo-anything's `pinned.rs`)."""
     global PIN_CASE
-    now = os.environ.get("RUST_ANYTHING_NOW_MS")
+    now = os.environ.get("MOJO_ANYTHING_NOW_MS")
     if now is None:
         return
     import datetime as dt
     import random as rnd
     now_ms = int(now)
     seconds = now_ms / 1000
-    seed = int(os.environ.get("RUST_ANYTHING_SEED", "0")) & 0xFFFFFFFF
+    seed = int(os.environ.get("MOJO_ANYTHING_SEED", "0")) & 0xFFFFFFFF
     time.time = lambda: seconds
     time.time_ns = lambda: now_ms * 1_000_000
     base_datetime, base_date = dt.datetime, dt.date
@@ -349,7 +349,7 @@ def pin_clock():
     def pin_case(index):
         state[0] = seed
         inst.gauss_next = None
-        os.environ["RUST_ANYTHING_CASE"] = str(index)
+        os.environ["MOJO_ANYTHING_CASE"] = str(index)
 
     PIN_CASE = pin_case
 
@@ -417,7 +417,7 @@ def run_case(mod, c):
 def record(inputs_path, out_path):
     cases = json.load(open(inputs_path, encoding="utf-8"))
     modules = {}
-    progress = os.environ.get("RUST_ANYTHING_PROGRESS")
+    progress = os.environ.get("MOJO_ANYTHING_PROGRESS")
     with open(out_path, "w", encoding="utf-8") as out:
         for index, c in enumerate(cases):
             if progress:

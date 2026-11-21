@@ -1,10 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.png" width="160" height="160" alt="The rust-anything crab">
+  <img src="docs/assets/logo.png" width="160" height="160" alt="The mojo-anything crab">
 </p>
 
-<h1 align="center">rust-anything</h1>
-
-<p align="center"><sub>English · <a href="docs/README_TR.md">Türkçe</a> · <a href="docs/README_UK.md">Українська</a> · <a href="docs/README_ZH.md">简体中文</a> · <a href="docs/README_ZH-TW.md">繁體中文</a> · <a href="docs/README_DE.md">Deutsch</a> · <a href="docs/README_FR.md">Français</a> · <a href="docs/README_RU.md">Русский</a> · <a href="docs/README_JA.md">日本語</a> · <a href="docs/README_KO.md">한국어</a> · <a href="docs/README_AZ.md">Azərbaycanca</a> · <a href="docs/README_UZ.md">Oʻzbekcha</a> · <a href="docs/README_KK.md">Қазақша</a> · <a href="docs/README_KY.md">Кыргызча</a> · <a href="docs/README_TK.md">Türkmençe</a> · <a href="docs/README_TT.md">Татарча</a> · <a href="docs/README_UG.md">ئۇيغۇرچە</a> · <a href="docs/README_PT.md">Português</a> · <a href="docs/README_VI.md">Tiếng Việt</a></sub></p>
+<h1 align="center">mojo-anything</h1>
 
 <p align="center"><b>Rewrite your app in Rust, and prove it still behaves the same.</b><br>
 Point it at your app: it records what the original does, your coding agent writes the Rust one piece at a time,<br>
@@ -25,7 +23,7 @@ and every piece is checked against that recording before it moves on. It doesn't
 
 <p align="center"><a href="https://github.com/erkamyaman/rust-anything/discussions/127"><img src="https://img.shields.io/badge/Join%20the%20discussion-6E40C9?style=for-the-badge&logo=github&logoColor=white" alt="Join the discussion"></a></p>
 
-<p align="center"><a href="https://trendshift.io/repositories/363468" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/363468/daily?language=Rust" alt="erkamyaman/rust-anything: #1 Rust repository of the day on Trendshift" width="250" height="55"/></a></p>
+<p align="center"><a href="https://trendshift.io/repositories/363468" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/363468/daily?language=Rust" alt="erkamyaman/mojo-anything: #1 Rust repository of the day on Trendshift" width="250" height="55"/></a></p>
 
 <p align="center"><b><a href="#quick-start">Install</a></b> · <a href="https://github.com/erkamyaman/rust-anything/releases">Releases</a> · <a href="#quick-start">Claude Code plugin</a> · <a href="https://registry.modelcontextprotocol.io/v0.1/servers?search=rust-anything">MCP Registry</a> · <a href="docs/real-world.md">Real-world ports</a> · <a href="docs/faq.md#faq">FAQ</a><br>
 <sub><a href="#languages">Languages</a> · <a href="docs/how-it-works.md#how-it-works">How it works</a> · <a href="docs/whole-apps.md#port-a-whole-app">Whole apps</a> · <a href="#sponsors">Sponsors</a> · <a href="LICENSE">MIT</a></sub><br>
@@ -62,17 +60,17 @@ Made in Türkiye 🇹🇷 by <a href="https://github.com/erkamyaman">erKam Yaman
   </tr>
 </table>
 
-**Rewrite your whole app in Rust, one piece at a time.** rust-anything records what your
+**Rewrite your whole app in Rust, one piece at a time.** mojo-anything records what your
 Node.js (TypeScript/JavaScript), Python, C, Go, Ruby, Java or Kotlin app does today, then checks every piece of the
 Rust rewrite against that recording before it moves on, until the app is pure Rust. CLIs, HTTP
 servers and libraries; your coding agent (or you) writes the Rust. It is built on
 [napi-rs](https://github.com/napi-rs/napi-rs), [PyO3](https://github.com/PyO3/pyo3) and
 [wasm-bindgen](https://github.com/wasm-bindgen/wasm-bindgen), which carry the calls between your
-language and Rust; rust-anything decides what to move and proves it matches. It can only catch what the
+language and Rust; mojo-anything decides what to move and proves it matches. It can only catch what the
 recording covers: see [What it can't catch](docs/how-it-works.md#what-it-cant-catch). Whole tools
 and servers, or only the slow part, one hot path at a time:
 
-| Real project, same output as the original | Original | With rust-anything |
+| Real project, same output as the original | Original | With mojo-anything |
 | --- | ---: | ---: |
 | [Prettier](docs/real-world.md#prettier) 3.6.2, 2,360 JS/TS files from the command line | 128.6 s | **6.9 s: 19x faster** |
 | Prettier, 6,305 Markdown files from the command line | 352 s | **22.5 s: 15.6x faster** |
@@ -85,7 +83,7 @@ TypeScript, JSX, JSON, GraphQL, YAML, Markdown, CSS, SCSS, Less), and all 17,224
 byte for byte, since anything not ported yet falls back to Prettier. json-server: 514/514
 recorded HTTP cases match on a pure Rust binary. Measured on an Apple M4, two runs each, every
 output compared before timing ([details](docs/real-world.md)). Calling Rust once per small
-function is usually *slower* than a JIT; rust-anything finds the loop worth moving, and moves it. Against
+function is usually *slower* than a JIT; mojo-anything finds the loop worth moving, and moves it. Against
 C the win is safety, not speed: [ffmpeg's libavutil](docs/real-world.md#ffmpeg) ported to Rust
 matches all 226,447 recorded calls and runs at about C's speed (18 of 42 benchmarks even, 8
 faster, 16 slower by 3 to 40%).
@@ -96,7 +94,7 @@ faster, 16 slower by 3 to 40%).
   <sub>json-server, a whole Node server, lifted to a pure Rust binary (Apple M4). <a href="docs/real-world.md#json-server">How it was measured</a>.</sub>
 </p>
 
-> rust-anything is an independent project, not affiliated with or endorsed by the Rust Project
+> mojo-anything is an independent project, not affiliated with or endorsed by the Rust Project
 > or the Rust Foundation. "Rust" is a trademark of the Rust Foundation.
 
 > [!WARNING]
@@ -111,67 +109,67 @@ faster, 16 slower by 3 to 40%).
 Paste this into Claude Code, Codex, Cursor, Gemini CLI or OpenCode and let your agent install it:
 
 ```text
-Install rust-anything: run `cargo install rust-anything`, then `rust-anything setup`.
+Install mojo-anything: run `cargo install mojo-anything`, then `mojo-anything setup`.
 Tell me when to restart you.
 ```
 
 Or yourself:
 
 ```sh
-cargo install rust-anything   # from crates.io
-rust-anything setup           # registers it with Claude Code, Codex, Cursor, Gemini CLI and OpenCode
+cargo install mojo-anything   # from crates.io
+mojo-anything setup           # registers it with Claude Code, Codex, Cursor, Gemini CLI and OpenCode
 ```
 
 No Rust toolchain yet? Prebuilt binaries for macOS, Linux and Windows are attached to each
 [GitHub release](https://github.com/erkamyaman/rust-anything/releases), and for JavaScript
-projects `npm install -g rust-anything` installs the same binary.
+projects `npm install -g mojo-anything` installs the same binary.
 
 In Claude Code you can also install it as a plugin (the MCP server and the skill; the CLI above
 must be on your `PATH`):
 
 ```text
-/plugin install rust-anything --marketplace erkamyaman/rust-anything
+/plugin install mojo-anything --marketplace erkamyaman/mojo-anything
 ```
 
 In Codex, from the agents marketplace in this repo (`.agents/plugins/marketplace.json`, the same
 plugin under `plugin/`, with the skill and MCP server):
 
 ```sh
-codex plugin marketplace add erkamyaman/rust-anything
-codex plugin add rust-anything@rust-anything
+codex plugin marketplace add erkamyaman/mojo-anything
+codex plugin add mojo-anything@mojo-anything
 ```
 
 `setup` adds the MCP server to each agent it finds and installs the workflow skill where the agent
 reads skills. It keeps your other settings, is safe to run again, and `--remove` undoes it.
 Then ask your agent, for example:
 
-- *"Rewrite this CLI in Rust with rust-anything, end to end, and prove it behaves the same."*
-- *"This search feels slow. Profile it with rust-anything and move the hot loop to Rust."*
-- *"Plan a migration of `src/parser/` to Rust with rust-anything; port the first unit and prove it."*
+- *"Rewrite this CLI in Rust with mojo-anything, end to end, and prove it behaves the same."*
+- *"This search feels slow. Profile it with mojo-anything and move the hot loop to Rust."*
+- *"Plan a migration of `src/parser/` to Rust with mojo-anything; port the first unit and prove it."*
 - *"Bench the Rust port in `rust/text-rs` against the original and tell me whether to ship it."*
 
 ### Works with
 
-| Agent | `rust-anything setup` adds |
+| Agent | `mojo-anything setup` adds |
 | --- | --- |
 | Claude Code | MCP server in `~/.claude.json`, skill in `~/.claude/skills/` |
 | Codex | MCP server in `~/.codex/config.toml`, skill in `~/.codex/skills/` |
 | Cursor | MCP server in `~/.cursor/mcp.json` |
 | Gemini CLI | MCP server in `~/.gemini/settings.json` |
 | OpenCode | MCP server in `~/.config/opencode/opencode.json` (`mcp.servers`), skill in `~/.config/opencode/skills/` |
-| Any other MCP client | add `rust-anything mcp` as a stdio server by hand (see [Install](docs/install.md#install)) |
+| Any other MCP client | add `mojo-anything mcp` as a stdio server by hand (see [Install](docs/install.md#install)) |
 
-Before changing a file that exists, `setup` saves a copy beside it (`<file>.rust-anything.bak`); `--no-backup` skips the copy.
+Before changing a file that exists, `setup` saves a copy beside it (`<file>.mojo-anything.bak`); `--no-backup` skips the copy.
 
 To wire OpenCode up by hand, put the server in `~/.config/opencode/opencode.json` (`command` is
-the whole argv) and copy [`skills/rust-anything/`](./skills/rust-anything) to
-`~/.config/opencode/skills/rust-anything/`:
+the whole argv) and copy [`skills/mojo-anything/`](./skills/mojo-anything) to
+`~/.config/opencode/skills/mojo-anything/`:
 
 ```json
 {
   "mcp": {
     "servers": {
-      "rust-anything": { "type": "local", "command": ["rust-anything", "mcp"] }
+      "mojo-anything": { "type": "local", "command": ["mojo-anything", "mcp"] }
     }
   }
 }
@@ -180,18 +178,18 @@ the whole argv) and copy [`skills/rust-anything/`](./skills/rust-anything) to
 Or run the steps yourself:
 
 ```sh
-rust-anything profile . -- node bench.mjs              # what is hot, and who calls it
-rust-anything bridge . src/fuzzy.ts --batch fuzzyScore:text
+mojo-anything profile . -- node bench.mjs              # what is hot, and who calls it
+mojo-anything bridge . src/fuzzy.ts --batch fuzzyScore:text
 # write src/port.rs (or let your agent), then:
-rust-anything record rust/fuzzy-rs && rust-anything build rust/fuzzy-rs
-rust-anything diff rust/fuzzy-rs                       # every recorded case must match
-rust-anything fuzz rust/fuzzy-rs --time 60 --keep      # fresh inputs: what the recording missed
-rust-anything bench rust/fuzzy-rs                      # faster? the verdict says
-rust-anything gate rust/fuzzy-rs                       # done means this passes
+mojo-anything record rust/fuzzy-rs && mojo-anything build rust/fuzzy-rs
+mojo-anything diff rust/fuzzy-rs                       # every recorded case must match
+mojo-anything fuzz rust/fuzzy-rs --time 60 --keep      # fresh inputs: what the recording missed
+mojo-anything bench rust/fuzzy-rs                      # faster? the verdict says
+mojo-anything gate rust/fuzzy-rs                       # done means this passes
 ```
 
-rust-anything does not translate code: your coding agent (Claude Code, Codex, Cursor, OpenCode, ...) or you write
-the Rust. rust-anything supplies what an agent cannot guess reliably: where the time goes, what to port
+mojo-anything does not translate code: your coding agent (Claude Code, Codex, Cursor, OpenCode, ...) or you write
+the Rust. mojo-anything supplies what an agent cannot guess reliably: where the time goes, what to port
 first and in which order, a bridge so the rest of the code calls the Rust with its API unchanged,
 the exact behavior the port must match, a safe way to ship it, and a gate that says when a port is
 done.
@@ -228,7 +226,7 @@ modules stay Java. `--lang` overrides it. Types come from the source: TS types, 
 Java, Kotlin and C# signatures, Ruby YARD tags, PHP types and phpdoc; untyped parameters used as
 numbers are inferred as numbers.
 
-For Android, `rust-anything build <crate> --profile android` builds the same JNI library with the
+For Android, `mojo-anything build <crate> --profile android` builds the same JNI library with the
 NDK for `arm64-v8a`, `armeabi-v7a` and `x86_64` (or the `--abi` values you pass) and installs it
 into `<crate>/jniLibs/<abi>/`; `--api` sets the API level (minimum 26, which the generated Java
 runtime needs). It finds the NDK from `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT` or the SDK, needs the
@@ -236,7 +234,7 @@ Rust targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
 x86_64-linux-android`), links 64-bit libraries with 16 KB page alignment, and checks that every
 JNI entry point is exported. Gradle looks in `src/main/jniLibs` by default, so pass
 `--jni-libs app/src/main/jniLibs` or add `<crate>/jniLibs` to `sourceSets.main.jniLibs.srcDirs`.
-`rust-anything record <crate> --profile android` runs the original Kotlin unit under ART on a
+`mojo-anything record <crate> --profile android` runs the original Kotlin unit under ART on a
 connected device (adb), dexes the generated driver with `d8` from the SDK's build-tools, and pulls
 the results back as the same `cases.jsonl`; `diff <crate> --profile android` replays them against
 the `.so` built for the device's ABI. Both need `adb`, a device, `kotlinc`, an SDK with build-tools
@@ -269,7 +267,7 @@ comes next.
 ## Sponsors
 
 <p align="center">
-  <a href="https://github.com/erkamyaman/rust-anything">rust-anything</a> is free and open source. If it helps your work, please consider sponsoring it.<br>
+  <a href="https://github.com/erkamyaman/rust-anything">mojo-anything</a> is free and open source. If it helps your work, please consider sponsoring it.<br>
   Your support keeps development going.
 </p>
 

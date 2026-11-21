@@ -214,13 +214,13 @@ fn js_dec(target: &str, t: &Ty, d: usize) -> String {
 
 /// The JS runtime: registered buffers, writers, readers, tagged values.
 const WIRE_NAPI_CJS: &str = r#"
-// The binary wire (see rust-anything's `wire.rs`): arguments are written into `wIn`, results read
+// The binary wire (see mojo-anything's `wire.rs`): arguments are written into `wIn`, results read
 // from `wOut`; both are registered with the native module once.
 let wIn = new Uint8Array(1 << 16), wOut = new Uint8Array(1 << 16)
 const wLen = new Uint32Array(1)
 let iv = new DataView(wIn.buffer), ov = new DataView(wOut.buffer), at = 0, p = 0
-native.rustAnythingWireInit(wIn, wOut, wLen)
-const regrow = () => native.rustAnythingWireInit(wIn, wOut, wLen)
+native.mojoAnythingWireInit(wIn, wOut, wLen)
+const regrow = () => native.mojoAnythingWireInit(wIn, wOut, wLen)
 // Runs a wire function; a result larger than `wOut` is fetched once `wOut` has grown.
 const wireCall = fn => {
   wLen[0] = at
@@ -233,8 +233,8 @@ const wireCall = fn => {
   if (n < 0) {
     wOut = new Uint8Array(Math.max(wOut.length * 2, -n))
     ov = new DataView(wOut.buffer)
-    native.rustAnythingWireInit(wIn, wOut, wLen)
-    native.rustAnythingWireFlush()
+    native.mojoAnythingWireInit(wIn, wOut, wLen)
+    native.mojoAnythingWireFlush()
   }
   p = 0
   return true
@@ -242,10 +242,10 @@ const wireCall = fn => {
 "#;
 
 const WIRE_WASM_CJS: &str = r#"
-// The binary wire (see rust-anything's `wire.rs`): arguments are written into `wIn` and copied into
+// The binary wire (see mojo-anything's `wire.rs`): arguments are written into `wIn` and copied into
 // wasm memory in one step; results are read where the Rust side left them.
 let wIn = new Uint8Array(1 << 16), iv = new DataView(wIn.buffer), at = 0, p = 0
-const mem = native.rustAnythingWireMemory()
+const mem = native.mojoAnythingWireMemory()
 let wOut = new Uint8Array(mem.buffer), ov = new DataView(mem.buffer)
 const regrow = () => {}
 // Growing wasm memory replaces its buffer: views are made again when that happened.
@@ -256,12 +256,12 @@ const views = () => {
   }
 }
 const wireCall = fn => {
-  const ptr = native.rustAnythingWireIn(at)
+  const ptr = native.mojoAnythingWireIn(at)
   views()
   wOut.set(wIn.subarray(0, at), ptr)
   if (fn(at) === 0xFFFFFFFF) return false
   views()
-  p = native.rustAnythingWireOut()
+  p = native.mojoAnythingWireOut()
   return true
 }
 "#;
@@ -357,8 +357,8 @@ thread_local! {
 }
 
 /// Registers the argument, result and argument-length buffers `index.cjs` uses.
-#[napi(js_name = "rustAnythingWireInit")]
-pub fn rust_anything_wire_init(
+#[napi(js_name = "mojoAnythingWireInit")]
+pub fn mojo_anything_wire_init(
     input: napi::bindgen_prelude::Uint8Array,
     output: napi::bindgen_prelude::Uint8Array,
     len: napi::bindgen_prelude::Uint32Array,
@@ -367,8 +367,8 @@ pub fn rust_anything_wire_init(
 }
 
 /// Copies a result that did not fit into the (now larger) result buffer.
-#[napi(js_name = "rustAnythingWireFlush")]
-pub fn rust_anything_wire_flush() -> f64 {
+#[napi(js_name = "mojoAnythingWireFlush")]
+pub fn mojo_anything_wire_flush() -> f64 {
     let bytes = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
     WIRE.with(|w| {
         let mut w = w.borrow_mut();
@@ -384,12 +384,12 @@ pub fn rust_anything_wire_flush() -> f64 {
 }
 
 /// Reads the argument bytes (`wLen[0]` of them), runs `f`, and writes its result; a negative
-/// return is the size of a result that did not fit, kept for `rustAnythingWireFlush`.
+/// return is the size of a result that did not fit, kept for `mojoAnythingWireFlush`.
 fn wire_io(f: impl FnOnce(&mut wire::Reader, &mut wire::Writer) -> Result<(), String>) -> napi::Result<f64> {
     WIRE.with(|cell| {
         let mut guard = cell.borrow_mut();
         let Some((input, output, len)) = guard.as_mut() else {
-            return Err(napi::Error::from_reason("rust-anything: the wire buffers are not registered"));
+            return Err(napi::Error::from_reason("mojo-anything: the wire buffers are not registered"));
         };
         let len = (len.first().copied().unwrap_or(0) as usize).min(input.len());
         let mut w = wire::Writer(SCRATCH.with(|s| std::mem::take(&mut *s.borrow_mut())));
@@ -440,14 +440,14 @@ thread_local! {
 }
 
 /// This module's memory, where `index.cjs` reads and writes the wire buffers.
-#[wasm_bindgen(js_name = "rustAnythingWireMemory")]
-pub fn rust_anything_wire_memory() -> JsValue {
+#[wasm_bindgen(js_name = "mojoAnythingWireMemory")]
+pub fn mojo_anything_wire_memory() -> JsValue {
     wasm_bindgen::memory()
 }
 
 /// The address of an argument buffer of `len` bytes.
-#[wasm_bindgen(js_name = "rustAnythingWireIn")]
-pub fn rust_anything_wire_in(len: u32) -> u32 {
+#[wasm_bindgen(js_name = "mojoAnythingWireIn")]
+pub fn mojo_anything_wire_in(len: u32) -> u32 {
     WIRE_IN.with(|b| {
         let mut b = b.borrow_mut();
         b.resize(len as usize, 0);
@@ -456,12 +456,12 @@ pub fn rust_anything_wire_in(len: u32) -> u32 {
 }
 
 /// The address of the last result.
-#[wasm_bindgen(js_name = "rustAnythingWireOut")]
-pub fn rust_anything_wire_out() -> u32 {
+#[wasm_bindgen(js_name = "mojoAnythingWireOut")]
+pub fn mojo_anything_wire_out() -> u32 {
     WIRE_OUT.with(|b| b.borrow().as_ptr() as usize as u32)
 }
 
-/// Reads `len` argument bytes, runs `f`, and keeps its result for `rustAnythingWireOut`.
+/// Reads `len` argument bytes, runs `f`, and keeps its result for `mojoAnythingWireOut`.
 fn wire_io(len: u32, f: impl FnOnce(&mut wire::Reader, &mut wire::Writer) -> Result<(), String>) -> Result<u32, JsError> {
     let input = WIRE_IN.with(|b| std::mem::take(&mut *b.borrow_mut()));
     let mut w = wire::Writer::default();

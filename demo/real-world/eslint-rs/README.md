@@ -72,19 +72,19 @@ outside a small matcher, `ecmaVersion`, `impliedStrict`).
 ```sh
 scripts/setup.sh <work>
 cd <work>/eslint-app
-rust-anything app record . --name eslint --inputs ../inputs.jsonl --normalize timestamps -- node node_modules/eslint/bin/eslint.js
-(cd rust/app && RUST_ANYTHING_REPO=$PWD/../.. cargo build --release)
-rust-anything app replay . --build rust/app/target/release/eslint
+mojo-anything app record . --name eslint --inputs ../inputs.jsonl --normalize timestamps -- node node_modules/eslint/bin/eslint.js
+(cd rust/app && MOJO_ANYTHING_REPO=$PWD/../.. cargo build --release)
+mojo-anything app replay . --build rust/app/target/release/eslint
 cargo run --release --manifest-path <this folder>/linter-rs/Cargo.toml --example check -- rust/app-cases
 ```
 
-The gate unit: point `eslint-stdin-rs/rust-anything.json`'s `root` at the clone, then
+The gate unit: point `eslint-stdin-rs/mojo-anything.json`'s `root` at the clone, then
 
 ```sh
 CLAIMED=claimed.txt cargo run --release --manifest-path linter-rs/Cargo.toml --example check -- <work>/eslint-app/rust/app-cases
 node scripts/unit-inputs.cjs <work>/inputs.jsonl claimed.txt unit-inputs.jsonl
-rust-anything record eslint-stdin-rs --count 0 --inputs unit-inputs.jsonl
-rust-anything gate eslint-stdin-rs
+mojo-anything record eslint-stdin-rs --count 0 --inputs unit-inputs.jsonl
+mojo-anything gate eslint-stdin-rs
 ```
 
 The benchmark (from any folder; the CLI bench makes its own empty one):

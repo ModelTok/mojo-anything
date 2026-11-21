@@ -1,7 +1,7 @@
 target/
 *.node
 pkg/
-.rust-anything/
+.mojo-anything/
 *.so
 *.pyd
 __pycache__/
