@@ -71,6 +71,16 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   length=n))` copies the bytes without checking them.
 - `--Werror` rejects a value assigned and then overwritten before use (`var s = String()`
   followed by assignments on every path): declare it as `var s: String`.
+- Contraction: Mojo fuses `a * b + c` on `Float64` into one multiply-add (`vfmadd` on x86-64)
+  even at its default settings, where g++ and clang for x86-64 round the product and the sum
+  apart. Seen in the EnergyPlus psychrometrics port (2026-11-22): 1,391 of 9,658 cases one or
+  more units in the last place off, five `vfmadd` in the library's code. A product passed through
+  a `@no_inline` `def _mul(a: Float64, b: Float64) -> Float64: return a * b` is rounded on its
+  own, and the same port then matched every case with no `vfmadd` left.
+- C++ through a C ABI: Mojo has no C++ ABI, so a C++ port exports `extern "C"` symbols and a
+  generated C++ file (`cpp/wrapper.cpp`) gives C++ callers the original signatures. Strings
+  and vectors cross as a pointer and a length; results the port `malloc`s are freed by the
+  wrapper with `free` (`tests/cpp_mojo.rs`, 2026-11-22).
 
 ## JSON
 

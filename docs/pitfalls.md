@@ -101,6 +101,12 @@ out.
 the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as `Float64` values
 (`var a: Float64 = 0.1`) when the original adds literals.
 
+**A Mojo port fused what C++ rounded twice.** The EnergyPlus psychrometrics port, written as
+the C++ statements read, missed 1,391 of 9,658 cases by one to 730 units in the last place:
+Mojo turned `1.00484e3 * TDB + w * (...)` into multiply-adds, and g++ for x86-64 does not. Route
+products that feed a sum through a `@no_inline` multiply when the original is compiled without
+contraction, and look for `vfmadd` in the library's disassembly.
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,

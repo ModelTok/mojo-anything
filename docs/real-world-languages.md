@@ -18,6 +18,7 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 | C | glibc behind a facade (`strtol`, `atoi`, `strtod`, `strspn`, `strcmp`, ctype) | 9 | 2,488 (12 crash), recorded again 2026-11-21 | Mojo port: 2,488/2,488, and 1,859/1,859 on the Rust-era recording; gate passes |
 | C | ffmpeg libavutil n7.1's `rational.c` ([`ffmpeg-mojo`](../demo/real-world/ffmpeg-mojo/README.md)) | 8 (+2 kept) | 46,764 | Mojo port: 46,764/46,764, gate passes; ffmpeg's other nine units are Rust ports only |
 | C | aklomp/base64 (vendored in mypyc's runtime) | 0 of 7 | - | plan only: every function takes output buffers or a state struct |
+| C++ | EnergyPlus 27.1.0 (development, commit `7ab256b`): `PsyRhoAirFnPbTdbW`, `PsyHFnTdbW` and `PsyTdbFnHW` from `Psychrometrics.hh`, behind a free-function facade (they are `constexpr` and `inline` there) ([`psychrometrics-mojo`](../demo/real-world/psychrometrics-mojo/README.md)) | 3 | 9,658, recorded 2026-11-22 (g++ 13.3) | Mojo port: 9,658/9,658 bit for bit, gate passes (`cpp api` included); the first port matched 8,267: Mojo fused `a * b + c` into multiply-adds (see its README); `bench` runs, numbers pending a quiet machine |
 
 ## Speed
 
@@ -257,3 +258,4 @@ Handled in the first port, and confirmed by the recorded cases:
 | Java | reflection driver compiled with the original sources | the same driver compiled with the wrapper classes | the Mojo dispatcher, called through the Foreign Function & Memory API (Java 22+) from wrapper classes with the original static methods | `<Class>Shadow` classes |
 | Python | in-process driver imports the original | the same driver imports the PyO3 package | PyO3 | module with the original API |
 | C | `cc -shared` of the original, called through ctypes, one fork per case | ctypes over the Rust `cdylib` | `extern "C"` functions with the original names and a header | shadow `.c` with `-D` renames; the crate's `shadow` feature exports only `rust_anything_` names |
+| C++ | `c++ -shared` of the original and a generated `extern "C"` shim (`cpp/shim.cpp`: one `cpp__<namespace>__<name>` symbol per function, exceptions caught into an error slot), called through the C driver's ctypes, one fork per case | the same driver over the Mojo library, which exports the shim's symbols | `cpp/wrapper.cpp`: the original functions with their original signatures over the Mojo symbols, rethrowing errors as the same standard exceptions | not yet |
