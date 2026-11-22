@@ -195,7 +195,11 @@ fn go_string_bytes_survive() {
              func main() {{\n\tfor _, s := range []string{{\"\\xff\\xfe\", \"a\\x00b\", \"\", strings.Repeat(\"\\xc3\", 1<<20)}} {{\n\
              \t\tif got := t.Echo(s); got != s {{\n\t\t\tfmt.Printf(\"differs: %q\\n\", s[:min(len(s), 8)])\n\t\t\treturn\n\t\t}}\n\
              \t\tif t.Count(s) != len(s) {{\n\t\t\tfmt.Println(\"count differs\")\n\t\t\treturn\n\t\t}}\n\t}}\n\
-             \tfmt.Println(\"same\")\n}}\n"
+             \tif m := splitPanics(); !strings.Contains(m, \"invalid UTF-8\") {{\n\t\tfmt.Println(\"split:\", m)\n\t\treturn\n\t}}\n\
+             \tfmt.Println(\"same\")\n}}\n\n\
+             // JSON cannot carry invalid UTF-8: the dispatcher path refuses it by name.\n\
+             func splitPanics() (msg string) {{\n\tdefer func() {{\n\t\tif r := recover(); r != nil {{\n\t\t\tmsg = fmt.Sprint(r)\n\t\t}}\n\t}}()\n\
+             \tt.Split(\"\\xff,a\")\n\treturn \"no panic\"\n}}\n"
         ),
     )
     .unwrap();
@@ -292,4 +296,29 @@ fn go_batch_not_yet() {
     .unwrap_err()
     .to_string();
     assert!(err.contains("not yet"), "{err}");
+}
+
+#[test]
+fn go_refresh_after_a_type_change_still_builds() {
+    if !have_all() {
+        return;
+    }
+    let (root, dir) = bridged("retype", "scalar");
+    assert!(!dir.join("json.mojo").exists());
+    // `count` now returns Int64 where the Go `int` maps to Int, so it goes through the
+    // dispatcher; `is_space` is a public helper that matches no export.
+    std::fs::write(
+        dir.join("port.mojo"),
+        "# The scalar part of the textkit port, retyped.\n\n\n\
+         def echo(s: String) raises -> String:\n    return s\n\n\n\
+         def count(s: String) raises -> Int64:\n    return Int64(s.byte_length())\n\n\n\
+         def is_space(c: UInt8) -> Bool:\n    return c == 32\n",
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
+    let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
+    assert!(!exports.contains("is_space"), "{exports}");
+    assert!(exports.contains("mojo_anything_call"), "{exports}");
+    harness::build(&dir).unwrap();
+    let _ = std::fs::remove_dir_all(&root);
 }

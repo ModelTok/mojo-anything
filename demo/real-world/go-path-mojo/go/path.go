@@ -20,13 +20,19 @@ import "C"
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"reflect"
+	"unicode/utf8"
 	"unsafe"
 )
 
 var _ = json.Marshal
 var _ = errors.New
+var _ = fmt.Sprint
 var _ = math.NaN
+var _ = reflect.ValueOf
+var _ = utf8.ValidString
 var _ = unsafe.Pointer(nil)
 
 // mojoAnythingDecode decodes JSON into target; floats may be {"$num": "NaN" | "Infinity" | ...}.
@@ -86,8 +92,44 @@ type mojoAnythingAnswer struct {
 	Panic *string         `json:"panic"`
 }
 
+// mojoAnythingValidUTF8 says whether every string in v is UTF-8: json.Marshal would replace
+// invalid bytes with U+FFFD and the port would see other text.
+func mojoAnythingValidUTF8(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return utf8.ValidString(v.String())
+	case reflect.Pointer, reflect.Interface:
+		return v.IsNil() || mojoAnythingValidUTF8(v.Elem())
+	case reflect.Slice, reflect.Array:
+		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+			return true // []byte crosses as base64
+		}
+		for i := 0; i < v.Len(); i++ {
+			if !mojoAnythingValidUTF8(v.Index(i)) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for it := v.MapRange(); it.Next(); {
+			if !mojoAnythingValidUTF8(it.Key()) || !mojoAnythingValidUTF8(it.Value()) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).IsExported() && !mojoAnythingValidUTF8(v.Field(i)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func mojoAnythingCall(name string, args ...any) (json.RawMessage, error) {
 	for i, a := range args {
+		if !mojoAnythingValidUTF8(reflect.ValueOf(a)) {
+			panic(fmt.Sprintf("mojo-anything: argument %d of %s holds invalid UTF-8, which the JSON dispatcher cannot carry", i+1, name))
+		}
 		args[i] = mojoAnythingEncode(a)
 	}
 	encoded, err := json.Marshal(args)
@@ -163,7 +205,7 @@ func Clean(raArg0 string) string {
 	buf := stack[:]
 	var n C.size_t
 	status := C.mojo_anything_t_Clean(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
-	if status == 2 {
+	for status == 2 {
 		buf = make([]byte, int(n))
 		status = C.mojo_anything_t_Clean(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
 	}
@@ -196,7 +238,7 @@ func Ext(raArg0 string) string {
 	buf := stack[:]
 	var n C.size_t
 	status := C.mojo_anything_t_Ext(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
-	if status == 2 {
+	for status == 2 {
 		buf = make([]byte, int(n))
 		status = C.mojo_anything_t_Ext(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
 	}
@@ -213,7 +255,7 @@ func Base(raArg0 string) string {
 	buf := stack[:]
 	var n C.size_t
 	status := C.mojo_anything_t_Base(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
-	if status == 2 {
+	for status == 2 {
 		buf = make([]byte, int(n))
 		status = C.mojo_anything_t_Base(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
 	}
@@ -241,7 +283,7 @@ func Dir(raArg0 string) string {
 	buf := stack[:]
 	var n C.size_t
 	status := C.mojo_anything_t_Dir(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
-	if status == 2 {
+	for status == 2 {
 		buf = make([]byte, int(n))
 		status = C.mojo_anything_t_Dir(mojoAnythingStr(raArg0), C.size_t(len(raArg0)), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &n, &errp)
 	}

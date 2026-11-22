@@ -218,8 +218,9 @@ pub fn wrapper(m: &Manifest, api: &crate::codegen::PortApi) -> String {
          /*\n#cgo LDFLAGS: -L${{SRCDIR}}/../{build} -l{lib} -Wl,-rpath,${{SRCDIR}}/../{build}\n\
          #include <stdint.h>\n#include <stdlib.h>\n\
          {call_c}void mojo_anything_free(char *ptr);\n{typed_c}*/\nimport \"C\"\n\n\
-         import (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"math\"\n\t\"unsafe\"\n)\n\n\
-         var _ = json.Marshal\nvar _ = errors.New\nvar _ = math.NaN\nvar _ = unsafe.Pointer(nil)\n",
+         import (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"math\"\n\t\"reflect\"\n\t\"unicode/utf8\"\n\t\"unsafe\"\n)\n\n\
+         var _ = json.Marshal\nvar _ = errors.New\nvar _ = fmt.Sprint\nvar _ = math.NaN\nvar _ = reflect.ValueOf\n\
+         var _ = utf8.ValidString\nvar _ = unsafe.Pointer(nil)\n",
         pkg = package_name(m),
         unit = m.unit,
         build = crate::harness_mojo_c::BUILD_DIR,
@@ -333,8 +334,44 @@ type mojoAnythingAnswer struct {
 	Panic *string         `json:"panic"`
 }
 
+// mojoAnythingValidUTF8 says whether every string in v is UTF-8: json.Marshal would replace
+// invalid bytes with U+FFFD and the port would see other text.
+func mojoAnythingValidUTF8(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return utf8.ValidString(v.String())
+	case reflect.Pointer, reflect.Interface:
+		return v.IsNil() || mojoAnythingValidUTF8(v.Elem())
+	case reflect.Slice, reflect.Array:
+		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+			return true // []byte crosses as base64
+		}
+		for i := 0; i < v.Len(); i++ {
+			if !mojoAnythingValidUTF8(v.Index(i)) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for it := v.MapRange(); it.Next(); {
+			if !mojoAnythingValidUTF8(it.Key()) || !mojoAnythingValidUTF8(it.Value()) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).IsExported() && !mojoAnythingValidUTF8(v.Field(i)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func mojoAnythingCall(name string, args ...any) (json.RawMessage, error) {
 	for i, a := range args {
+		if !mojoAnythingValidUTF8(reflect.ValueOf(a)) {
+			panic(fmt.Sprintf("mojo-anything: argument %d of %s holds invalid UTF-8, which the JSON dispatcher cannot carry", i+1, name))
+		}
 		args[i] = mojoAnythingEncode(a)
 	}
 	encoded, err := json.Marshal(args)
@@ -567,7 +604,7 @@ fn typed_go(e: &ExportedFn) -> String {
             );
             let _ = writeln!(
                 body,
-                "\tif status == 2 {{\n\t\tbuf = make([]byte, int(n))\n\t\tstatus = {}\n\t}}",
+                "\tfor status == 2 {{\n\t\tbuf = make([]byte, int(n))\n\t\tstatus = {}\n\t}}",
                 call("buf")
             );
             fail(&mut body);
@@ -1281,6 +1318,9 @@ func Json(raw uint64) uint64 { return raw }"#,
         let go = wrapper(&manifest, &api);
         assert!(!go.contains("mojo_anything_call"), "{go}");
         assert!(go.contains("return out != 0, nil"), "{go}");
+        // A string result that outgrows the buffer again is retried until it fits, never
+        // sliced past the buffer.
+        assert!(go.contains("\tfor status == 2 {"), "{go}");
         let mojo = typed_mojo(&manifest, &api).unwrap();
         assert!(
             !mojo.contains("json") && !mojo.contains("emberjson"),

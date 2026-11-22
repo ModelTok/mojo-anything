@@ -1631,7 +1631,16 @@ fn mojo_ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String
     if !m.batches.is_empty() {
         bail!("{BATCH_NOT_YET}");
     }
-    let json = crate::codegen_mojo::needs_json_mojo(m.language, api);
+    // Only the unit's exports cross; a public helper in port.mojo stays inside the library.
+    let mut exported = api.clone();
+    exported
+        .functions
+        .retain(|f| m.exports.iter().any(|e| e.name == f.js_name));
+    let api = &exported;
+    // Go's typed path also needs the port's types to match the Go ones; a function that does
+    // not falls back to the dispatcher, and so needs JSON.
+    let json = crate::codegen_mojo::needs_json_mojo(m.language, api)
+        || (m.language == crate::lang::Lang::Go && crate::codegen_go::uses_dispatcher(m, api));
     let mut files = vec![(
         "pixi.toml".to_string(),
         crate::codegen_mojo_py::unit_pixi_toml(m, json),
