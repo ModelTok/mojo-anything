@@ -1,0 +1,4 @@
+bin.name = "quopri"
+args = ["--mode=fast"]
+status.code = 2
+fs.sandbox = true

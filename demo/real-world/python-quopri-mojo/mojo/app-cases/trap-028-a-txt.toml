@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["a.txt", "-"]
+status.code = 0
+fs.sandbox = true
+fs.base = "trap-028-a-txt.in"

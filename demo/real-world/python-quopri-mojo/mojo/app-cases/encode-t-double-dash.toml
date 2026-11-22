@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["-t", "--", "in.txt"]
+status.code = 0
+fs.sandbox = true
+fs.base = "encode-t-double-dash.in"

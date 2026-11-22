@@ -1,0 +1,4 @@
+bin.name = "quopri"
+args = ["straße"]
+status.code = 1
+fs.sandbox = true

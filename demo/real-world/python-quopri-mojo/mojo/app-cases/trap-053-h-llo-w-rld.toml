@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["héllo wörld", "in.txt"]
+status.code = 1
+fs.sandbox = true
+fs.base = "trap-053-h-llo-w-rld.in"

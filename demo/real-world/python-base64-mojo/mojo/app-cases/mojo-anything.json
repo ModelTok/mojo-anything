@@ -1,9 +1,0 @@
-{
-  "schema": "mojo-anything/app-cases@1",
-  "name": "base64",
-  "run": [
-    "python3",
-    "base64.py"
-  ],
-  "timeout_secs": 30
-}

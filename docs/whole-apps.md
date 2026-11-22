@@ -129,7 +129,8 @@ mojo-anything app wire . textops-mojo                     # 100% again, lower fa
   gives 100% passed at 100% fallback (it builds and replays to show it). It never overwrites
   `mojo/app`: the code is yours from then on.
 - A command goes to its unit only when every option on its command line is one the recording saw
-  for it; any other option runs the original, which defines what it means.
+  for it, in any case (a recorded usage error counts: replay checks the glue's answer to it); any
+  other option runs the original, which defines what it means.
 - `app wire <repo> <unit> --command <name>` takes a Mojo unit (a folder under `mojo/` with
   `port.mojo`, made by `bridge` or by hand), runs `gate` on it (`--skip-gate` if it just passed),
   and writes `mojo/app/glue/<unit>.mojo` once for you or your agent to fill in: one
@@ -173,9 +174,11 @@ mojo-anything app lift .
   `__init__.mojo`, and run `pixi run mojo build --Werror -I .mojo-anything/build/units main.mojo`
   in `mojo/app`.
 
-A real run: CPython's `base64` command line, recorded on 74 cases, front-doored, wired to one
-hand-written unit and lifted; the pure Mojo binary passes 74/74 with the original moved away
-([`demo/real-world/python-base64-mojo`](../demo/real-world/python-base64-mojo/README.md)).
+A real run: CPython's `quopri` command line. Its `encodestring` and `decodestring` went through
+`bridge`, `record` (481 cases), the port, `diff` and `gate`; the CLI was recorded on 163 cases
+(usage errors and missing files included), front-doored, wired to that unit with glue for
+`main()` and lifted; the pure Mojo binary passes 163/163 with the original moved away
+([`demo/real-world/python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md)).
 
 ### Servers
 

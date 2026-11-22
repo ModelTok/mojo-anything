@@ -1,0 +1,4 @@
+bin.name = "quopri"
+args = ["İstanbul"]
+status.code = 1
+fs.sandbox = true

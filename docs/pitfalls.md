@@ -57,6 +57,16 @@ inside the unit's `.pixi/bld`, and its build script passes that path to `mojo` u
 inputs"). `crate::mojo::command` runs such a unit's environment from a copy of its `pixi.toml` in
 a space-free cache folder; test a new Mojo dependency from a path with spaces.
 
+**A Python unit of bytes had no type to port to.** Unhinted parameters stub as `PythonObject`,
+and `List[UInt8]` could not cross the bindings, so `quopri.encodestring` could only be ported
+with Python in the port. A bytes parameter or result is `List[UInt8]` in `port.mojo`; after
+changing a stub's types, run `refresh` before `build`, or the old bindings fail to compile.
+
+**Usage errors in the recording kept a CLI from lifting.** The front door took the options it
+lets through from successful cases only, so a recorded `-x` (exit 2) always went to the original
+and the fallback never reached 0. Options from every recorded case count; record a CLI's usage
+errors when they name no machine path, and check that `main.mojo` lists their options.
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,

@@ -1,0 +1,4 @@
+bin.name = "quopri"
+args = ["-"]
+status.code = 0
+fs.sandbox = true

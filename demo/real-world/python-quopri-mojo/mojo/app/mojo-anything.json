@@ -1,0 +1,17 @@
+{
+  "schema": "mojo-anything/app@1",
+  "name": "quopri",
+  "commands": [],
+  "units": [
+    {
+      "name": "quopri",
+      "crate": "quopri-mojo",
+      "path": "../../mojo/quopri-mojo",
+      "commands": [
+        "quopri"
+      ],
+      "switch": "MOJO_ANYTHING_UNIT_QUOPRI"
+    }
+  ],
+  "lifted": true
+}

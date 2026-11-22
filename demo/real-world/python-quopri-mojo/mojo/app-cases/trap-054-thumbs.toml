@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["👍🏽 thumbs", "in.txt"]
+status.code = 1
+fs.sandbox = true
+fs.base = "trap-054-thumbs.in"

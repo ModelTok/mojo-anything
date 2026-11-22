@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["İstanbul", "in.txt"]
+status.code = 1
+fs.sandbox = true
+fs.base = "trap-058-stanbul.in"

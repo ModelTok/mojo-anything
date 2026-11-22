@@ -1,0 +1,112 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "<the original sources; see README.md>",
+  "unit": "quopri.py",
+  "language": "python",
+  "kind": "mojo-py",
+  "crate_name": "quopri-mojo",
+  "exports": [
+    {
+      "name": "encodestring",
+      "file": "quopri.py",
+      "line": 103,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "unknown",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "quotetabs",
+          "ts_type": "boolean",
+          "optional": true,
+          "rest": false,
+          "default": "False"
+        },
+        {
+          "name": "header",
+          "ts_type": "boolean",
+          "optional": true,
+          "rest": false,
+          "default": "False"
+        }
+      ],
+      "returns": "unknown",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "decodestring",
+      "file": "quopri.py",
+      "line": 155,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "unknown",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "header",
+          "ts_type": "boolean",
+          "optional": true,
+          "rest": false,
+          "default": "False"
+        }
+      ],
+      "returns": "unknown",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "needsquoting",
+      "file": "quopri.py",
+      "line": 21,
+      "reason": "a helper of the pure-Python fallback, which CPython never runs"
+    },
+    {
+      "name": "quote",
+      "file": "quopri.py",
+      "line": 36,
+      "reason": "a helper of the pure-Python fallback, which CPython never runs"
+    },
+    {
+      "name": "encode",
+      "file": "quopri.py",
+      "line": 44,
+      "reason": "reads and writes binary file objects; the CLI's work is encodestring's"
+    },
+    {
+      "name": "decode",
+      "file": "quopri.py",
+      "line": 114,
+      "reason": "reads and writes binary file objects; the CLI's work is decodestring's"
+    },
+    {
+      "name": "ishex",
+      "file": "quopri.py",
+      "line": 167,
+      "reason": "a helper of the pure-Python fallback, which CPython never runs"
+    },
+    {
+      "name": "unhex",
+      "file": "quopri.py",
+      "line": 172,
+      "reason": "a helper of the pure-Python fallback, which CPython never runs"
+    },
+    {
+      "name": "main",
+      "file": "quopri.py",
+      "line": 190,
+      "reason": "the command line, ported as the front door's glue"
+    }
+  ]
+}

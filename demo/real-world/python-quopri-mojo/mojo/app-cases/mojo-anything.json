@@ -1,0 +1,9 @@
+{
+  "schema": "mojo-anything/app-cases@1",
+  "name": "quopri",
+  "run": [
+    "python3",
+    "quopri.py"
+  ],
+  "timeout_secs": 30
+}

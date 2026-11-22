@@ -83,6 +83,10 @@ fn expect(types: &str, what: &str) -> String {
     )
 }
 
+/// The port type for Python's `bytes`: it crosses as `bytes` and comes in from any bytes-like
+/// object (`bytes`, `bytearray`, `memoryview`).
+pub const BYTES: &str = "List[UInt8]";
+
 /// Emits `_from_py_<T>` (Python value to `ty`) and the converters it needs, once each.
 fn from_py(out: &mut Converters, ty: &str) -> Result<String, String> {
     let name = format!("_from_py_{}", mangle(ty));
@@ -102,6 +106,16 @@ fn from_py(out: &mut Converters, ty: &str) -> Result<String, String> {
         ),
         "Int" => format!("{}return Int(py=v)", expect("b.int", "an int")),
         "Bool" => format!("{}return Bool(v)", expect("b.bool", "a bool")),
+        // Bytes: any bytes-like object, never a list of ints (Python's bytes functions refuse
+        // one too).
+        BYTES => format!(
+            "{}var items = List[UInt8](capacity=Int(py=b.len(v)))\n    \
+             for item in b.bytes(v):\n        items.append(UInt8(Int(py=item)))\n    return items^",
+            expect(
+                "Python.tuple(b.bytes, b.bytearray, b.memoryview)",
+                "a bytes-like object"
+            )
+        ),
         _ => {
             if let Some(t) = inner(ty, "List") {
                 let item = from_py(out, t)?;
@@ -137,6 +151,10 @@ fn to_py(out: &mut Converters, ty: &str) -> Result<String, String> {
         "PythonObject" => "return v".to_string(),
         "PyNum" => "return v.to_python()".into(),
         "String" | "Float64" | "Int" | "Bool" => "return PythonObject(v)".into(),
+        BYTES => "var b = Python.import_module(\"builtins\")\n    var items = Python.list()\n    \
+                  for item in v:\n        _ = items.append(PythonObject(Int(item)))\n    \
+                  return b.bytes(items)"
+            .into(),
         _ => {
             if let Some(t) = inner(ty, "List") {
                 let item = to_py(out, t)?;
@@ -393,6 +411,26 @@ mod tests {
         ] {
             assert_eq!(native.matches(name).count(), 1, "{name}\n{native}");
         }
+    }
+
+    #[test]
+    fn bytes_cross_as_a_list_of_uint8() {
+        let api = parse_port_mojo(
+            "def invert(data: List[UInt8], keep: Bool) raises -> List[UInt8]:\n    pass\n\n\
+             def chunks(data: List[UInt8]) raises -> List[List[UInt8]]:\n    pass\n",
+        );
+        let native = native_mojo(&manifest("x-mojo", "number"), &api).unwrap();
+        for line in [
+            "def _from_py_List_UInt8(v: PythonObject) raises -> List[UInt8]:",
+            "if not b.isinstance(v, Python.tuple(b.bytes, b.bytearray, b.memoryview)):",
+            "def _to_py_List_UInt8(v: List[UInt8]) raises -> PythonObject:",
+            "return b.bytes(items)",
+            "_ = items.append(_to_py_List_UInt8(item))",
+        ] {
+            assert!(native.contains(line), "{line}\n{native}");
+        }
+        // A plain list of ints is not bytes: it stays a TypeError, as the converter refuses it.
+        assert!(!native.contains("_from_py_UInt8"), "{native}");
     }
 
     #[test]

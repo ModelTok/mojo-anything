@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["a.txt", "b.txt"]
+status.code = 0
+fs.sandbox = true
+fs.base = "encode-two-files.in"

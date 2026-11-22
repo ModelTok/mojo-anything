@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- CPython's `quopri` command line is lifted to a pure Mojo binary through a bridged unit
+  (`demo/real-world/python-quopri-mojo`, 481/481 unit cases, 163/163 CLI cases), replacing the
+  hand-written `base64` demo. A Python unit's bytes now cross the bindings as `List[UInt8]`, and
+  options seen in failing recorded cases (usage errors) reach the glue instead of the original.
 - Prettier demo: about 75 differences from Prettier 3.6.2 outside the recorded corpus, found by
   differential fuzzing, mutation testing and a Doc-level comparison, are fixed or handed to
   Prettier. 355 new cases and the checks are in `demo/real-world/prettier-rs/equiv`. The

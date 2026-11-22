@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["ılık ırmak", "in.txt"]
+status.code = 1
+fs.sandbox = true
+fs.base = "trap-060-l-k-rmak.in"

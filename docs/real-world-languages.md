@@ -13,7 +13,7 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 | Go | `path` from Go 1.24's standard library ([`go-path-mojo`](../demo/real-world/go-path-mojo/README.md)) | 7 (+1 kept) | 2,042, recorded again 2026-11-22 (2,642 on the Rust-era recording, whose extra cases came from generated inputs) | Mojo port: 2,042/2,042, and 2,642/2,642 on the Rust-era recording; gate passes |
 | Ruby | `shellwords.rb` from Ruby 3.3 ([`ruby-shellwords-mojo`](../demo/real-world/ruby-shellwords-mojo/README.md)) | 3 | 1,626 (449 raise), recorded again 2026-11-22 | Mojo port: 1,626/1,626, and 1,617/1,617 on the Rust-era recording; gate passes |
 | Python | `colorsys.py` from CPython 3.13 | 6 | 2,400 | 2,400/2,400, gate passes |
-| Python | CPython 3.12's `base64` command line, as a whole app ([`python-base64-mojo`](../demo/real-world/python-base64-mojo/README.md)) | 4 (one hand-written unit) | 74 CLI cases | lifted to a pure Mojo binary: 74/74 with the original moved away ([below](#a-whole-cli-lifted-to-mojo-cpythons-base64)) |
+| Python | CPython 3.12's `quopri` command line, as a whole app ([`python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md)) | 2 (+7 kept), bridged | 481 unit cases (155 raise), 163 CLI cases | Mojo port: 481/481 (4 by `known-diffs.jsonl`), gate passes; lifted to a pure Mojo binary: 163/163 with the original moved away ([below](#a-whole-cli-lifted-to-mojo-cpythons-quopri)) |
 | Java | JDK 21 behind a facade (`Integer`, `Long`, `Math`, `Double.toString`, `URLEncoder`, `Base64`, `toUpperCase`) | 11 | 4,492 (226 throw) | 4,492/4,492, gate passes |
 | C | glibc behind a facade (`strtol`, `atoi`, `strtod`, `strspn`, `strcmp`, ctype) | 9 | 2,488 (12 crash), recorded again 2026-11-21 | Mojo port: 2,488/2,488, and 1,859/1,859 on the Rust-era recording; gate passes |
 | C | ffmpeg libavutil n7.1's `rational.c` ([`ffmpeg-mojo`](../demo/real-world/ffmpeg-mojo/README.md)) | 8 (+2 kept) | 46,764 | Mojo port: 46,764/46,764, gate passes; ffmpeg's other nine units are Rust ports only |
@@ -127,31 +127,49 @@ Per call, the Go port went from 0.73x to 0.93x, the Java one from 0.46x to 0.68x
   strings, Windows, Core i5-12450H). The Java original is faster. The Go row was measured the same
   way and has not been re-run.
 
-## A whole CLI lifted to Mojo: CPython's `base64`
+## A whole CLI lifted to Mojo: CPython's `quopri`
 
-CPython's `base64` command line (`python3 -m base64`: getopt `-d`, `-u`, `-e`, `-h`, then one
-file or stdin, bytes out) was taken through the whole-app loop to a pure Mojo binary on
-2026-11-22, with Mojo 1.2.0 on x86-64 Linux (WSL, Ubuntu 24.04). It is the smallest real CLI
-within reach whose work could be ported in one unit: none of the CLIs in rust-anything's runs
-(Prettier, ESLint) has its units ported to Mojo yet, and vercel/ms, Go's `path`, Ruby's
-`shellwords` and `colorsys` have no command line. Everything is in
-[`demo/real-world/python-base64-mojo`](../demo/real-world/python-base64-mojo/README.md).
+CPython's `quopri` command line (`python3 -m quopri`: getopt `-t`, `-d`, then each file or stdin,
+bytes out) was taken to a pure Mojo binary on 2026-11-22, with Mojo 1.2.0 on x86-64 Linux (WSL,
+Ubuntu 24.04): its core functions through the per-unit loop as a bridged Python unit, then the
+command line through the whole-app loop. quopri fits because `main()` does all its work through
+two module functions of bytes to bytes, its errors name no install path (a missing file is
+`name: can't open ([Errno 2] ...)`, a bad option getopt's message and the usage), and its other
+functions take file objects or serve only the pure-Python fallback. Everything is in
+[`demo/real-world/python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md).
 
 | Step | Result |
 | --- | --- |
-| `app record --inputs` (74 inputs, `--no-traps`) | 74 cases, the original passes 74/74 |
-| `app front-door` | 74/74 at 100% fallback |
-| `app wire . b64codec-mojo --command base64`, glue written | 74/74 at 0% fallback on the first replay |
+| `bridge . quopri.py` (7 functions kept, each with its reason) | `quopri-mojo` with `encodestring`, `decodestring`; `s` has no type hint, so the stub had `PythonObject`, changed to `List[UInt8]` in the port |
+| `record --inputs` (322 unit inputs) | 481 cases, 155 raise |
+| port, `refresh`, `build`, `diff` | 477/481 on the first diff; 481/481 with 4 known diffs |
+| `gate` | passes |
+| `app record --inputs` (94 lines, traps on) | 163 cases (93 from inputs, 70 traps), the original passes 163/163 |
+| `app front-door` | 163/163 at 100% fallback |
+| `app wire . quopri-mojo --command quopri`, glue written | 163/163 at 0% fallback on the first replay |
 | `app lift` | lifted, no checklist item failed |
-| replay of the lifted binary with `base64.py` moved away | 74/74, no fallback hook |
+| replay of the lifted binary with `quopri.py` moved away | 163/163, no fallback hook |
 
-The unit `b64codec-mojo` is a hand-written port of `base64.encode` and `base64.decode` and the
-two `binascii` functions under them (`b2a_base64`, and `a2b_base64` in non-strict mode). Writing
-it found one thing the tests caught before any replay: a line that fails to decode must write
-nothing of itself, as `a2b_base64` raises before `decode` writes the line, while the first port
-appended the bytes decoded before the error. Cases where the original prints a machine-specific
-path (the usage text from `-h` and bad options, and every traceback) are not recorded; the
-demo's README lists them.
+quopri hands its work to `binascii.b2a_qp` and `a2b_qp` (C) whenever they exist, which they
+always do in CPython, so the recording is binascii's behaviour and the port follows
+`Modules/binascii.c`, not the pure-Python code in `quopri.py`. The 4 known diffs are
+`decodestring("x")`: `a2b_qp` also takes an ASCII `str`, while a bytes parameter of a Mojo port
+takes bytes-like objects only.
+
+The run found two gaps in the tool, both fixed with a failing test first:
+
+- **Bytes could not cross the Python bridge.** A port declaring `List[UInt8]` failed `refresh`
+  (`` `UInt8` cannot cross the Python bridge``). The bindings now take any bytes-like object
+  (`bytes`, `bytearray`, `memoryview`) into `List[UInt8]`, refuse a list of ints and a `str` with
+  `TypeError`, and return `bytes` (`tests/mojo_py_bytes.rs`, `codegen_mojo_py`
+  `bytes_cross_as_a_list_of_uint8`).
+- **A CLI with recorded usage errors could not be lifted.** The front door sends a command line
+  with an option the recording never saw to the original (W3), and options were taken from
+  successful cases only (the first front door listed `-d` and `-t`), so the 4 cases with `-x`,
+  `-h`, `--help` and `--mode=fast`, recorded with their exit 2, could never leave the original,
+  and `lift` needs fallback 0. Options from failing cases now count as seen
+  (`front_door::tests::options_of_failing_cases_were_seen_too`): the recorded case checks the
+  glue's answer.
 
 ## What the runs found
 

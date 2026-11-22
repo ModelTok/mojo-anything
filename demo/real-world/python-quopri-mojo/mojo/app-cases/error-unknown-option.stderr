@@ -1,0 +1,4 @@
+option -x not recognized
+usage: quopri [-t | -d] [file] ...
+-t: quote tabs
+-d: decode; default encode

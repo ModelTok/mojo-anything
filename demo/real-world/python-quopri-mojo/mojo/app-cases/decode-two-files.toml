@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["-d", "a.qp", "b.qp"]
+status.code = 0
+fs.sandbox = true
+fs.base = "decode-two-files.in"

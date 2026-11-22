@@ -205,7 +205,8 @@ pub(crate) fn ident(name: &str) -> String {
 }
 
 /// The commands (first arguments of cases the original ran successfully) and the flags seen with
-/// each; the key `""` holds the flags of an app without commands.
+/// each, in any recorded case: a usage error is recorded behaviour too, which replay checks the
+/// unit against. The key `""` holds the flags of an app without commands.
 pub(crate) fn infer_cli(
     cases: &[(Vec<String>, bool)],
 ) -> (Vec<String>, BTreeMap<String, BTreeMap<String, Flag>>) {
@@ -215,10 +216,7 @@ pub(crate) fn infer_cli(
         .map(|(args, _)| args[0].clone())
         .collect();
     let mut flags: BTreeMap<String, BTreeMap<String, Flag>> = BTreeMap::new();
-    for (args, ok) in cases {
-        if !ok {
-            continue;
-        }
+    for (args, _) in cases {
         let (key, rest) = match args.split_first() {
             Some((first, rest)) if commands.contains(first) => (first.clone(), rest),
             _ if commands.is_empty() => (String::new(), args.as_slice()),
@@ -1009,6 +1007,27 @@ mod tests {
         let (none, root) = infer_cli(&[case(&["-n", "5", "file.txt"], true)]);
         assert!(none.is_empty());
         assert!(root[""].contains_key("short-n"));
+    }
+
+    #[test]
+    fn options_of_failing_cases_were_seen_too() {
+        // A usage error is recorded behaviour: the unit's answer to it is checked by replay, so
+        // only an option no case shows has to go to the original.
+        let (commands, flags) = infer_cli(&[
+            case(&["show", "x"], true),
+            case(&["show", "-x", "--mode=fast"], false),
+            case(&["nope", "-q"], false),
+        ]);
+        assert_eq!(commands, ["show"]);
+        let show = &flags["show"];
+        assert_eq!(show["short-x"].short, Some('x'));
+        assert_eq!(show["mode"].long.as_deref(), Some("mode"));
+        assert!(
+            flags.values().all(|f| !f.contains_key("short-q")),
+            "{flags:?}"
+        );
+        let (_, root) = infer_cli(&[case(&["-t"], true), case(&["-h"], false)]);
+        assert!(root[""].contains_key("short-h"), "{root:?}");
     }
 
     #[test]

@@ -1,0 +1,5 @@
+bin.name = "quopri"
+args = ["missing-input.txt", "-"]
+status.code = 1
+fs.sandbox = true
+fs.base = "trap-025-missing-input-txt.in"

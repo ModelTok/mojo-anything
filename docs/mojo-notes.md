@@ -32,6 +32,9 @@ Mojo builds only on Linux and macOS. On Windows, work in the WSL clone
 - Conversions from Python: `Float64(py=obj)`, `Int(py=obj)`, `String(py=obj)` (`raises`).
   To Python: `PythonObject(x)` for `Float64`, `Int`, `String`, `Bool`; tuples with
   `Python.tuple(a, b, ...)`, lists with `Python.list(...)` (`python/python.mojo`).
+- Bytes: a port's `List[UInt8]` is built from `builtins.bytes(v)` item by item
+  (`UInt8(Int(py=item))`) and returned as `builtins.bytes(list)` of a `Python.list()` of
+  `PythonObject(Int(b))` (`tests/mojo_py_bytes.rs`, 2026-11-22).
 - Errors: a raised Mojo `Error` reaches Python as `Exception` with the error's text as its
   message (`_set_python_error`, default `ExceptionType.Exception`). There is no public way to pick
   the type from a bound function. Generated code therefore raises `Error("<PythonType>: <msg>")`,

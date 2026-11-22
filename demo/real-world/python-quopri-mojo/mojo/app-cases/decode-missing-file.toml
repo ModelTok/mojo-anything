@@ -1,0 +1,4 @@
+bin.name = "quopri"
+args = ["-d", "missing.qp"]
+status.code = 1
+fs.sandbox = true

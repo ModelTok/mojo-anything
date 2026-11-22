@@ -1,5 +1,0 @@
-bin.name = "base64"
-args = ["-d", "in.b64"]
-status.code = 0
-fs.sandbox = true
-fs.base = "decode-file.in"

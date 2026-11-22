@@ -1,0 +1,2 @@
+missing-input.txt: can't open ([Errno 2] No such file or directory: 'missing-input.txt')
+-d: can't open ([Errno 2] No such file or directory: '-d')
