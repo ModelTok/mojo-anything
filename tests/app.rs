@@ -295,21 +295,331 @@ fn cli_front_door_falls_back(repo: &Path, run: &str) {
         state.commands,
         ["copy", "div", "len", "now", "upper", "words"]
     );
-    // Wiring a unit into the Mojo front door comes with Task 3; until then it says so.
-    let refused = front_door::wire(&WireOptions {
+    // Then a Mojo unit takes over `words`, whatever language the original is in.
+    write_mojo_unit(repo, "wordcount-mojo", WORDCOUNT_PORT_MOJO);
+    let stub = wire_mojo(repo, "wordcount-mojo", &["words"], true);
+    assert!(stub.glue_pending);
+    assert_eq!(stub.switch, "MOJO_ANYTHING_UNIT_WORDCOUNT");
+    std::fs::write(&stub.glue, WORDCOUNT_GLUE_MOJO).unwrap();
+    let wired = wire_mojo(repo, "wordcount-mojo", &[], true);
+    assert!(!wired.glue_pending);
+    assert_eq!(wired.commands, ["words"]);
+    let replay = wired.replay.unwrap();
+    assert_eq!(
+        replay.passed,
+        replay.total,
+        "{}",
+        std::fs::read_to_string(&replay.report).unwrap()
+    );
+    let fallback = replay.fallback.as_ref().unwrap();
+    assert_eq!(fallback.cases, fallback.total - 1, "{fallback:?}");
+    assert!(
+        !fallback.names.iter().any(|n| n.contains("words")),
+        "{fallback:?}"
+    );
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+/// Writes a hand-made Mojo unit: `mojo/<folder>/port.mojo` and the pixi project it builds in.
+fn write_mojo_unit(repo: &Path, folder: &str, port: &str) {
+    let unit = repo.join("mojo").join(folder);
+    std::fs::create_dir_all(&unit).unwrap();
+    std::fs::write(unit.join("port.mojo"), port).unwrap();
+    std::fs::write(
+        unit.join("pixi.toml"),
+        front_door_mojo::pixi_toml_app(folder, false),
+    )
+    .unwrap();
+}
+
+fn wire_mojo(repo: &Path, unit: &str, commands: &[&str], check: bool) -> front_door::WireOutcome {
+    front_door::wire(&WireOptions {
         repo,
-        unit: "wordcount",
-        commands: &["words".to_string()],
+        unit,
+        commands: &commands.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+        routes: &[],
+        skip_gate: true,
+        check,
+    })
+    .unwrap()
+}
+
+const WORDCOUNT_PORT_MOJO: &str =
+    "# The Mojo port of the original's `words`: words between ASCII whitespace.
+
+
+def count_words(data: List[UInt8]) -> Int:
+    var count = 0
+    var in_word = False
+    for i in range(len(data)):
+        var b = data[i]
+        if b == 32 or (b >= 9 and b <= 13):
+            in_word = False
+        elif not in_word:
+            in_word = True
+            count += 1
+    return count
+";
+
+const WORDCOUNT_GLUE_MOJO: &str = "from wordcount import port
+
+
+def words(args: List[String]) raises -> Int:
+    var data = open(\"/dev/stdin\", \"r\").read_bytes()
+    print(port.count_words(data))
+    return 0
+";
+
+/// Glue that hands a case back to the original after reading stdin.
+const WORDCOUNT_DECLINING_GLUE_MOJO: &str = "import original
+from wordcount import port
+
+
+def _starts_with(data: List[UInt8], prefix: String) -> Bool:
+    var p = prefix.as_bytes()
+    if len(data) < len(p):
+        return False
+    for i in range(len(p)):
+        if data[i] != p[i]:
+            return False
+    return True
+
+
+def words(args: List[String]) raises -> Int:
+    var data = open(\"/dev/stdin\", \"r\").read_bytes()
+    if _starts_with(data, \"#original\"):
+        return original.run_with_stdin(args, data)
+    print(port.count_words(data))
+    return 0
+";
+
+/// Records the Python CLI fixture from `inputs` (JSON lines) and builds its front door.
+fn python_repo_from_inputs(inputs: &str) -> PathBuf {
+    let repo = fixture("python");
+    std::fs::write(repo.join("inputs.jsonl"), inputs).unwrap();
+    let path = repo.join("inputs.jsonl");
+    app::record(&RecordOptions {
+        repo: &repo,
+        run: &words("python3 tcli.py"),
+        inputs: Some(&path),
+        normalize: &[],
+        name: Some("tcli"),
+        traps: false,
+        timeout_secs: None,
+        http: false,
+        server_args: &[],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    repo
+}
+
+fn record_python_examples() -> PathBuf {
+    let repo = fixture("python");
+    app::record(&RecordOptions {
+        repo: &repo,
+        run: &words("python3 tcli.py"),
+        inputs: None,
+        normalize: &[],
+        name: None,
+        traps: false,
+        timeout_secs: None,
+        http: false,
+        server_args: &[],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    repo
+}
+
+fn replay_build(repo: &Path, build: &str) -> app::ReplayOutcome {
+    app::replay(&ReplayOptions {
+        case: None,
+        repo,
+        build: Some(build),
+        timeout_secs: None,
+        port: None,
+    })
+    .unwrap()
+}
+
+#[test]
+fn wire_writes_mojo_glue() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    let repo = record_python_examples();
+    let door = front_door_falls_back(&repo);
+    write_mojo_unit(&repo, "textops-mojo", &textops_port_mojo(&CHARS));
+    let wired = wire_mojo(&repo, "textops-mojo", &["upper"], true);
+    let glue = repo.join("mojo/app/glue/textops.mojo");
+    assert_eq!(wired.glue, glue);
+    let text = std::fs::read_to_string(&glue).unwrap();
+    assert!(front_door::is_stub(&text), "{text}");
+    assert!(wired.glue_pending);
+    assert!(
+        text.contains("def upper(args: List[String]) raises -> Int:"),
+        "{text}"
+    );
+    assert!(text.contains("return original.run(args)"), "{text}");
+    // The stub names what the port offers.
+    assert!(text.contains("port.upper(text: String)"), "{text}");
+    assert!(repo.join("mojo/app/glue/__init__.mojo").is_file());
+    let units = std::fs::read_to_string(repo.join("mojo/app/units.mojo")).unwrap();
+    assert!(units.contains("from glue import textops"), "{units}");
+    let replay = wired.replay.unwrap();
+    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
+    assert_eq!(
+        replay.fallback.unwrap().cases,
+        door.fallback.unwrap().cases,
+        "the stub still hands every case to the original"
+    );
+    let state = front_door::State::load(&repo).unwrap();
+    assert_eq!(state.units[0].path, "../../mojo/textops-mojo");
+    // A Rust crate cannot be wired into the Mojo front door.
+    write_unit(&repo, "textops-rs", &textops_port(&CHARS));
+    let err = front_door::wire(&WireOptions {
+        repo: &repo,
+        unit: "textops-rs",
+        commands: &["len".to_string()],
         routes: &[],
         skip_gate: true,
         check: false,
     })
     .unwrap_err();
-    assert!(
-        format!("{refused:#}").contains("Mojo front door"),
-        "{refused:#}"
+    assert!(format!("{err:#}").contains("Rust crate"), "{err:#}");
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+#[test]
+fn wired_command_runs_in_mojo() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    let repo = record_python_examples();
+    let door = front_door_falls_back(&repo);
+    let before = door.fallback.unwrap();
+    write_mojo_unit(&repo, "textops-mojo", &textops_port_mojo(&CHARS));
+    let stub = wire_mojo(&repo, "textops-mojo", &["upper"], false);
+    std::fs::copy(fixture_glue("textops.mojo"), &stub.glue).unwrap();
+    let wired = wire_mojo(&repo, "textops-mojo", &[], true);
+    assert!(!wired.glue_pending);
+    let replay = wired.replay.unwrap();
+    assert_eq!(
+        replay.passed,
+        replay.total,
+        "{}",
+        std::fs::read_to_string(&replay.report).unwrap()
     );
-    std::fs::remove_dir_all(repo).unwrap();
+    let upper = cases_of(&repo, "upper");
+    assert!(upper > 0);
+    let after = replay.fallback.unwrap();
+    assert_eq!(after.cases, before.cases - upper, "{after:?}");
+    assert!(
+        !after.names.iter().any(|n| n.contains("upper")),
+        "{after:?}"
+    );
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+#[test]
+fn kill_switch_sends_command_back() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    let repo = record_python_examples();
+    let door = front_door_falls_back(&repo);
+    write_mojo_unit(&repo, "textops-mojo", &textops_port_mojo(&CHARS));
+    let stub = wire_mojo(&repo, "textops-mojo", &["upper"], false);
+    std::fs::copy(fixture_glue("textops.mojo"), &stub.glue).unwrap();
+    let wired = wire_mojo(&repo, "textops-mojo", &[], true);
+    let exe = wired.replay.unwrap().build[0].clone();
+    assert!(wired.switch == "MOJO_ANYTHING_UNIT_TEXTOPS");
+    let switched = replay_build(&repo, &format!("env {}=original {exe}", wired.switch));
+    assert_eq!(switched.passed, switched.total, "{:?}", switched.failures);
+    assert_eq!(
+        switched.fallback.unwrap().cases,
+        door.fallback.unwrap().cases,
+        "every case falls back again"
+    );
+    // Any other value leaves the unit on.
+    let on = replay_build(&repo, &format!("env {}=mojo {exe}", wired.switch));
+    assert!(on.fallback.unwrap().cases < switched.total);
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+#[test]
+fn glue_declines_with_stdin() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    let repo = python_repo_from_inputs(concat!(
+        r#"{"name": "plain", "args": ["words"], "stdin": "alpha  beta\tgamma delta\n"}"#,
+        "\n",
+        r##"{"name": "declined", "args": ["words"], "stdin": "#original four five six\n"}"##,
+        "\n",
+        r#"{"name": "empty", "args": ["words"], "stdin": ""}"#,
+        "\n",
+    ));
+    front_door_falls_back(&repo);
+    write_mojo_unit(&repo, "wordcount-mojo", WORDCOUNT_PORT_MOJO);
+    let stub = wire_mojo(&repo, "wordcount-mojo", &["words"], false);
+    std::fs::write(&stub.glue, WORDCOUNT_DECLINING_GLUE_MOJO).unwrap();
+    let wired = wire_mojo(&repo, "wordcount-mojo", &[], true);
+    let replay = wired.replay.unwrap();
+    assert_eq!(
+        replay.passed,
+        replay.total,
+        "{}",
+        std::fs::read_to_string(&replay.report).unwrap()
+    );
+    // The README's examples are recorded too; every `words` case but one is answered in Mojo.
+    let words = cases_of(&repo, "words");
+    assert_eq!(words, 4);
+    let fallback = replay.fallback.unwrap();
+    assert_eq!(fallback.cases, replay.total - (words - 1), "{fallback:?}");
+    assert!(
+        fallback.names.iter().any(|n| n == "declined"),
+        "{fallback:?}"
+    );
+    for answered in ["plain", "empty", "example-004-words"] {
+        assert!(
+            !fallback.names.iter().any(|n| n == answered),
+            "{fallback:?}"
+        );
+    }
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+/// How many recorded cases start with `command`.
+fn cases_of(repo: &Path, command: &str) -> usize {
+    let wanted = format!("args = [\"{command}\"");
+    std::fs::read_dir(app::cases_dir(repo))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
+        .filter(|e| {
+            std::fs::read_to_string(e.path())
+                .unwrap_or_default()
+                .contains(&wanted)
+        })
+        .count()
+}
+
+fn fixture_glue(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/app-glue")
+        .join(name)
 }
 
 fn mojo() -> bool {
@@ -773,6 +1083,64 @@ pub fn div(a: i64, b: i64) -> Option<(i64, i64)> {{
 }}
 ",
         s.count, s.upper, s.unit
+    )
+}
+
+/// The same port in Mojo, as `mojo format` writes it.
+fn textops_port_mojo(s: &Semantics) -> String {
+    let upper = match s.upper {
+        "Upper::Full" => "FULL",
+        "Upper::Simple" => "SIMPLE",
+        _ => "ASCII",
+    };
+    let bytes = if s.count == "Count::Bytes" {
+        "True"
+    } else {
+        "False"
+    };
+    format!(
+        "# The Mojo port of the original's text operations.
+
+comptime FULL = 0
+comptime SIMPLE = 1
+comptime ASCII = 2
+comptime UPPER = {upper}
+comptime COUNT_BYTES = {bytes}
+comptime UNIT = \"{}\"
+
+
+def upper(text: String) -> String:
+    comptime if UPPER == FULL:
+        return text.upper()
+    else:
+        var out = String()
+        for c in text.codepoint_slices():
+            var one = String(c)
+            comptime if UPPER == ASCII:
+                if one.byte_length() > 1:
+                    out += one
+                    continue
+            var up = one.upper()
+            if up.count_codepoints() == 1:
+                out += up
+            else:
+                out += one
+        return out
+
+
+def count(text: String) -> Int:
+    comptime if COUNT_BYTES:
+        return text.byte_length()
+    else:
+        return text.count_codepoints()
+
+
+def div(a: Int, b: Int) raises -> Tuple[Int, Int]:
+    if b == 0:
+        raise Error(\"division by zero\")
+    return (a // b, a % b)
+",
+        s.unit
     )
 }
 

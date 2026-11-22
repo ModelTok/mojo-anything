@@ -127,6 +127,30 @@ Confirmed by building and running the generated front door (`src/mojo/original.m
   (`b64encode`), `std.collections` (`Dict`), `std.testing`, `std.time` (`perf_counter_ns`),
   `std.random` (`random_float64`). `std.algorithm` has no `parallelize` in 1.2.
 
+## Packages and glue (front door `wire`)
+
+Confirmed by the spikes before M6 Task 3 and by `tests/app.rs` `wire_*`, `wired_command_runs_in_mojo`,
+`glue_declines_with_stdin` (2026-11-22).
+
+- `mojo build -I <dir>` adds an import root; a folder under it with `__init__.mojo` is a package:
+  `from textops import port`, `from textops.port import upper`, `import textops.helper as helper`.
+- A module of a package cannot import a sibling by its bare name (`from helper import` inside
+  `textops/port.mojo`: "unable to locate module"), and a file reachable both as `helper` and
+  `textops.helper` is refused ("name the same module; remove the duplicate import root"). Inside
+  the package, `from textops.helper import` works.
+- A module in a subfolder (`glue/textops.mojo`) imports a module beside `main.mojo` by its bare
+  name (`import original`).
+- `comptime` constants in a plain `if` fail `--Werror` ("'if' condition always evaluates to
+  'True'", "unreachable code on right side of 'False and ...'"): branch with `comptime if` /
+  `else`.
+- stdin as bytes: `open("/dev/stdin", "r").read_bytes()` (a `List[UInt8]`, any bytes).
+- `print(..., file=stderr)` with `from std.sys import stderr`; `exit(code)` flushes what was
+  printed.
+- `String.upper()` maps the full Unicode case (`ß` to `SS`); `s.count_codepoints()`,
+  `s.byte_length()`, `for c in s.codepoint_slices()` (`String(c)` for each); `Int("7")` parses and
+  raises on anything else; `//` and `%` on `Int` floor as Python's do; `from std.time import
+  perf_counter_ns`.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.

@@ -24,10 +24,11 @@ const SCHEMA: &str = "mojo-anything/app@1";
 const OLD_APP_DIR: &str = "rust/app";
 const GLUE_MARKER: &str = "unimplemented!(\"glue for";
 
-/// The glue file still holds the stub `wire` wrote, however rustfmt wrapped it.
-pub(crate) fn is_stub(glue: &str) -> bool {
+/// The glue file still holds a stub `wire` wrote (Rust or Mojo), however it was formatted.
+pub fn is_stub(glue: &str) -> bool {
     let squash = |s: &str| s.split_whitespace().collect::<String>();
-    squash(glue).contains(&squash(GLUE_MARKER))
+    let glue = squash(glue);
+    glue.contains(&squash(GLUE_MARKER)) || glue.contains(&squash(mojo_door::GLUE_MARKER))
 }
 
 /// `mojo/app/mojo-anything.json`: the commands the front door routes and the units wired to them.
@@ -209,7 +210,7 @@ pub(crate) fn ident(name: &str) -> String {
 
 /// The commands (first arguments of cases the original ran successfully) and the flags seen with
 /// each; the key `""` holds the flags of an app without commands.
-fn infer_cli(
+pub(crate) fn infer_cli(
     cases: &[(Vec<String>, bool)],
 ) -> (Vec<String>, BTreeMap<String, BTreeMap<String, Flag>>) {
     let commands: BTreeSet<String> = cases
@@ -430,7 +431,7 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         api: Vec::new(),
     };
     let files: Vec<(&str, String)> = vec![
-        ("pixi.toml", mojo_door::pixi_toml_app(&binary)),
+        ("pixi.toml", mojo_door::pixi_toml_app(&binary, false)),
         (".gitignore", "/.pixi/\n/.mojo-anything/\n".to_string()),
         ("main.mojo", mojo_door::main_mojo(&state, &flags)),
         (
@@ -665,8 +666,8 @@ fn refuse_mojo_unit(repo: &Path, unit: &str) -> Result<()> {
         ) && (named || m.unit.trim_end_matches('/') == wanted)
         {
             bail!(
-                "{} is a Mojo unit: the whole-app flow (front door, wire, lift) still builds a Rust \
-                 app and cannot take Mojo units yet; check the unit on its own with diff, shadow and gate",
+                "{} is a Mojo unit: server and library front doors are still Rust apps and \
+                 cannot take Mojo units yet; check the unit on its own with diff, shadow and gate",
                 dir.display()
             );
         }
@@ -714,11 +715,9 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         !state.lifted,
         "the app is lifted: there is no fallback left to wire around; call the crate from src/units directly"
     );
-    ensure!(
-        state.kind != AppKind::Cli,
-        "{} is a Mojo front door: wiring units into it comes with M6 Task 3 (`app wire` with Mojo units); until then every command runs the original",
-        repo.join(APP_DIR).display()
-    );
+    if state.kind == AppKind::Cli {
+        return cli_wire(&repo, opts, state);
+    }
     let app_dir = repo.join(APP_DIR);
     let crate_dir = find_unit(&repo, opts.unit)?;
     let manifest_text = std::fs::read_to_string(crate_dir.join("Cargo.toml"))?;
@@ -870,6 +869,197 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         crate_dir,
         commands,
         routes,
+        switch,
+        glue,
+        glue_pending,
+        gate,
+        replay,
+    })
+}
+
+/// A Mojo unit folder for the CLI front door: `mojo/<unit>`, `mojo/<unit>-mojo`, a folder
+/// given as a path, or the unit id a manifest under `mojo/` names. A folder is a Mojo unit
+/// when it holds `port.mojo`.
+fn find_mojo_unit(repo: &Path, unit: &str) -> Result<PathBuf> {
+    let mojo = repo.join("mojo");
+    let app_dir = repo.join(APP_DIR);
+    for candidate in [
+        mojo.join(unit),
+        mojo.join(format!("{unit}-mojo")),
+        repo.join(unit),
+        PathBuf::from(unit),
+    ] {
+        if candidate.join("port.mojo").is_file() && candidate != app_dir {
+            return Ok(candidate.canonical()?);
+        }
+    }
+    let wanted = unit.trim_end_matches('/');
+    if let Ok(entries) = std::fs::read_dir(&mojo) {
+        for entry in entries.flatten() {
+            if let Ok(m) = crate::bridge::Manifest::load(&entry.path())
+                && m.unit.trim_end_matches('/') == wanted
+                && entry.path().join("port.mojo").is_file()
+            {
+                return Ok(entry.path().canonical()?);
+            }
+        }
+    }
+    let rust = repo.join("rust");
+    for candidate in [
+        rust.join(unit),
+        rust.join(format!("{unit}-rs")),
+        repo.join(unit),
+    ] {
+        if candidate.join("Cargo.toml").is_file() {
+            bail!(
+                "{} is a Rust crate: the CLI front door is a Mojo binary and wires Mojo units \
+                 (a folder with port.mojo); Java and Kotlin units move to Mojo with M5",
+                candidate.display()
+            );
+        }
+    }
+    bail!(
+        "no Mojo unit `{unit}`: give the unit folder (`mojo/<name>`, as `bridge` made it, with a port.mojo) or the unit id"
+    )
+}
+
+/// `wire` for the CLI front door: the unit's port becomes a package the glue imports, and
+/// each wired command gets a glue function in `mojo/app/glue/<unit>.mojo`.
+fn cli_wire(repo: &Path, opts: &WireOptions, mut state: State) -> Result<WireOutcome> {
+    ensure!(
+        opts.routes.is_empty(),
+        "{} is a CLI: name what the unit answers with --command, not --route",
+        state.name
+    );
+    let app_dir = repo.join(APP_DIR);
+    let unit_dir = find_mojo_unit(repo, opts.unit)?;
+    let manifest = crate::bridge::Manifest::load(&unit_dir).ok();
+    let crate_name = match &manifest {
+        Some(m) => m.crate_name.clone(),
+        None => unit_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .context("the unit folder has no name")?,
+    };
+    let name = unit_name(&crate_name).to_string();
+    let switch = kill_switch(&crate_name);
+    let gate = if opts.skip_gate {
+        None
+    } else {
+        let checks = if manifest.is_some() {
+            crate::gate::gate(&unit_dir, &[])?.checks
+        } else {
+            crate::gate::mojo_checks(&unit_dir)
+        };
+        let failed: Vec<&str> = checks
+            .iter()
+            .filter(|c| !c.passed)
+            .map(|c| c.name)
+            .collect();
+        ensure!(
+            failed.is_empty(),
+            "{crate_name} does not pass gate ({}): run `mojo-anything gate {}` and fix it before wiring",
+            failed.join(", "),
+            unit_dir.display()
+        );
+        Some(true)
+    };
+    let previous = state.units.iter().position(|u| u.name == name);
+    let commands = if opts.commands.is_empty() {
+        previous
+            .map(|i| state.units[i].commands.clone())
+            .with_context(|| format!("name the commands {name} answers with --command"))?
+    } else {
+        opts.commands.to_vec()
+    };
+    let routable: Vec<&str> = state
+        .commands
+        .iter()
+        .map(String::as_str)
+        .chain([state.name.as_str()])
+        .collect();
+    for command in &commands {
+        ensure!(
+            routable.contains(&command.as_str()),
+            "the front door has no command `{command}` (it has: {}); add it to `commands` in {}",
+            routable.join(", "),
+            app_dir.join(STATE_FILE).display()
+        );
+        if let Some(other) = state
+            .units
+            .iter()
+            .find(|u| u.name != name && u.commands.contains(command))
+        {
+            bail!("`{command}` is already wired to {}", other.name);
+        }
+    }
+    let entry = WiredUnit {
+        name: name.clone(),
+        crate_name,
+        path: from_app_dir(repo, &unit_dir),
+        commands: commands.clone(),
+        routes: Vec::new(),
+        switch: switch.clone(),
+        unit: None,
+        shadow: None,
+        kept: Vec::new(),
+    };
+    let glue_dir = app_dir.join("glue");
+    std::fs::create_dir_all(&glue_dir)?;
+    let init = glue_dir.join("__init__.mojo");
+    if !init.exists() {
+        std::fs::write(
+            &init,
+            "# The glue between the front door and the wired units, one module per unit.\n",
+        )?;
+    }
+    let glue_file = format!("glue/{}.mojo", mojo_door::mojo_ident(&name));
+    let glue = app_dir.join(&glue_file);
+    let mut format = vec!["units.mojo".to_string()];
+    match std::fs::read_to_string(&glue) {
+        Ok(text) => {
+            let more = mojo_door::missing_glue(&text, &commands);
+            if !more.is_empty() {
+                std::fs::write(&glue, text + &more)?;
+                format.push(glue_file.clone());
+            }
+        }
+        Err(_) => {
+            let port = std::fs::read_to_string(unit_dir.join("port.mojo"))?;
+            let api = crate::codegen_mojo::parse_port_mojo(&port);
+            std::fs::write(&glue, mojo_door::glue_mojo(&entry, &api))?;
+            format.push(glue_file.clone());
+        }
+    }
+    match previous {
+        Some(i) => state.units[i] = entry,
+        None => state.units.push(entry),
+    }
+    std::fs::write(
+        app_dir.join("units.mojo"),
+        mojo_door::units_mojo(&state, false),
+    )?;
+    if mojo_door::port_modules(&unit_dir)
+        .iter()
+        .any(|m| m == "json")
+    {
+        mojo_door::add_json_dependency(&app_dir)?;
+    }
+    let format: Vec<&str> = format.iter().map(String::as_str).collect();
+    mojo_door::mojo_format(&app_dir, &format);
+    state.save(repo)?;
+    let glue_pending = is_stub(&std::fs::read_to_string(&glue)?);
+    let replay = if opts.check {
+        Some(build_and_replay(repo, &state)?)
+    } else {
+        None
+    };
+    Ok(WireOutcome {
+        shadow: None,
+        unit: name,
+        crate_dir: unit_dir,
+        commands,
+        routes: Vec::new(),
         switch,
         glue,
         glue_pending,
