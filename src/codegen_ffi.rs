@@ -553,8 +553,8 @@ pub fn dispatcher_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
          def _call(name: String, text: String) -> String:\n    \
          var args: JsonValue\n    try:\n        args = parse_json(text, {refuse})\n    \
          except e:\n        return _panic(\"the arguments are not JSON: \" + String(e))\n    \
-         if not args.is_array():\n        return _panic(\"the arguments are not a JSON array\")\n    \
-         ref a = args.array()\n{arms}    return _panic(\"unknown function: \" + name)\n\n\n\
+         if not args.is_array():\n        return _panic(\"the arguments are not a JSON array\")\n\
+         {bind}{arms}    return _panic(\"unknown function: \" + name)\n\n\n\
          @export\n\
          def mojo_anything_call(\n    name: Optional[Pointer[Int8, ImmutAnyOrigin]],\n    \
          args: Optional[Pointer[Int8, ImmutAnyOrigin]],\n) abi(\"C\") -> Optional[Pointer[Int8, MutAnyOrigin]]:\n    \
@@ -563,6 +563,12 @@ pub fn dispatcher_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
          def mojo_anything_free(p: Optional[Pointer[Int8, MutAnyOrigin]]) abi(\"C\"):\n    \
          if p:\n        external_call[\"free\", NoneType](p.value())\n",
         unit = m.unit,
+        // Mojo refuses a `ref` that is never read.
+        bind = if arms.is_empty() {
+            ""
+        } else {
+            "    ref a = args.array()\n"
+        },
         helpers = DISPATCHER_HELPERS,
         conv = conv.text,
     ))
@@ -584,4 +590,22 @@ pub fn cargo_toml(m: &Manifest) -> String {
          {serde_json}{extra}\n[profile.release]\nlto = true\n\n[lints.clippy]\nall = {{ level = \"warn\", priority = -1 }}\n\n[lints.rust]\nunused_lifetimes = \"warn\"\ntrivial_numeric_casts = \"warn\"\n",
         m.crate_name, m.unit
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dispatcher_without_functions_binds_no_arguments() {
+        let m: Manifest = serde_json::from_str(
+            r#"{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/shapes.ts",
+                "language": "ts", "kind": "mojo-node", "crate_name": "shapes-mojo", "exports": []}"#,
+        )
+        .unwrap();
+        let text = dispatcher_mojo(&m, &PortApi::default()).unwrap();
+        // Mojo refuses a `ref` that is never read, so a unit with no functions binds nothing.
+        assert!(!text.contains("ref a = args.array()"), "{text}");
+        assert!(text.contains("unknown function"), "{text}");
+    }
 }
