@@ -4,40 +4,23 @@
 
 <h1 align="center">mojo-anything</h1>
 
-<p align="center"><b>Rewrite your app in Rust, and prove it still behaves the same.</b><br>
-Point it at your app: it records what the original does, your coding agent writes the Rust one piece at a time,<br>
-and every piece is checked against that recording before it moves on. It doesn't translate code; it proves the rewrite.</p>
+<p align="center"><b>Port your app to Mojo, and prove it still behaves the same.</b><br>
+It records what the original does, your coding agent writes the Mojo one piece at a time,<br>
+and every piece is checked against that recording before it moves on. It doesn't translate code; it proves the port.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/languages/top/erkamyaman/rust-anything?logo=rust&label=Rust&color=CE422B" alt="Rust share of the code">
-  <img src="https://img.shields.io/badge/macOS%20·%20Linux%20·%20Windows-native-2563EB" alt="Native binaries for macOS, Linux and Windows">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-555" alt="MIT license"></a>
-  <a href="https://crates.io/crates/rust-anything"><img src="https://img.shields.io/crates/v/rust-anything?color=E2862A&label=crates.io" alt="crates.io version"></a>
-  <a href="https://www.npmjs.com/package/rust-anything"><img src="https://img.shields.io/npm/v/rust-anything?color=E2862A&label=npm" alt="npm version"></a>
-  <br>
-  <a href="https://coderabbit.link/erkamyaman"><img src="https://img.shields.io/coderabbit/prs/github/erkamyaman/rust-anything?labelColor=171717&color=FF570A&label=Reviewed+by+CodeRabbit" alt="Pull requests reviewed by CodeRabbit"></a>
-  <a href="https://github.com/rust-unofficial/awesome-rust#development-tools"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Rust"></a>
-  <a href="https://github.com/AIshihzong/awesome-reverse-engineer-anything"><img src="https://img.shields.io/badge/Featured%20in-Awesome%20REA-f0b429" alt="Featured in Awesome REA"></a>
-  <a href="https://github.com/erkamyaman/rust-anything"><img src="https://img.shields.io/github/stars/erkamyaman/rust-anything?style=social" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/Linux-checked-2563EB" alt="Checked on Linux">
+  <img src="https://img.shields.io/badge/macOS-not%20checked%20yet-8A8A8A" alt="macOS not checked yet">
+  <img src="https://img.shields.io/badge/Windows-through%20WSL-8A8A8A" alt="Windows through WSL">
+  <img src="https://img.shields.io/badge/status-pre--release-E8361C" alt="Pre-release">
 </p>
 
-<p align="center"><a href="https://github.com/erkamyaman/rust-anything/discussions/127"><img src="https://img.shields.io/badge/Join%20the%20discussion-6E40C9?style=for-the-badge&logo=github&logoColor=white" alt="Join the discussion"></a></p>
+<p align="center"><b><a href="#quick-start">Install</a></b> · <a href="docs/STATUS.md">What works today</a> · <a href="docs/real-world.md">Real-world ports</a> · <a href="docs/faq.md#faq">FAQ</a><br>
+<sub><a href="#languages">Languages</a> · <a href="docs/how-it-works.md#how-it-works">How it works</a> · <a href="docs/whole-apps.md#port-a-whole-app">Whole apps</a> · <a href="LICENSE">MIT</a></sub><br>
+A fork of <a href="https://github.com/erkamyaman/rust-anything">rust-anything</a> by Erkam Yaman, retargeted from Rust to Mojo.</p>
 
-<p align="center"><a href="https://trendshift.io/repositories/363468" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/363468/daily?language=Rust" alt="erkamyaman/mojo-anything: #1 Rust repository of the day on Trendshift" width="250" height="55"/></a></p>
-
-<p align="center"><b><a href="#quick-start">Install</a></b> · <a href="https://github.com/erkamyaman/rust-anything/releases">Releases</a> · <a href="#quick-start">Claude Code plugin</a> · <a href="https://registry.modelcontextprotocol.io/v0.1/servers?search=rust-anything">MCP Registry</a> · <a href="docs/real-world.md">Real-world ports</a> · <a href="docs/faq.md#faq">FAQ</a><br>
-<sub><a href="#languages">Languages</a> · <a href="docs/how-it-works.md#how-it-works">How it works</a> · <a href="docs/whole-apps.md#port-a-whole-app">Whole apps</a> · <a href="#sponsors">Sponsors</a> · <a href="LICENSE">MIT</a></sub><br>
-Made in Türkiye 🇹🇷 by <a href="https://github.com/erkamyaman">erKam Yaman</a> · <a href="https://github.com/sponsors/erkamyaman">❤️ Sponsor me</a> · Sponsored by <a href="https://coderabbit.link/erkamyaman"><img src="docs/assets/brands/coderabbit.png" width="22" height="22" align="absmiddle" alt=""> <b>CodeRabbit</b></a></p>
-
-<p align="center">New in 2.0: <a href="docs/real-world.md#prettier">Prettier, ported to Rust</a>. 19x faster · 15,861 of 17,224 recorded runs fully in Rust · every run byte-identical</p>
-
-<p align="center">
-  <img src="docs/assets/prettier.gif" alt="Prettier and its Rust port format the same 59 real files, one process per file: Prettier takes 3.63 s, the Rust port 0.20 s, with the same output byte for byte." width="820">
-  <br>
-  <sub>Prettier against its Rust port on 59 real files from ms, Fuse.js and json-server (Apple M4). Same output, byte for byte. <a href="docs/real-world.md#prettier">How it was measured</a>.</sub>
-</p>
-
-<p align="center"><sub>PHP and C#: record, replay and the front door today; unit ports come next.</sub></p>
+<p align="center"><sub>Pre-release: no version has been tagged yet. Units written in Python, C, Go, Ruby, TypeScript/JavaScript, Java and Kotlin port to Mojo; PHP and C# record and replay only. The docs are still being re-measured on Mojo, and some figures in them still come from rust-anything. See <a href="docs/STATUS.md">STATUS</a>.</sub></p>
 
 <table>
   <tr>
@@ -47,55 +30,33 @@ Made in Türkiye 🇹🇷 by <a href="https://github.com/erkamyaman">erKam Yaman
     </td>
     <td width="25%" valign="top">
       <b>Port</b><br>
-      <code>bridge</code> generates the Rust crate and a wrapper, so callers keep the original API. You or your agent write the Rust.
+      <code>bridge</code> generates a Mojo port to fill in and a wrapper, so callers keep the original API. You or your agent write the Mojo.
     </td>
     <td width="25%" valign="top">
       <b>Check</b><br>
-      <code>diff</code> replays every recorded case against the Rust, and nothing ships until they all match and <code>gate</code> passes.
+      <code>diff</code> replays every recorded case against the Mojo port, and nothing ships until they all match and <code>gate</code> passes.
     </td>
     <td width="25%" valign="top">
       <b>Lift</b><br>
-      When replay passes with no fallback and every unit passes gate, <code>app lift</code> makes it a pure Rust app. The original is never touched.
+      When replay passes with no fallback and every unit passes gate, <code>app lift</code> makes it a pure Mojo app. The original is never touched.
     </td>
   </tr>
 </table>
 
-**Rewrite your whole app in Rust, one piece at a time.** mojo-anything records what your
-Node.js (TypeScript/JavaScript), Python, C, Go, Ruby, Java or Kotlin app does today, then checks every piece of the
-Rust rewrite against that recording before it moves on, until the app is pure Rust. CLIs, HTTP
-servers and libraries; your coding agent (or you) writes the Rust. It is built on
-[napi-rs](https://github.com/napi-rs/napi-rs), [PyO3](https://github.com/PyO3/pyo3) and
-[wasm-bindgen](https://github.com/wasm-bindgen/wasm-bindgen), which carry the calls between your
-language and Rust; mojo-anything decides what to move and proves it matches. It can only catch what the
-recording covers: see [What it can't catch](docs/how-it-works.md#what-it-cant-catch). Whole tools
-and servers, or only the slow part, one hot path at a time:
+**Port your whole app to Mojo, one piece at a time.** mojo-anything records what your
+Node.js (TypeScript/JavaScript), Python, C, Go, Ruby, Java or Kotlin code does today, then checks every
+piece of the Mojo port against that recording before it moves on, until the app is pure Mojo. CLIs,
+HTTP servers and libraries; your coding agent (or you) writes the Mojo. Calls reach the port through
+a generated CPython extension (Python), a Node-API shim or a WebAssembly module (Node), the Java
+Foreign Function & Memory API on Java 22+ (Java and Kotlin), or a C ABI with a JSON dispatcher (C, Go,
+Ruby); mojo-anything decides what to move and proves it matches. It can only catch what the recording
+covers: see [What it can't catch](docs/how-it-works.md#what-it-cant-catch).
+The speed-ups rust-anything measured for its Rust ports are kept in
+[Real-world ports](docs/real-world.md) as history; they are not Mojo results. What the Mojo
+ports match and how fast they run so far is in [STATUS](docs/STATUS.md).
 
-| Real project, same output as the original | Original | With mojo-anything |
-| --- | ---: | ---: |
-| [Prettier](docs/real-world.md#prettier) 3.6.2, 2,360 JS/TS files from the command line | 128.6 s | **6.9 s: 19x faster** |
-| Prettier, 6,305 Markdown files from the command line | 352 s | **22.5 s: 15.6x faster** |
-| [json-server](docs/real-world.md#json-server), a whole Node server: memory at idle | 74 MB | **3.5 MB**, one 5.3 MB binary |
-| json-server, from start to first response | 79 to 85 ms | **8 to 10 ms** |
-| [Fuse.js](docs/real-world.md#fusejs) search over 50,000 strings, per query | 91.2 ms | **2.8 ms: 32x faster** |
-
-Prettier: 15,861 of 17,224 recorded runs format fully in Rust across 10 languages (JavaScript,
-TypeScript, JSX, JSON, GraphQL, YAML, Markdown, CSS, SCSS, Less), and all 17,224 match Prettier
-byte for byte, since anything not ported yet falls back to Prettier. json-server: 514/514
-recorded HTTP cases match on a pure Rust binary. Measured on an Apple M4, two runs each, every
-output compared before timing ([details](docs/real-world.md)). Calling Rust once per small
-function is usually *slower* than a JIT; mojo-anything finds the loop worth moving, and moves it. Against
-C the win is safety, not speed: [ffmpeg's libavutil](docs/real-world.md#ffmpeg) ported to Rust
-matches all 226,447 recorded calls and runs at about C's speed (18 of 42 benchmarks even, 8
-faster, 16 slower by 3 to 40%).
-
-<p align="center">
-  <img src="docs/assets/json-server.gif" alt="json-server as a Node server and as one Rust binary: memory at idle 74 MB and 3.5 MB, start to first response 79 to 85 ms and 8 to 10 ms, and 514 of 514 recorded HTTP cases match." width="820">
-  <br>
-  <sub>json-server, a whole Node server, lifted to a pure Rust binary (Apple M4). <a href="docs/real-world.md#json-server">How it was measured</a>.</sub>
-</p>
-
-> mojo-anything is an independent project, not affiliated with or endorsed by the Rust Project
-> or the Rust Foundation. "Rust" is a trademark of the Rust Foundation.
+> mojo-anything is an independent project, not affiliated with or endorsed by Modular Inc.
+> "Mojo" and "Modular" are trademarks of Modular Inc.
 
 > [!WARNING]
 > `record` and `app record` run your original code, calling each function (or the whole app) on
