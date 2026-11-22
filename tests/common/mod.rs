@@ -51,6 +51,15 @@ pub fn have_mojo() -> bool {
     mojo_anything::mojo::available() || missing("mojo", &mojo_anything::mojo::missing_message())
 }
 
+/// Whether `java` and `javac` are Java 22 or newer, which Java and Kotlin units need; skips (or,
+/// when `java` is required, fails) the test otherwise.
+pub fn have_java() -> bool {
+    match mojo_anything::jvm::require_java() {
+        Ok(()) => true,
+        Err(e) => missing("java", &format!("is not usable: {e:#}")),
+    }
+}
+
 /// Whether `program args` succeeds, for runtimes that need more than to exist (a minimum version).
 pub fn have_with(program: &str, args: &[&str], need: &str) -> bool {
     runs(program, args) || missing(program, need)

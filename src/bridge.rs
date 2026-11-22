@@ -37,13 +37,20 @@ pub enum Kind {
     /// dispatcher.
     #[serde(rename = "mojo-node")]
     MojoNode,
+    /// A Mojo port of a Java or Kotlin unit, reached from generated Java classes through the
+    /// Foreign Function & Memory API (Java 22+) over the JSON dispatcher.
+    #[serde(rename = "mojo-jvm")]
+    MojoJvm,
 }
+
+/// Why a `mojo-jvm` unit cannot be bridged or built yet.
+pub const MOJO_JVM_NOT_YET: &str = "not yet: `mojo-jvm` units (Java and Kotlin ported to Mojo) are bridged and built from M5 Task 3";
 
 /// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     use crate::lang::Lang;
     match kind {
-        Kind::MojoPy | Kind::CAbi | Kind::MojoNode => true,
+        Kind::MojoPy | Kind::CAbi | Kind::MojoNode | Kind::MojoJvm => true,
         Kind::Ffi => matches!(language, Lang::Go | Lang::Ruby),
     }
 }
@@ -857,6 +864,9 @@ pub struct Refreshed {
 /// port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
+    if manifest.kind == Kind::MojoJvm {
+        bail!("{MOJO_JVM_NOT_YET}");
+    }
     if manifest.kind == Kind::MojoPy {
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
@@ -942,6 +952,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let lang = opts
         .lang
         .unwrap_or_else(|| crate::lang::Lang::detect(&root));
+    if crate::jvm::is_jvm(lang) {
+        crate::jvm::require_java()?;
+    }
     let report = analyze::analyze_lang(&root, lang)?;
     let wanted = opts.unit.trim_start_matches("./");
     let whole = report
@@ -993,7 +1006,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
-        Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
+        // Java and Kotlin keep the Rust JNI crate until the Mojo bridge for them exists.
+        Bridge::Cgo | Bridge::Fiddle | Bridge::MojoJvm => Kind::Ffi,
         // Code the plan would put in wasm also goes to Node until the wasm bridge exists.
         _ => Kind::MojoNode,
     });
@@ -1220,6 +1234,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Kind::Ffi => bridge_ffi(&manifest, &crate_dir, &js_only),
         Kind::MojoPy => bridge_mojo_py(&manifest, &crate_dir, &js_only),
         Kind::MojoNode => bridge_mojo_node(&manifest, &crate_dir, &js_only),
+        Kind::MojoJvm => bail!("{MOJO_JVM_NOT_YET}"),
     }
 }
 
@@ -1739,6 +1754,7 @@ fn readme(m: &Manifest) -> String {
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
             Kind::MojoNode => "a Node-API addon over the JSON dispatcher",
+            Kind::MojoJvm => "Java's Foreign Function & Memory API over the JSON dispatcher",
         },
     )
 }

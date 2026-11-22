@@ -47,7 +47,7 @@ pub fn package(opts: &Options) -> Result<Outcome> {
     match manifest.kind {
         Kind::MojoNode => bail!("{NPM_NOT_YET}"),
         Kind::MojoPy => bail!("packaging a Mojo Python extension is not supported yet"),
-        Kind::CAbi | Kind::Ffi => bail!(
+        Kind::CAbi | Kind::Ffi | Kind::MojoJvm => bail!(
             "packaging {:?} units is not supported yet (see the packaging plan, M7)",
             manifest.kind
         ),

@@ -26,7 +26,7 @@ fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
 /// A freshly bridged crate is all `unimplemented!` stubs: replaying it must pass no case, even
 /// where the original throws the same kind of error a panic turns into.
 fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
-    if !common::have(program) {
+    if !common::have(program) || (program == "java" && !common::have_java()) {
         return;
     }
     // Go, Ruby and TS/JS units are Mojo ports.
@@ -166,7 +166,7 @@ fn unported_stubs_never_match_a_go_panic() {
 
 #[test]
 fn java_records_with_the_bridge_crate_inside_the_project() {
-    if !common::have("javac") {
+    if !common::have_java() {
         return;
     }
     let root = project(

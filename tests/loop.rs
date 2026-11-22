@@ -926,6 +926,10 @@ fn ruby_modules_bridge_record_and_diff() {
 
 #[test]
 fn java_classes_bridge_record_and_diff() {
+    // Bridging a Java unit needs Java 22 or newer.
+    if !common::have_java() {
+        return;
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java");
     let dir = std::env::temp_dir().join(format!("mojo-anything-java-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1011,6 +1015,10 @@ fn java_classes_bridge_record_and_diff() {
 
 #[test]
 fn kotlin_functions_bridge_record_and_diff() {
+    // Bridging a Kotlin unit needs Java 22 or newer.
+    if !common::have_java() {
+        return;
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin");
     let dir = std::env::temp_dir().join(format!("mojo-anything-kotlin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1104,6 +1112,9 @@ fn android_build_installs_a_jni_library() {
     else {
         return;
     };
+    if !common::have_java() {
+        return;
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin");
     let dir = std::env::temp_dir().join(format!(
         "mojo-anything-android-{}-{}",

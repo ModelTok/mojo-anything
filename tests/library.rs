@@ -189,6 +189,10 @@ fn shadows_honor_the_unit_kill_switch() {
         ("java", "src/main/java/com/example/text/"),
     ];
     for (name, unit) in units {
+        // Bridging a Java unit needs Java 22 or newer.
+        if name == "java" && !common::have_java() {
+            continue;
+        }
         let repo = fixture(name);
         let dir = bridged(&repo, unit);
         let manifest = Manifest::load(&dir).unwrap();
@@ -412,6 +416,10 @@ fn library_takes_mojo_units_and_refuses_rust_crates() {
     assert!(init.contains("import port as text"), "{init}");
     std::fs::remove_dir_all(&repo).unwrap();
 
+    // Bridging a Java unit needs Java 22 or newer.
+    if !common::have_java() {
+        return;
+    }
     let repo = fixture("java");
     door(&repo, true);
     let unit = bridged(&repo, "src/main/java/com/example/text/");

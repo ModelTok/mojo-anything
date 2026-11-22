@@ -49,6 +49,7 @@ pub mod harness_ruby;
 pub mod http;
 #[cfg(test)]
 mod js_number;
+pub mod jvm;
 pub mod lang;
 pub mod library;
 pub mod lift;

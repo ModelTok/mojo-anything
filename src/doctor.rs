@@ -314,26 +314,26 @@ const RUNTIMES: &[Runtime] = &[
         name: "java",
         program: "java",
         args: &["-version"],
-        minimum: Some(Version(17, 0, 0)),
+        minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
         required: false,
         java: true,
         fix: [
-            "brew install openjdk@21",
-            "winget install EclipseAdoptium.Temurin.21.JDK",
-            "sudo apt install openjdk-21-jdk",
+            "brew install openjdk",
+            "winget install EclipseAdoptium.Temurin.25.JDK",
+            "sudo apt install openjdk-25-jdk",
         ],
     },
     Runtime {
         name: "javac",
         program: "javac",
         args: &["-version"],
-        minimum: Some(Version(17, 0, 0)),
+        minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
         required: false,
         java: true,
         fix: [
-            "brew install openjdk@21",
-            "winget install EclipseAdoptium.Temurin.21.JDK",
-            "sudo apt install openjdk-21-jdk",
+            "brew install openjdk",
+            "winget install EclipseAdoptium.Temurin.25.JDK",
+            "sudo apt install openjdk-25-jdk",
         ],
     },
     Runtime {
@@ -455,9 +455,14 @@ fn runtime(r: &Runtime) -> Check {
     let status = grade(banner.is_some(), version, r.minimum);
     let mut detail = match (&banner, r.minimum) {
         (None, _) => format!("`{}` not found or did not run", r.program),
+        (Some(b), Some(min)) if status == Status::Outdated && r.java => format!(
+            "{b}; Java and Kotlin units need Java {}+ (the Foreign Function & Memory API)",
+            min.0
+        ),
         (Some(b), Some(min)) if status == Status::Outdated => {
             format!("{b}; mojo-anything needs {}.{}+", min.0, min.1)
         }
+        (Some(b), Some(min)) if r.java => format!("{b} (Java and Kotlin units need {}+)", min.0),
         (Some(b), _) => b.clone(),
     };
     if r.name == "node" && status == Status::Ok && version.is_some_and(|v| v.0 < 24) {
@@ -912,6 +917,16 @@ mod tests {
             parse_java_version("openjdk version \"17.0.2\""),
             Some(Version(17, 0, 2))
         );
+    }
+
+    #[test]
+    fn java_and_javac_need_java_22() {
+        for name in ["java", "javac"] {
+            let r = RUNTIMES.iter().find(|r| r.name == name).unwrap();
+            assert_eq!(r.minimum, Some(Version(22, 0, 0)), "{name}");
+            let banner = Some(Version(21, 0, 2));
+            assert_eq!(grade(true, banner, r.minimum), Status::Outdated, "{name}");
+        }
     }
 
     #[test]

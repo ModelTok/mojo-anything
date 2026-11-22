@@ -282,6 +282,9 @@ pub fn record(opts: &RecordOptions) -> Result<RecordOutcome> {
         ..*opts
     };
     let manifest = Manifest::load(opts.crate_dir)?;
+    if crate::jvm::is_jvm(manifest.language) {
+        crate::jvm::require_java()?;
+    }
     let (cases, traps, regex_functions) = generate_cases(opts, &manifest)?;
 
     let timed_out_path = opts.crate_dir.join(WORK_DIR).join(TIMED_OUT);
@@ -459,7 +462,7 @@ fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
         Kind::MojoPy => crate::harness_mojo_py::native_file(crate_dir, manifest),
         Kind::CAbi => crate::harness_mojo_c::library_path(crate_dir, manifest, false),
         Kind::MojoNode => crate::harness_mojo_node::addon_path(crate_dir, manifest),
-        Kind::Ffi => return None,
+        Kind::Ffi | Kind::MojoJvm => return None,
     };
     crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built)
 }
@@ -508,7 +511,11 @@ pub fn build_android(
 
 pub fn build(crate_dir: &Path) -> Result<PathBuf> {
     let manifest = Manifest::load(crate_dir)?;
+    if crate::jvm::is_jvm(manifest.language) {
+        crate::jvm::require_java()?;
+    }
     match manifest.kind {
+        Kind::MojoJvm => bail!("{}", crate::bridge::MOJO_JVM_NOT_YET),
         Kind::MojoPy => crate::harness_mojo_py::build(crate_dir, &manifest),
         Kind::Ffi if manifest.language == crate::lang::Lang::Ruby => {
             crate::harness_ruby::build(crate_dir, &manifest)

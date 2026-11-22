@@ -6,7 +6,7 @@ use mojo_anything::{bridge, harness};
 
 #[test]
 fn records_java_with_comments_in_package_declarations() {
-    if !common::have("javac") || !common::have("java") {
+    if !common::have_java() {
         return;
     }
 
