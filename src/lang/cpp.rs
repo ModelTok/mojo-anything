@@ -679,12 +679,12 @@ fn param_crossing(
         Wrap::Ref if is_const => true,
         Wrap::Ref => {
             return Err(format!(
-                "writes through a non-const reference (`{written}`); {FACADE} that returns the value"
+                "writes through a non-const reference (`{written}`); {FACADE} (one that returns the value)"
             ));
         }
         Wrap::RRef => {
             return Err(format!(
-                "takes an rvalue reference (`{written}`); {FACADE} that takes it by value"
+                "takes an rvalue reference (`{written}`); {FACADE} (one that takes it by value)"
             ));
         }
         Wrap::Pointer | Wrap::Array => {
@@ -915,7 +915,7 @@ fn class(
         constructor: Vec::new(),
         methods: Vec::new(),
         blocker: Some(format!(
-            "`{qualified}` is a {}class: member functions do not cross the C ABI shim; {FACADE}",
+            "is a {}class: member functions do not cross the C ABI shim; {FACADE}",
             if template { "template " } else { "" }
         )),
     })
@@ -1051,8 +1051,9 @@ fn function(
     let ret_node = node.child_by_field_name("type")?;
     let (returns, native_return) = if let Some(kind) = returns_indirect {
         blocker.get_or_insert(format!(
-            "returns a {kind} (`{}`): who owns it must be designed; {FACADE} that returns a copy",
-            text(ret_node, source)
+            "returns a {kind} (`{}`): who owns it must be designed; {FACADE} (one that returns a \
+             copy)",
+            source[node.start_byte()..function.start_byte()].trim()
         ));
         ("unknown".to_string(), None)
     } else if ret_node.kind() == "placeholder_type_specifier" {

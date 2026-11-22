@@ -1722,7 +1722,9 @@ fn bridge_cpp(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
             .to_string(),
     ];
     for j in kept {
-        notes.push(format!("`{}` stays in C++: {}.", j.name, j.reason));
+        // Classes carry the generic `class: ` prefix; the C++ reason already says so.
+        let reason = j.reason.strip_prefix("class: ").unwrap_or(&j.reason);
+        notes.push(format!("`{}` stays in C++: {reason}.", j.name));
     }
     Ok(Outcome {
         crate_dir: crate_dir.to_path_buf(),

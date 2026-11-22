@@ -230,18 +230,21 @@ fn cpp_bridge_writes_the_unit_and_says_what_stays() {
     assert_eq!(refused.exports, ["kept"]);
     let notes = refused.notes.join("\n");
     for says in [
-        "`Counter` stays in C++: class: `Counter` is a class",
+        "`Counter` stays in C++: is a class: member functions do not cross",
         "`Meter::read` stays in C++: is a member function of `Meter`",
         "`twice` stays in C++: is a template",
         "`pick` stays in C++: is overloaded (2 definitions)",
         "`step` stays in C++: takes `EnergyPlusData &`, a state object",
         "`peek` stays in C++: takes `const EnergyPlusData *`, a pointer to a state object",
         "`take` stays in C++: takes an rvalue reference",
-        "`name` stays in C++: returns a pointer",
+        "`name` stays in C++: returns a pointer (`const char *`)",
         "`fast` stays in C++: is `inline`",
         "`square` stays in C++: is `constexpr`",
     ] {
         assert!(notes.contains(says), "{says} in {notes}");
+    }
+    for slip in ["that that", "class: `"] {
+        assert!(!notes.contains(slip), "{slip} in {notes}");
     }
     std::fs::remove_dir_all(&repo).unwrap();
 }
