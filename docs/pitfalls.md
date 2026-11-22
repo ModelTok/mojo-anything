@@ -53,6 +53,12 @@ function in the same file (`helper_kept(int*)`) got `undefined reference`, while
 `cpp api` now names every strong external definition of the unit the wrapper lacks; keep those
 in a file of their own.
 
+**A derived exception reached callers as `std::runtime_error`.** The wrapper rebuilt the nine
+`<stdexcept>` types by exact name only, so `struct bad_input : std::invalid_argument` escaped a
+caller's `catch (const std::invalid_argument &)` and terminated it, and its `what()` gained a
+`type: ` prefix. The shim now records `<type> (<base>): <what()>` with the nearest standard base
+(a `dynamic_cast` chain), and the wrapper throws that base with the original `what()`.
+
 **Two C spellings made one Mojo helper twice.** `std::vector<long>` and
 `std::vector<std::int64_t>` are both `List[Int64]`, and `exports.mojo` defined `_list_int64` once
 per spelling, so `build` failed. Name and de-duplicate generated helpers by the same key

@@ -315,6 +315,19 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     }
     if manifest.language == crate::lang::Lang::Cpp {
         checks.push(cpp_api_check(crate_dir, &manifest));
+        let rebuilt = crate::harness_c::cpp_rebuilt_exceptions(crate_dir);
+        if !rebuilt.is_empty() {
+            // A warning: the base and `what()` reach callers, the derived type does not.
+            checks.push(Check {
+                name: "cpp exceptions",
+                passed: true,
+                detail: format!(
+                    "warning: {}; a `catch` of the derived type itself no longer matches",
+                    rebuilt.join("; ")
+                ),
+                fix: None,
+            });
+        }
     }
 
     if let Some(why) = crate::recording::stale(crate_dir, &manifest) {

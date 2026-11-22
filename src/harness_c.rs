@@ -505,6 +505,37 @@ pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
     Ok(api)
 }
 
+/// The exceptions a C++ unit's recording shows that the wrapper cannot throw as they are: each
+/// error recorded as `<type> (<base>): <what()>` (see `cpp/shim.cpp`), once per function and
+/// type, as "`<function>` throws `<type>`, which C++ callers of the wrapper get as `<base>`".
+pub fn cpp_rebuilt_exceptions(crate_dir: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(crate_dir.join(CASES)) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let Ok(case) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let (Some(name), Some(error)) = (case["fn"].as_str(), case["error"].as_str()) else {
+            continue;
+        };
+        let Some((head, _)) = error.split_once(": ") else {
+            continue;
+        };
+        if let Some(open) = head.rfind(" (")
+            && head.ends_with(')')
+        {
+            let (ty, base) = (&head[..open], &head[open + 2..head.len() - 1]);
+            seen.insert(format!(
+                "`{name}` throws `{ty}`, which C++ callers of {} get as `{base}`",
+                crate::codegen_cpp::WRAPPER
+            ));
+        }
+    }
+    seen.into_iter().collect()
+}
+
 /// A C++ unit's bench: the driver calls the original (through the shim) and the port's
 /// library with the same recorded arguments, so both timings include one ctypes call.
 fn bench_cpp(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<BenchRow>> {

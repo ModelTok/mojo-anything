@@ -616,3 +616,120 @@ fn cpp_api_names_definitions_the_wrapper_drops() {
     );
     std::fs::remove_dir_all(&repo).unwrap();
 }
+
+/// Compiles `caller` against the unit's header twice, with the original source and with
+/// `cpp/wrapper.cpp` and the Mojo library, and returns both programs' output.
+fn callers(repo: &Path, dir: &Path, source: &str, caller: &str) -> (String, String) {
+    std::fs::write(repo.join("caller.cpp"), caller).unwrap();
+    let run = |args: &[&str], name: &str| -> String {
+        let bin = repo.join(name);
+        let out = Command::new("c++")
+            .args(["-std=c++17", "-I"])
+            .arg(repo.join("src"))
+            .arg(repo.join("caller.cpp"))
+            .args(args)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ran = Command::new(&bin).output().unwrap();
+        assert!(
+            ran.status.success(),
+            "{name}: {}{}",
+            String::from_utf8_lossy(&ran.stdout),
+            String::from_utf8_lossy(&ran.stderr)
+        );
+        String::from_utf8(ran.stdout).unwrap()
+    };
+    let original = run(&[repo.join(source).to_str().unwrap()], "original");
+    let manifest = bridge::Manifest::load(dir).unwrap();
+    let lib = mojo_anything::harness_mojo_c::library_path(dir, &manifest, false);
+    let build = lib.parent().unwrap().to_str().unwrap().to_string();
+    let file = lib.file_name().unwrap().to_str().unwrap().to_string();
+    let wrapper = dir.join("cpp/wrapper.cpp");
+    let ported = run(
+        &[
+            wrapper.to_str().unwrap(),
+            &format!("-L{build}"),
+            &format!("-l:{file}"),
+            &format!("-Wl,-rpath,{build}"),
+        ],
+        "ported",
+    );
+    (original, ported)
+}
+
+const EXCEPTION_CALLER: &str = r#"#include <iostream>
+#include <stdexcept>
+
+#include "mixed.hpp"
+
+int main()
+{
+    try {
+        mixed::check(-1);
+        std::cout << "no exception\n";
+    } catch (const std::invalid_argument &e) {
+        std::cout << "invalid_argument: " << e.what() << "\n";
+    }
+    try {
+        mixed::even(3);
+        std::cout << "no exception\n";
+    } catch (const std::runtime_error &e) {
+        std::cout << "runtime_error: " << e.what() << "\n";
+    } catch (const std::exception &e) {
+        std::cout << "exception: " << e.what() << "\n";
+    }
+    std::cout << mixed::check(2) << " " << mixed::even(4) << "\n";
+    return 0;
+}
+"#;
+
+#[test]
+fn cpp_derived_exceptions_reach_callers_as_their_standard_base() {
+    if !ready() {
+        return;
+    }
+    let (repo, dir) = mixed("exceptions");
+    let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
+    for expected in [
+        r#""fn": "mixed::check", "args": [-1], "error": "mixed::bad_input (std::invalid_argument): negative input""#,
+        r#""fn": "mixed::even", "args": [3], "error": "mixed::odd (std::exception): odd number""#,
+    ] {
+        assert!(cases.contains(expected), "{expected} in {cases}");
+    }
+    let d = diff(&dir);
+    let wrong: Vec<String> = mismatched(&d)
+        .into_iter()
+        .filter(|f| f == "mixed::check" || f == "mixed::even")
+        .collect();
+    assert!(wrong.is_empty(), "{:?}", d.mismatches);
+    let (original, ported) = callers(&repo, &dir, "src/mixed.cpp", EXCEPTION_CALLER);
+    assert_eq!(
+        original,
+        "invalid_argument: negative input\nexception: odd number\n2 4\n"
+    );
+    assert_eq!(ported, original);
+    // The derived types themselves do not reach callers: gate says so.
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let warn = gate
+        .checks
+        .iter()
+        .find(|c| c.name == "cpp exceptions")
+        .unwrap();
+    assert!(warn.passed);
+    for says in [
+        "warning",
+        "mixed::bad_input",
+        "std::invalid_argument",
+        "mixed::odd",
+    ] {
+        assert!(warn.detail.contains(says), "{says} in {}", warn.detail);
+    }
+    std::fs::remove_dir_all(&repo).unwrap();
+}
