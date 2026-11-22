@@ -26,7 +26,7 @@ Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java 
 | --- | --- | --- | --- |
 | `root` | string | yes |  |
 | `unit` | string | yes | Unit id from analyze. |
-| `kind` | string |  | Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet. |
+| `kind` | string |  | Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon) or wasm (the Mojo port compiled to a wasm64 module that index.cjs loads; needs mojo-wasm's toolchain). |
 | `out` | string |  | Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin). |
 | `name` | string |  | Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin). |
 | `force` | boolean |  | Bridge a unit the plan marks blocked or keep. |

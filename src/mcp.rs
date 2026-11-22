@@ -412,7 +412,7 @@ fn tool_schemas() -> Value {
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "unit": { "type": "string", "description": "Unit id from analyze." },
-                "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet." },
+                "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon) or wasm (the Mojo port compiled to a wasm64 module that index.cjs loads; needs mojo-wasm's toolchain)." },
                 "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin)." },
                 "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin)." },
                 "force": { "type": "boolean", "description": "Bridge a unit the plan marks blocked or keep." },
@@ -633,7 +633,7 @@ fn call(name: &str, args: &Value) -> Result<Value> {
         "bridge" => {
             let kind = match args["kind"].as_str() {
                 Some("node") => Some(bridge::Kind::MojoNode),
-                Some("wasm") => anyhow::bail!("{}", bridge::WASM_NOT_YET),
+                Some("wasm") => Some(bridge::Kind::MojoWasm),
                 _ => None,
             };
             let root = path("root")?;
@@ -933,18 +933,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bridge_kind_wasm_is_not_yet_and_writes_nothing() {
+    fn bridge_kind_wasm_writes_a_mojo_wasm_unit() {
         let out =
             std::env::temp_dir().join(format!("mojo-anything-mcp-wasm-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini");
-        let err = call(
+        let done = call(
             "bridge",
             &json!({ "root": root, "unit": "packages/a/src/util.ts", "out": out, "kind": "wasm" }),
         )
-        .unwrap_err();
-        assert!(format!("{err}").contains("M4 Task 8"), "{err}");
-        assert!(!out.exists(), "a refused bridge must not create the crate");
+        .unwrap();
+        assert_eq!(done["kind"], "mojo-wasm", "{done}");
+        let index = std::fs::read_to_string(out.join("index.cjs")).unwrap();
+        assert!(index.contains("WebAssembly.Instance"), "{index}");
+        assert!(!out.join("node_shim.c").exists());
+        std::fs::remove_dir_all(&out).unwrap();
     }
 
     #[test]

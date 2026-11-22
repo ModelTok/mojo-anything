@@ -1,7 +1,7 @@
 //! Runtime checks shared by the integration tests.
 //!
 //! A test whose runtime is missing is skipped with a note, unless `MOJO_ANYTHING_REQUIRE` names
-//! that runtime (comma-separated: `node,python3,go,ruby,java,mojo`): then the test fails, so CI notices
+//! that runtime (comma-separated: `node,python3,go,ruby,java,mojo,mojowasm`): then the test fails, so CI notices
 //! when a language suite stops running. `java` covers `javac` too.
 
 #![allow(dead_code)]
@@ -49,6 +49,16 @@ pub fn have(program: &str) -> bool {
 /// test when it is not.
 pub fn have_mojo() -> bool {
     mojo_anything::mojo::available() || missing("mojo", &mojo_anything::mojo::missing_message())
+}
+
+/// Whether the Mojo-to-wasm toolchain (mojowasm's clang and wasm-ld) is installed; skips (or,
+/// when `mojowasm` is required, fails) the test when it is not.
+pub fn have_mojowasm() -> bool {
+    mojo_anything::harness_mojo_wasm::available()
+        || missing(
+            "mojowasm",
+            &mojo_anything::harness_mojo_wasm::missing_message(),
+        )
 }
 
 /// Whether `program args` succeeds, for runtimes that need more than to exist (a minimum version).

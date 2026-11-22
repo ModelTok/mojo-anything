@@ -201,6 +201,27 @@ Confirmed by the server-route spike (M6 Task 7, `docs/superpowers/specs/2026-11-
 - `std.python`: `Python.import_module("builtins").exec(code, Python.dict())` runs Python source
   from a Mojo binary; a Python server started that way cannot call back into Mojo functions.
 
+## WebAssembly (`--kind wasm`)
+
+Confirmed by the spike before M4 Task 8 and by `tests/mojo_wasm.rs` (2026-11-22), with
+mojo-wasm (github.com/lee101/mojo-wasm at 3551aa4: clang 22.1.8, wasm-ld) and Node 24.
+
+- Mojo has no wasm backend: `mojo build --emit llvm -O3 --target-cpu x86-64 -o f.ll f.mojo`,
+  then the IR with the wasm64 data layout and triple, `clang --target=wasm64-unknown-unknown -c`,
+  `wasm-ld -mwasm64 --no-entry --export-dynamic`. A host `--target-cpu` emits SSE intrinsics.
+- `--target-triple` accepts `riscv32-unknown-linux-gnu`, `i686-unknown-linux-gnu` and
+  `x86_64-unknown-linux-gnux32` (`Int` is 32-bit on all three), but `Variant` layouts are wrong
+  there (see pitfalls); 64-bit IR read as wasm32 loops for ever.
+- The stdlib and EmberJson leave undefined: `malloc`, `free`, `strlen`, `memcpy`/`memmove`/
+  `memset`/`memcmp`, `KGEN_CompilerRT_AlignedAlloc`/`AlignedFree`, `KGEN_CompilerRT_GetStackTrace`
+  (any raised `Error`), `write`, `dup`, `fdopen`, `fflush`, `fclose`, `KGEN_CompilerRT_fprintf`,
+  `__multi3`, `__ashlti3`, `__lshrti3` (`src/mojo/wasm_runtime.c`). With a stub stack trace,
+  `raises Error` works.
+- On wasm64, `String(Float64)` returns (it hung on mojo-wasm's wasm32 route) and EmberJson's
+  float writer round-tripped 99,952 random doubles.
+- mojo-wasm's pinned Mojo (1.2.0.dev2026092605) is older than 1.2.0: no `std.hash`, no
+  `reflect[T].annotations()`, so EmberJson 0.5.0 does not compile with it.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.

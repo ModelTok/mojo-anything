@@ -67,6 +67,25 @@ lets through from successful cases only, so a recorded `-x` (exit 2) always went
 and the fallback never reached 0. Options from every recorded case count; record a CLI's usage
 errors when they name no machine path, and check that `main.mojo` lists their options.
 
+**A wasm module of 864 bytes linked cleanly and did nothing.** Mojo IR for the host CPU holds SSE
+intrinsics (`llvm.x86.ssse3.pshuf.b.128`); retargeted to wasm, clang folded the dispatcher into an
+endless loop and wasm-ld found nothing undefined. Emit IR with `--target-cpu x86-64`, refuse IR
+that names `llvm.x86.`, and check a module's exports and imports, not only that it linked.
+
+**Mojo's `Variant` breaks on 32-bit targets.** Built for riscv32, i686 or x32, a
+`Variant[Int64, String]` is sized 16 bytes but laid out with its tag past them, so a growing `List`
+of JSON values lost its tags (`["a","bb"]` came back as `[97,25186]`). The wasm kind compiles
+64-bit IR to wasm64 instead; probe `List[Variant]` growth before trusting any new target.
+
+**Mojo's LLVM writes float constants clang 22 cannot read.** `double +qnan`, `double -inf` and
+`double f0x7FEFFFFFFFFFFFFF` fail with "expected value token"; `harness_mojo_wasm` rewrites them
+to the old hex form. A unit with no float parameters hid this in the spike: test floats in and
+out.
+
+**`0.1 + 0.2` in a Mojo port is 0.3.** Float literals are exact until they become `Float64`, so
+the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as `Float64` values
+(`var a: Float64 = 0.1`) when the original adds literals.
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,
