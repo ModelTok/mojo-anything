@@ -1029,7 +1029,7 @@ fn kotlin_functions_bridge_record_and_diff() {
         unit: "src/main/kotlin/com/example/text/",
         kind: None,
         out: Some(dir.clone()),
-        name: Some("text-rs".into()),
+        name: Some("text-mojo".into()),
         force: false,
         keep: Vec::new(),
         lang: None,
@@ -1037,18 +1037,25 @@ fn kotlin_functions_bridge_record_and_diff() {
         as_json: Vec::new(),
     })
     .unwrap();
-    assert_eq!(outcome.kind, Kind::Ffi);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    assert!(
-        port.contains("pub fn slugify(text: String, max: i64) -> Result<String, String>"),
-        "{port}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("fn Java_mojoanything_TextRsNative_call"),
-        "{lib}"
-    );
-    // Kotlin type names must become Java ones, or javac rejects the wrapper.
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    for rust in ["Cargo.toml", "src"] {
+        assert!(!dir.join(rust).exists(), "{rust}");
+    }
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    for sig in [
+        "def slugify(text: String, max: Int32) raises -> String:",
+        "def words(text: String) raises -> List[String]:",
+        "def frequencies(text: String) raises -> JsonValue:",
+        "def gcd(a: Int64, b: Int64) raises -> Int64:",
+        "def pages(total: Int32, per_page: Int32) raises -> Int32:",
+    ] {
+        assert!(port.contains(sig), "{sig}\n{port}");
+    }
+    let native =
+        std::fs::read_to_string(dir.join("java/mojoanything/TextMojoNative.java")).unwrap();
+    assert!(native.contains("java.lang.foreign"), "{native}");
+    // Kotlin type names must become Java ones, or javac rejects the wrapper; top-level
+    // functions live on `StringsKt`, `@JvmStatic` members of `object Nums` on `Nums`.
     let wrapper =
         std::fs::read_to_string(dir.join("java/com/example/text/StringsKt.java")).unwrap();
     assert!(
@@ -1059,12 +1066,16 @@ fn kotlin_functions_bridge_record_and_diff() {
         wrapper.contains("public static Map<String, Integer> frequencies(String text)"),
         "{wrapper}"
     );
+    assert!(
+        wrapper.contains("TextMojoNative.invoke(\"slugify\""),
+        "{wrapper}"
+    );
     let nums = std::fs::read_to_string(dir.join("java/com/example/text/Nums.java")).unwrap();
     assert!(
         nums.contains("public static long gcd(long a, long b)"),
         "{nums}"
     );
-    if !common::have("kotlinc") || !common::have("javac") {
+    if !common::have("kotlinc") || !common::have_mojo() {
         return;
     }
     let recorded = harness::record(&RecordOptions {
@@ -1079,6 +1090,104 @@ fn kotlin_functions_bridge_record_and_diff() {
     assert!(recorded.cases > 50, "{recorded:?}");
     // `pages` divides by zero for a generated per-page of 0.
     assert!(recorded.errors > 0, "{recorded:?}");
+    let opts = DiffOptions {
+        crate_dir: &dir,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    };
+    // The stubs raise `not ported: ...`, which never matches.
+    harness::build(&dir).unwrap();
+    let stubs = harness::diff(&opts).unwrap();
+    assert_eq!(stubs.passed, 0, "{stubs:?}");
+    assert_eq!(stubs.total, recorded.cases);
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
+    harness::build(&dir).unwrap();
+    let diff = harness::diff(&opts).unwrap();
+    assert_eq!(diff.failed, 0, "{diff:?}");
+    assert_eq!(diff.passed, recorded.cases, "{diff:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A top-level function (owner `TextKt`) and a companion object's `@JvmStatic` member (owner
+/// `Units`) in one Kotlin file: both bridge, record and replay through the Mojo port.
+#[test]
+fn kotlin_top_level_and_companion_replay() {
+    if !common::have_java() {
+        return;
+    }
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = std::env::temp_dir().join(format!(
+        "mojo-anything-kotlin-owners-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &fixtures.join("kotlin-owners"),
+        unit: "src/main/kotlin/com/example/owners/Text.kt",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("owners-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    let mut exports = outcome.exports.clone();
+    exports.sort();
+    assert_eq!(exports, ["parse", "slug"]);
+    let m = Manifest::load(&dir).unwrap();
+    let owner = |name: &str| {
+        let f = m.exports.iter().find(|f| f.name == name).unwrap();
+        mojo_anything::lang::java::receiver(f).0
+    };
+    assert_eq!(owner("slug"), "com.example.owners.TextKt");
+    assert_eq!(owner("parse"), "com.example.owners.Units");
+    let text = std::fs::read_to_string(dir.join("java/com/example/owners/TextKt.java")).unwrap();
+    assert!(
+        text.contains("public static String slug(String s) {"),
+        "{text}"
+    );
+    let units = std::fs::read_to_string(dir.join("java/com/example/owners/Units.java")).unwrap();
+    assert!(
+        units.contains("public static long parse(String s) {"),
+        "{units}"
+    );
+    if !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let recorded = harness::record(&RecordOptions {
+        crate_dir: &dir,
+        count: 30,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap();
+    for name in ["slug", "parse"] {
+        assert!(
+            recorded.per_function.get(name).copied().unwrap_or(0) > 10,
+            "{recorded:?}"
+        );
+    }
+    // Most generated text is not a number: `parse` throws NumberFormatException.
+    assert!(recorded.errors > 0, "{recorded:?}");
+    std::fs::copy(
+        fixtures.join("kotlin-mojo-port/owners.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
         crate_dir: &dir,
@@ -1088,9 +1197,8 @@ fn kotlin_functions_bridge_record_and_diff() {
         node_args: &[],
     })
     .unwrap();
-    // Unported functions panic, which Java sees as a RuntimeException: nothing can match.
-    assert_eq!(diff.passed, 0, "{diff:?}");
-    assert_eq!(diff.total, recorded.cases);
+    assert_eq!(diff.failed, 0, "{diff:?}");
+    assert_eq!(diff.passed, recorded.cases, "{diff:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1124,10 +1232,11 @@ fn android_build_installs_a_jni_library() {
         abi.name()
     ));
     let _ = std::fs::remove_dir_all(&dir);
+    // Kotlin bridges to Mojo by default; the Android build is for the Rust JNI crate.
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/main/kotlin/com/example/text/",
-        kind: None,
+        kind: Some(Kind::Ffi),
         out: Some(dir.clone()),
         name: Some("text-rs".into()),
         force: false,

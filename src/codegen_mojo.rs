@@ -203,7 +203,8 @@ fn param_mojo(m: &Manifest, p: &crate::ts::exports::Param) -> String {
     {
         return go_mojo_type(go);
     }
-    if m.language == crate::lang::Lang::Java
+    // A Kotlin export carries the Java types the JVM sees (`Int` is `int`).
+    if crate::jvm::is_jvm(m.language)
         && let Some(t) = p.native_type.as_deref().and_then(java_mojo_type)
     {
         return t;
@@ -234,7 +235,9 @@ pub fn port_mojo(m: &Manifest) -> String {
             .collect();
         let ret = match (&f.native_return, m.language) {
             (Some(native), crate::lang::Lang::Go) => go_ret_mojo(native),
-            (Some(native), crate::lang::Lang::Java) if java_mojo_type(native).is_some() => {
+            (Some(native), language)
+                if crate::jvm::is_jvm(language) && java_mojo_type(native).is_some() =>
+            {
                 java_mojo_type(native)
             }
             _ => ret_mojo(m, &f.returns),

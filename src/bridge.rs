@@ -1,7 +1,8 @@
 //! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
 //! later steps read.
 //!
-//! The port (`port.mojo`, or `src/port.rs` for Kotlin until it moves to Mojo) holds the logic;
+//! The port (`port.mojo`, or `src/port.rs` for a Java or Kotlin unit bridged with `--kind ffi`)
+//! holds the logic;
 //! the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
 //! are rewritten by `refresh` and never edited by hand.
 
@@ -42,10 +43,6 @@ pub enum Kind {
     #[serde(rename = "mojo-jvm")]
     MojoJvm,
 }
-
-/// Why a Kotlin unit cannot be bridged to Mojo yet.
-pub const KOTLIN_MOJO_NOT_YET: &str =
-    "not yet: Kotlin units bridge to Mojo with M5 Task 4; bridge them without --kind for now";
 
 /// Why `--batch` fails for `mojo-jvm` units.
 pub const JVM_BATCH_NOT_YET: &str =
@@ -1027,9 +1024,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
-        Bridge::MojoJvm if lang == crate::lang::Lang::Java => Kind::MojoJvm,
-        // Kotlin keeps the Rust JNI crate until its Mojo bridge exists (M5 Task 4).
-        Bridge::Cgo | Bridge::Fiddle | Bridge::MojoJvm => Kind::Ffi,
+        Bridge::MojoJvm => Kind::MojoJvm,
+        Bridge::Cgo | Bridge::Fiddle => Kind::Ffi,
         // Code the plan would put in wasm also goes to Node until the wasm bridge exists.
         _ => Kind::MojoNode,
     });
@@ -1630,8 +1626,8 @@ fn mojo_jvm_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String
     if !m.batches.is_empty() {
         bail!("{JVM_BATCH_NOT_YET}");
     }
-    if m.language != crate::lang::Lang::Java {
-        bail!("{KOTLIN_MOJO_NOT_YET}");
+    if !crate::jvm::is_jvm(m.language) {
+        bail!("{} units do not bridge through Java", m.language.name());
     }
     // Only the unit's exports cross; a public helper in port.mojo stays inside the library.
     let mut exported = api.clone();
@@ -1682,14 +1678,15 @@ fn bridge_mojo_jvm(m: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
          JVM with --enable-native-access=ALL-UNNAMED (Java 22+)."
             .to_string(),
     ];
+    let language = m.language.name();
     for c in &m.classes {
         notes.push(format!(
-            "Class `{}` is not bridged to Mojo yet; it stays in Java.",
+            "Class `{}` is not bridged to Mojo yet; it stays in {language}.",
             c.name
         ));
     }
     for j in kept {
-        notes.push(format!("`{}` stays in Java: {}.", j.name, j.reason));
+        notes.push(format!("`{}` stays in {language}: {}.", j.name, j.reason));
     }
     Ok(Outcome {
         crate_dir: crate_dir.to_path_buf(),

@@ -64,7 +64,8 @@ fn records_a_kotlin_unit_on_a_connected_device() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/main/kotlin/com/example/text/",
-        kind: None,
+        // The device path runs the Rust JNI crate; Kotlin bridges to Mojo by default.
+        kind: Some(bridge::Kind::Ffi),
         out: Some(dir.clone()),
         name: Some("text-rs".into()),
         force: false,

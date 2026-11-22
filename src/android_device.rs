@@ -282,6 +282,36 @@ fn check_language(m: &Manifest) -> Result<()> {
     Ok(())
 }
 
+/// Class files for a dexed run: the support driver plus either the original classes
+/// (`port: false`) or the generated JNI wrappers (`port: true`). A Kotlin unit's original
+/// classes come as its fat jar.
+fn jvm_classes(crate_dir: &Path, m: &Manifest, port: bool) -> Result<Vec<PathBuf>> {
+    if m.language == Lang::Java {
+        return crate::harness_java::android_classes(crate_dir, m, port);
+    }
+    let against = if port {
+        crate::harness_mojo_jvm::Against::Port
+    } else {
+        crate::harness_mojo_jvm::Against::Original
+    };
+    let mut files = Vec::new();
+    for entry in crate::harness_kotlin::classpath(crate_dir, m, against)? {
+        if entry.is_dir() {
+            files.extend(
+                crate::walk::builder(&entry)
+                    .require_git(false)
+                    .build()
+                    .flatten()
+                    .map(|e| e.into_path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "class")),
+            );
+        } else {
+            files.push(entry);
+        }
+    }
+    Ok(files)
+}
+
 fn targets(m: &Manifest, work: &Path) -> Result<PathBuf> {
     let path = work.join("targets.json");
     std::fs::write(&path, crate::codegen_kotlin::targets(m).to_string())?;
@@ -298,11 +328,7 @@ pub fn record(
     check_language(m)?;
     let device = Device::connect(device)?;
     let work = work_dir(crate_dir, "record")?;
-    let classes = if m.language == Lang::Java {
-        crate::harness_java::android_classes(crate_dir, m, false)?
-    } else {
-        crate::harness_kotlin::android_classes(crate_dir, m, false)?
-    };
+    let classes = jvm_classes(crate_dir, m, false)?;
     let jar = package(&classes, &work)?;
     let targets = targets(m, &work)?;
     let inputs = work.join("cases.json");
@@ -363,11 +389,7 @@ pub fn diff(
         );
     }
     let work = work_dir(crate_dir, "diff")?;
-    let classes = if m.language == Lang::Java {
-        crate::harness_java::android_classes(crate_dir, m, true)?
-    } else {
-        crate::harness_kotlin::android_classes(crate_dir, m, true)?
-    };
+    let classes = jvm_classes(crate_dir, m, true)?;
     let jar = package(&classes, &work)?;
     let targets = targets(m, &work)?;
     let remote_jar = device.push(&jar, "driver.jar")?;

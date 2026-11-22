@@ -173,7 +173,7 @@ fn sync(from: &Path, to: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// A unit without its bridge (see [`strip_mojo_unit`]); refuses a folder with no `port.mojo`,
-/// which no front door wires (a unit still bridged to Rust: Kotlin until M5 Task 4), and a
+/// which no front door wires (a Java or Kotlin unit bridged to Rust with `--kind ffi`), and a
 /// `mojo-jvm` unit, which no front door wires yet either.
 pub fn strip_unit(dir: &Path) -> Result<Vec<PathBuf>> {
     ensure!(
