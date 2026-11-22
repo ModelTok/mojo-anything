@@ -127,10 +127,45 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest, ignore_key_order: bool) -> Re
             crate_dir.display()
         );
     }
-    let driver = driver(crate_dir)?;
     let (dir, name) = package(crate_dir, manifest);
+    diff_with(
+        crate_dir,
+        &mut Command::new(python()),
+        &dir,
+        &name,
+        ignore_key_order,
+    )
+}
+
+/// Replays the recorded cases through `python` (a command naming the interpreter, with its
+/// environment), importing `module` with `dir` first on `sys.path`: a package installed
+/// elsewhere, such as a wheel in a venv, is found when `dir` does not hold it. The outcome is
+/// exact: known diffs and tolerances are not applied.
+pub fn replay(
+    crate_dir: &Path,
+    python: &mut Command,
+    dir: &Path,
+    module: &str,
+) -> Result<DiffOutcome> {
+    if !crate_dir.join(CASES).exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            crate_dir.display()
+        );
+    }
+    diff_with(crate_dir, python, dir, module, false)
+}
+
+fn diff_with(
+    crate_dir: &Path,
+    cmd: &mut Command,
+    dir: &Path,
+    name: &str,
+    ignore_key_order: bool,
+) -> Result<DiffOutcome> {
+    let cases = crate_dir.join(CASES);
+    let driver = driver(crate_dir)?;
     let out = crate_dir.join(WORK_DIR).join("diff.json");
-    let mut cmd = Command::new(python());
     cmd.arg(&driver)
         .arg("diff")
         .arg(&cases)
@@ -141,8 +176,8 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest, ignore_key_order: bool) -> Re
         .env("PYTHONHASHSEED", "0")
         // Recording must not leave `__pycache__` folders in the source tree.
         .env("PYTHONDONTWRITEBYTECODE", "1");
-    crate::pin::apply(&mut cmd, crate_dir)?;
-    run(&mut cmd)?;
+    crate::pin::apply(cmd, crate_dir)?;
+    run(cmd)?;
     Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
 }
 

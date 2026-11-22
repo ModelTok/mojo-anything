@@ -509,7 +509,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "package",
-            "description": "Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Not yet for any kind: npm packages of Mojo ports and Python wheels come with the packaging plan (M7).",
+            "description": "Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Python units get a wheel project (pip wheel builds it offline) and a wheels workflow; the other kinds come with the rest of the packaging plan (M7).",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "name": { "type": "string", "description": "Package name on npm or PyPI; defaults to the crate name." },
