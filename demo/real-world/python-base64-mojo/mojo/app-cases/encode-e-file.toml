@@ -1,0 +1,5 @@
+bin.name = "base64"
+args = ["-e", "in.txt"]
+status.code = 0
+fs.sandbox = true
+fs.base = "encode-e-file.in"

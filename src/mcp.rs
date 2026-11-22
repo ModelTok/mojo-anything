@@ -369,15 +369,11 @@ const TOOL_META: &[ToolMeta] = &[
     meta("app_replay", "Replay app cases", [false, false, true, true]),
     meta(
         "app_front_door",
-        "Scaffold Rust front door",
+        "Scaffold front door",
         [false, false, false, true],
     ),
     meta("app_wire", "Wire unit into app", [false, false, true, true]),
-    meta(
-        "app_lift",
-        "Lift to pure Rust app",
-        [false, true, false, true],
-    ),
+    meta("app_lift", "Lift to pure app", [false, true, false, true]),
 ];
 
 fn tools() -> Value {
@@ -583,7 +579,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "app_wire",
-            "description": "After a unit passes gate, hand its commands to its port.rs: adds the unit crate to mojo/app as a library, writes a glue stub (src/units/<unit>.rs, yours to write: parse args, call <crate>::port, print what the original prints), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. Run it again after writing the glue: 100% passed and a lower fallback rate.",
+            "description": "After a unit passes gate, hand its commands to its port. A CLI takes a Mojo unit (a folder under mojo/ with port.mojo): writes a glue stub mojo/app/glue/<unit>.mojo, one `def <command>(args: List[String]) raises -> Int` per command (yours to write: parse args, call `port` from `from <unit> import port`, print what the original prints; `original.run(args)` or `original.run_with_stdin(args, input)` hands a case back), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. Servers and libraries still take a unit crate bridged to Rust. Run it again after writing the glue: 100% passed and a lower fallback rate.",
             "inputSchema": { "type": "object", "properties": {
                 "repo": { "type": "string", "description": "Repository root." },
                 "unit": { "type": "string", "description": "Unit crate folder, its name under rust/, or the unit id it was bridged from." },
@@ -595,7 +591,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "app_lift",
-            "description": "Make mojo/app a pure app. Refuses (and lists every blocker) unless replay passes with fallback rate 0 and every unit passes gate. Then, on a copy first: removes the fallback and kill switches, turns each unit into a plain library (no cdylib, bindings or generated wrappers), adds a trycmd test running mojo/app-cases on cargo test, checks fmt/clippy/tests, DECISIONS.md targets and assets, and replays the pure binary. Never touches the original.",
+            "description": "Make mojo/app a pure app. Refuses (and lists every blocker) unless replay passes with fallback rate 0 and every unit passes gate. Then, on a copy of mojo/ first: removes the fallback and kill switches and strips each unit's bridge, keeping its port. A CLI becomes a pure Mojo binary: original.mojo goes, every unit passes its Mojo checks, the app passes mojo format and mojo build --Werror, no glue calls original., and the pure binary replays with 0 fallback. A server stays a Rust app (fmt/clippy/tests, a trycmd test, DECISIONS.md targets). Copies back only when nothing fails; never touches the original.",
             "inputSchema": { "type": "object", "properties": {
                 "repo": { "type": "string", "description": "Repository root." },
             }, "required": ["repo"] },

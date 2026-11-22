@@ -1,0 +1,17 @@
+{
+  "schema": "mojo-anything/app@1",
+  "name": "base64",
+  "commands": [],
+  "units": [
+    {
+      "name": "b64codec",
+      "crate": "b64codec-mojo",
+      "path": "../../mojo/b64codec-mojo",
+      "commands": [
+        "base64"
+      ],
+      "switch": "MOJO_ANYTHING_UNIT_B64CODEC"
+    }
+  ],
+  "lifted": true
+}

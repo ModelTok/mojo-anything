@@ -1,0 +1,4 @@
+bin.name = "base64"
+args = ["-d", "-e"]
+status.code = 0
+fs.sandbox = true

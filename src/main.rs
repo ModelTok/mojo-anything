@@ -500,10 +500,10 @@ enum AppCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Make `mojo/app` a pure Rust app, once replay passes with fallback rate 0 and every unit
-    /// passes gate: removes the fallback and the kill switches, turns the units into plain
-    /// libraries, runs the lift checklist and replays the pure binary. Checked on a copy first;
-    /// the original stays in place.
+    /// Make `mojo/app` a pure app (a Mojo binary for a CLI), once replay passes with fallback
+    /// rate 0 and every unit passes gate: removes the fallback and the kill switches, strips the
+    /// units' bridges, runs the lift checklist and replays the pure binary. Checked on a copy
+    /// first; the original stays in place.
     Lift {
         /// Repository root.
         #[arg(default_value = ".")]
@@ -1441,7 +1441,7 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
                 }
                 if outcome.lifted {
                     say!(
-                        "Lifted: {} is a pure Rust app ({}). Removed {} generated files; the original is untouched.",
+                        "Lifted: {} no longer needs the original ({}). Removed {} generated files; the original is untouched.",
                         repo.join(front_door::APP_DIR).display(),
                         outcome
                             .binary
