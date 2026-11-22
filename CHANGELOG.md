@@ -13,7 +13,11 @@ yet.
   wasm-bindgen bridges, the binary wire and Android are gone.
 - `gate` checks Mojo ports: `mojo format`, the unit's `test_*.mojo`, nothing unported, every
   `abort`, pointer and `external_call` explained, error cases, size, build, API and behaviour
-  (plus `java api` for Java and Kotlin units).
+  (plus `java api` for Java and Kotlin units). `size` does not compare a C unit that calls
+  functions from outside the repository (a facade over glibc), since a port reimplements them.
+- `mojo-wasm` reads the float spellings Mojo 1.2's LLVM writes and clang 22 does not: NaNs with a
+  payload (`+nan(0x…)`, `-snan(0x…)`) and constants as untyped operands; vercel/ms builds and
+  matches 1,128/1,128 on it ([log](docs/measurements/2026-11-22-vercel-ms-wasm.md)).
 - Whole apps: the CLI, server and library front doors are Mojo (`mojo/app`), and `app lift` makes
   a pure Mojo binary or package. CPython's `quopri` command line is lifted to a pure Mojo binary
   through a bridged unit (`demo/real-world/python-quopri-mojo`): 481/481 unit cases and 163/163

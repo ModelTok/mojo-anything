@@ -51,15 +51,15 @@ and `gate` on a copy of its demo folder; each row links the log of that run.
 | Real code | Bridge | Recorded cases matched | `gate` | Log |
 | --- | --- | ---: | --- | --- |
 | [vercel/ms](docs/real-world.md#vercelms-on-mojo) | Node-API addon | 1,128/1,128 | passes | [log](docs/measurements/2026-11-22-vercel-ms-node.md) |
-| vercel/ms | wasm module (Node 24) | does not build yet (a NaN constant in the IR) | - | [log](docs/measurements/2026-11-22-vercel-ms-wasm.md) |
+| vercel/ms | wasm module (Node 24) | 1,128/1,128 | passes | [log](docs/measurements/2026-11-22-vercel-ms-wasm.md) |
 | CPython 3.13's [`colorsys`](docs/real-world-languages.md) | Python extension | 2,400/2,400 | passes | [log](docs/measurements/2026-11-22-colorsys.md) |
 | CPython 3.12's [`quopri`](docs/real-world-languages.md#a-whole-cli-lifted-to-mojo-cpythons-quopri) (unit) | Python extension | 481/481 (4 by `known-diffs.jsonl`) | passes | [log](docs/measurements/2026-11-22-quopri.md) |
 | `python3 -m quopri`, lifted to a pure Mojo binary | none left | 163/163 CLI cases, original moved away | - | [log](docs/measurements/2026-11-22-quopri.md) |
 | Go 1.24's `path` | JSON dispatcher over cgo | 2,042/2,042 | passes | [log](docs/measurements/2026-11-22-go-path.md) |
-| Ruby 3.3's `shellwords` | JSON dispatcher over Fiddle | 1,626/1,626 | fails `size` only | [log](docs/measurements/2026-11-22-shellwords.md) |
+| Ruby 3.3's `shellwords` | JSON dispatcher over Fiddle | 1,626/1,626 | passes | [log](docs/measurements/2026-11-22-shellwords.md) |
 | OpenJDK 25 behind a facade | Foreign Function & Memory API | 4,782/4,782 | passes | [log](docs/measurements/2026-11-22-jdk-facade.md) |
 | ffmpeg n7.1's `rational.c` | C ABI, ffmpeg's own signatures | 46,764/46,764 | passes | [log](docs/measurements/2026-11-22-ffmpeg-rational.md) |
-| glibc behind a facade | C ABI | 2,488/2,488 | fails `size` only | [log](docs/measurements/2026-11-22-glibc-facade.md) |
+| glibc behind a facade | C ABI | 2,488/2,488 | passes (`size` not compared: the C calls glibc) | [log](docs/measurements/2026-11-22-glibc-facade.md) |
 
 How fast the Mojo ports are against their originals is not published yet: the timings wait for
 a run on a quiet machine, and no speed figure carries over from rust-anything, whose Rust ports

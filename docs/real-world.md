@@ -28,11 +28,12 @@ Checked again on 2026-11-22 from a copy of the demo in a vercel/ms checkout, on 
 The recorded cases ran 215 of the 227 lines of `src/index.ts`. Built, the addon is 16,584 bytes
 over a 294,784-byte Mojo library.
 
-On `mojo-wasm` the same port does not build yet ([log](measurements/2026-11-22-vercel-ms-wasm.md)):
-a fresh `bridge --kind wasm` given this `port.mojo` stops in `build`, because the dispatcher's IR
-holds `double +nan(0x7FFFFFFFFFFFF)`, a NaN with a payload, which the rewriter that turns Mojo's
-IR into what mojo-wasm's clang reads refuses. So there is no vercel/ms wasm module, size or case
-count yet.
+On `mojo-wasm` the same port, given to a fresh `bridge --kind wasm` and `refresh`ed, matches
+1,128/1,128 and 975/975 on Node 24, and `gate` passes; the module is 289,144 bytes
+([log](measurements/2026-11-22-vercel-ms-wasm.md)). It first stopped in `build`: the dispatcher's
+IR holds `double +nan(0x7FFFFFFFFFFFF)`, a NaN with a payload, and `+inf` as an operand with no
+type of its own (`fmul double %a, +inf`, a phi's incoming value), which the rewriter that turns
+Mojo's IR into what mojo-wasm's clang reads did not know.
 
 What the port had to get right, all caught by recorded cases or traps:
 
