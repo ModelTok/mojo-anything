@@ -779,6 +779,20 @@ fn http_wire(repo: &Path, opts: &WireOptions, mut state: State) -> Result<WireOu
 /// given as a path, or the unit id a manifest under `mojo/` names. A folder is a Mojo unit
 /// when it holds `port.mojo`.
 fn find_mojo_unit(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
+    let found = find_mojo_unit_dir(repo, unit, door)?;
+    if let Ok(m) = crate::bridge::Manifest::load(&found)
+        && m.kind == crate::bridge::Kind::MojoJvm
+    {
+        bail!(
+            "{} is a Java or Kotlin unit ported to Mojo (`mojo-jvm`): {door}, but does not wire \
+             Java and Kotlin units yet; their whole-app support comes after M5's bridge",
+            found.display()
+        );
+    }
+    Ok(found)
+}
+
+fn find_mojo_unit_dir(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
     let mojo = repo.join("mojo");
     let app_dir = repo.join(APP_DIR);
     for candidate in [

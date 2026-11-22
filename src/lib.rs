@@ -43,6 +43,7 @@ pub mod harness_go;
 pub mod harness_java;
 pub mod harness_kotlin;
 pub mod harness_mojo_c;
+pub mod harness_mojo_jvm;
 pub mod harness_mojo_node;
 pub mod harness_mojo_py;
 pub mod harness_py;

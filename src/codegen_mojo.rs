@@ -162,12 +162,51 @@ fn go_ret_mojo(native: &str) -> Option<String> {
     }
 }
 
+/// The Mojo type for a Java type whose width matters: `int` is `Int32`, `long` `Int64`, arrays
+/// and lists of them lists. `None` for the rest, which take the general mapping (`String`,
+/// `JsonValue` for maps, `Optional` for `Optional<T>`).
+pub fn java_mojo_type(java: &str) -> Option<String> {
+    let t = java.trim();
+    if let Some(item) = t.strip_suffix("[]") {
+        return java_mojo_type(item).map(|i| format!("List[{i}]"));
+    }
+    if let Some((head, rest)) = t.split_once('<') {
+        let head = head.trim().rsplit('.').next().unwrap_or(head);
+        if matches!(
+            head,
+            "List" | "ArrayList" | "Collection" | "Iterable" | "LinkedList"
+        ) {
+            return java_mojo_type(rest.strip_suffix('>')?).map(|i| format!("List[{i}]"));
+        }
+        return None;
+    }
+    Some(
+        match t {
+            "int" | "Integer" => "Int32",
+            "long" | "Long" => "Int64",
+            "short" | "Short" => "Int16",
+            "byte" | "Byte" => "Int8",
+            "double" | "Double" => "Float64",
+            "float" | "Float" => "Float32",
+            "boolean" | "Boolean" => "Bool",
+            "String" | "CharSequence" => "String",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
 /// The Mojo type of a port parameter.
 fn param_mojo(m: &Manifest, p: &crate::ts::exports::Param) -> String {
     if m.language == crate::lang::Lang::Go
         && let Some(go) = &p.native_type
     {
         return go_mojo_type(go);
+    }
+    if m.language == crate::lang::Lang::Java
+        && let Some(t) = p.native_type.as_deref().and_then(java_mojo_type)
+    {
+        return t;
     }
     let t = if crate::codegen_py::has_literal_default(p) {
         RType::from_ts(&p.ts_type)
@@ -195,6 +234,9 @@ pub fn port_mojo(m: &Manifest) -> String {
             .collect();
         let ret = match (&f.native_return, m.language) {
             (Some(native), crate::lang::Lang::Go) => go_ret_mojo(native),
+            (Some(native), crate::lang::Lang::Java) if java_mojo_type(native).is_some() => {
+                java_mojo_type(native)
+            }
             _ => ret_mojo(m, &f.returns),
         };
         let ret = ret.map(|t| format!(" -> {t}")).unwrap_or_default();

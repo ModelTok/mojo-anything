@@ -1,9 +1,9 @@
 //! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
 //! later steps read.
 //!
-//! The port (`port.mojo`, or `src/port.rs` for Java and Kotlin until they move to Mojo) holds the
-//! logic; the generated layers around it (dispatcher, Node-API shim, Python extension, JNI
-//! wrapper) are rewritten by `refresh` and never edited by hand.
+//! The port (`port.mojo`, or `src/port.rs` for Kotlin until it moves to Mojo) holds the logic;
+//! the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
+//! are rewritten by `refresh` and never edited by hand.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -43,8 +43,13 @@ pub enum Kind {
     MojoJvm,
 }
 
-/// Why a `mojo-jvm` unit cannot be bridged or built yet.
-pub const MOJO_JVM_NOT_YET: &str = "not yet: `mojo-jvm` units (Java and Kotlin ported to Mojo) are bridged and built from M5 Task 3";
+/// Why a Kotlin unit cannot be bridged to Mojo yet.
+pub const KOTLIN_MOJO_NOT_YET: &str =
+    "not yet: Kotlin units bridge to Mojo with M5 Task 4; bridge them without --kind for now";
+
+/// Why `--batch` fails for `mojo-jvm` units.
+pub const JVM_BATCH_NOT_YET: &str =
+    "not yet: batches for Java units ported to Mojo come after correctness";
 
 /// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
@@ -860,12 +865,28 @@ pub struct Refreshed {
 }
 
 /// Regenerates the binding layers from the signatures in the port (`port.mojo`, or `src/port.rs`
-/// for Java and Kotlin, whose Cargo.toml also gets the dependencies they need). Never touches the
-/// port.
+/// for a Rust-era Java or Kotlin crate, whose Cargo.toml also gets the dependencies it needs).
+/// Never touches the port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
     if manifest.kind == Kind::MojoJvm {
-        bail!("{MOJO_JVM_NOT_YET}");
+        if crate_dir.join("Cargo.toml").exists() {
+            bail!(
+                "{} is a Rust port from before mojo-anything targeted Mojo: bridge again to get a \
+                 Mojo port (port.mojo)",
+                crate_dir.display()
+            );
+        }
+        let port =
+            std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
+        let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+        match_export_names(&manifest, &mut api);
+        let files = mojo_jvm_bindings(&manifest, &api)?;
+        write_files(crate_dir, &files)?;
+        return Ok(Refreshed {
+            functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
+            files: files.into_iter().map(|(p, _)| p).collect(),
+        });
     }
     if manifest.kind == Kind::MojoPy {
         let port =
@@ -1006,7 +1027,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
-        // Java and Kotlin keep the Rust JNI crate until the Mojo bridge for them exists.
+        Bridge::MojoJvm if lang == crate::lang::Lang::Java => Kind::MojoJvm,
+        // Kotlin keeps the Rust JNI crate until its Mojo bridge exists (M5 Task 4).
         Bridge::Cgo | Bridge::Fiddle | Bridge::MojoJvm => Kind::Ffi,
         // Code the plan would put in wasm also goes to Node until the wasm bridge exists.
         _ => Kind::MojoNode,
@@ -1234,7 +1256,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Kind::Ffi => bridge_ffi(&manifest, &crate_dir, &js_only),
         Kind::MojoPy => bridge_mojo_py(&manifest, &crate_dir, &js_only),
         Kind::MojoNode => bridge_mojo_node(&manifest, &crate_dir, &js_only),
-        Kind::MojoJvm => bail!("{MOJO_JVM_NOT_YET}"),
+        Kind::MojoJvm => bridge_mojo_jvm(&manifest, &crate_dir, &js_only),
     }
 }
 
@@ -1600,6 +1622,82 @@ fn mojo_ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String
         other => bail!("{} units are not ported to Mojo yet", other.name()),
     }
     Ok(files)
+}
+
+/// The generated layers of a `mojo-jvm` unit: `pixi.toml`, `json.mojo`, the dispatcher, and
+/// the Java classes (the FFM native class, the codec, the error mapping and the wrappers).
+fn mojo_jvm_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
+    if !m.batches.is_empty() {
+        bail!("{JVM_BATCH_NOT_YET}");
+    }
+    if m.language != crate::lang::Lang::Java {
+        bail!("{KOTLIN_MOJO_NOT_YET}");
+    }
+    // Only the unit's exports cross; a public helper in port.mojo stays inside the library.
+    let mut exported = api.clone();
+    exported
+        .functions
+        .retain(|f| m.exports.iter().any(|e| e.name == f.js_name));
+    let api = &exported;
+    let mut files = vec![
+        (
+            "pixi.toml".to_string(),
+            crate::codegen_mojo_py::unit_pixi_toml(m, true),
+        ),
+        (
+            "json.mojo".into(),
+            crate::codegen_mojo::JSON_MOJO.to_string(),
+        ),
+        (
+            crate::codegen_ffi::DISPATCHER.into(),
+            crate::codegen_ffi::dispatcher_mojo(m, api).map_err(anyhow::Error::msg)?,
+        ),
+    ];
+    files.extend(crate::codegen_mojo_jvm::support_files(m));
+    files.extend(crate::codegen_mojo_jvm::wrappers_ffm(m, api));
+    Ok(files)
+}
+
+fn bridge_mojo_jvm(m: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_mojo::port_mojo(m);
+    let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+    match_export_names(m, &mut api);
+    // Everything is generated before anything is written: a unit that cannot cross leaves no
+    // folder behind.
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        (".gitignore".into(), ".pixi/\n.mojo-anything/\n".into()),
+        ("README.md".into(), readme(m)),
+        (MANIFEST.into(), serde_json::to_string_pretty(m)? + "\n"),
+    ];
+    files.extend(mojo_jvm_bindings(m, &api)?);
+    write_files(crate_dir, &files)?;
+    let mut notes = vec![
+        format!(
+            "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+            crate_dir.display()
+        ),
+        "Callers compile the classes in java/ and load the library `build` writes (system \
+         property mojo-anything.lib.<name>, MOJO_ANYTHING_LIB, or next to the classes); run the \
+         JVM with --enable-native-access=ALL-UNNAMED (Java 22+)."
+            .to_string(),
+    ];
+    for c in &m.classes {
+        notes.push(format!(
+            "Class `{}` is not bridged to Mojo yet; it stays in Java.",
+            c.name
+        ));
+    }
+    for j in kept {
+        notes.push(format!("`{}` stays in Java: {}.", j.name, j.reason));
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: Kind::MojoJvm,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: m.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
 }
 
 fn bridge_ffi_mojo(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {

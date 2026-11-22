@@ -3,8 +3,9 @@ mod common;
 use std::{path::Path, process::Command};
 
 use mojo_anything::{
+    bridge::{self, Kind},
     codegen_java::{DRIVER_JAVA, JSON_JAVA},
-    harness::DiffOutcome,
+    harness::{self, DiffOptions, DiffOutcome},
 };
 
 #[test]
@@ -67,4 +68,71 @@ fn run(cmd: &mut Command) -> anyhow::Result<()> {
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(())
+}
+
+/// The same two cases through a `mojo-jvm` unit: the Mojo port returns `null`, and a case whose
+/// argument the signature rejects is reported as invalid, not as a `null` that matches.
+#[test]
+fn jvm_replay_distinguishes_null_from_a_rejected_argument() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mojo-anything-jvm-null-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let result = replay_mojo(&root);
+    let _ = std::fs::remove_dir_all(&root);
+
+    let diff = result.unwrap();
+    assert_eq!((diff.passed, diff.failed), (1, 1), "{diff:?}");
+    assert_eq!(diff.mismatches[0]["actual"]["invalid"], true, "{diff:?}");
+}
+
+fn replay_mojo(root: &Path) -> anyhow::Result<DiffOutcome> {
+    let project = root.join("project");
+    let source = project.join("src/main/java/com/example/nulls/Port.java");
+    std::fs::create_dir_all(source.parent().unwrap())?;
+    std::fs::write(
+        project.join("pom.xml"),
+        "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n  <modelVersion>4.0.0</modelVersion>\n  \
+         <groupId>com.example</groupId>\n  <artifactId>nulls</artifactId>\n  <version>0.1.0</version>\n</project>\n",
+    )?;
+    std::fs::write(
+        &source,
+        "package com.example.nulls;\n\npublic final class Port {\n    public static String value(int input) {\n        return null;\n    }\n}\n",
+    )?;
+    let unit = root.join("unit");
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &project,
+        unit: "src/main/java/com/example/nulls/",
+        kind: None,
+        out: Some(unit.clone()),
+        name: Some("nulls-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })?;
+    anyhow::ensure!(outcome.kind == Kind::MojoJvm, "{outcome:?}");
+    // The port answers `null`: an `Optional[String]` that is empty.
+    std::fs::write(
+        unit.join("port.mojo"),
+        "# The Mojo port of `Port`.\n\n\n# Port of `value`.\n\
+         def value(input: Int32) raises -> Optional[String]:\n    return None\n",
+    )?;
+    bridge::refresh(&unit)?;
+    harness::build(&unit)?;
+    std::fs::write(
+        unit.join("cases.jsonl"),
+        r#"{"fn":"value","args":[1],"ok":null}
+{"fn":"value","args":["previously accepted"],"ok":null}
+"#,
+    )?;
+    harness::diff(&DiffOptions {
+        crate_dir: &unit,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    })
 }

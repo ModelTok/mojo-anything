@@ -78,11 +78,11 @@ enum Cmd {
         /// Bridge to generate; defaults to the plan's choice.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
-        /// Port folder; defaults to `<root>/mojo/<name>` (`<root>/rust/<name>` for Java and
+        /// Port folder; defaults to `<root>/mojo/<name>` (`<root>/rust/<name>` for
         /// Kotlin).
         #[arg(long, short)]
         out: Option<PathBuf>,
-        /// Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin).
+        /// Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin).
         #[arg(long)]
         name: Option<String>,
         /// Bridge a unit the plan marks blocked or keep.

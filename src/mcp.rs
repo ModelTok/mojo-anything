@@ -408,13 +408,13 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "bridge",
-            "description": "Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java and Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
+            "description": "Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "unit": { "type": "string", "description": "Unit id from analyze." },
                 "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet." },
-                "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin)." },
-                "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin)." },
+                "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Kotlin)." },
+                "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin)." },
                 "force": { "type": "boolean", "description": "Bridge a unit the plan marks blocked or keep." },
                 "keep": { "type": "array", "items": { "type": "string" }, "description": "Exports to keep in the source language: `name` or `name: reason`." },
                 "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
@@ -423,7 +423,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "refresh",
-            "description": "Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Java and Kotlin), after changing them, adding any new batch classes. Never touches the port.",
+            "description": "Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Kotlin), after changing them, adding any new batch classes. Never touches the port.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes to add, `function:param`: the function runs over many `param` values kept on the native side, in one call." },

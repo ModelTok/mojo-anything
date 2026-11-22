@@ -20,15 +20,15 @@ Read-only.
 
 Tool `bridge` · CLI `mojo-anything bridge`
 
-Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java and Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.
+Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `root` | string | yes |  |
 | `unit` | string | yes | Unit id from analyze. |
 | `kind` | string |  | Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet. |
-| `out` | string |  | Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin). |
-| `name` | string |  | Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin). |
+| `out` | string |  | Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Kotlin). |
+| `name` | string |  | Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin). |
 | `force` | boolean |  | Bridge a unit the plan marks blocked or keep. |
 | `keep` | string[] |  | Exports to keep in the source language: `name` or `name: reason`. |
 | `batch` | string[] |  | Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call. |
@@ -38,7 +38,7 @@ Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java 
 
 Tool `refresh` · CLI `mojo-anything refresh`
 
-Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Java and Kotlin), after changing them, adding any new batch classes. Never touches the port.
+Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Kotlin), after changing them, adding any new batch classes. Never touches the port.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |

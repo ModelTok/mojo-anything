@@ -422,23 +422,42 @@ fn library_takes_mojo_units_and_refuses_rust_crates() {
     }
     let repo = fixture("java");
     door(&repo, true);
-    let unit = bridged(&repo, "src/main/java/com/example/text/");
-    assert!(
-        unit.join("Cargo.toml").is_file(),
-        "Java still bridges to Rust"
-    );
-    let refused = front_door::wire(&WireOptions {
-        repo: &repo,
-        unit: &unit.to_string_lossy(),
-        commands: &[],
-        routes: &[],
-        skip_gate: true,
-        check: false,
+    let wire_unit = |unit: &Path| {
+        front_door::wire(&WireOptions {
+            repo: &repo,
+            unit: &unit.to_string_lossy(),
+            commands: &[],
+            routes: &[],
+            skip_gate: true,
+            check: false,
+        })
+        .unwrap_err()
+    };
+    // A Rust-era JNI crate is refused.
+    let rust = bridge::bridge(&bridge::Options {
+        root: &repo,
+        unit: "src/main/java/com/example/text/",
+        kind: Some(bridge::Kind::Ffi),
+        out: None,
+        name: None,
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
     })
-    .unwrap_err();
+    .unwrap()
+    .crate_dir;
+    assert!(rust.join("Cargo.toml").is_file(), "{}", rust.display());
+    let refused = wire_unit(&rust);
     assert!(
         format!("{refused:#}").contains("is a Rust crate"),
         "{refused:#}"
     );
+    // So is a Java unit ported to Mojo: front doors do not wire `mojo-jvm` units yet.
+    let unit = bridged(&repo, "src/main/java/com/example/text/");
+    assert!(unit.join("port.mojo").is_file(), "{}", unit.display());
+    let refused = wire_unit(&unit);
+    assert!(format!("{refused:#}").contains("mojo-jvm"), "{refused:#}");
     std::fs::remove_dir_all(&repo).unwrap();
 }

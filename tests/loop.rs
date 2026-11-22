@@ -933,10 +933,12 @@ fn java_classes_bridge_record_and_diff() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java");
     let dir = std::env::temp_dir().join(format!("mojo-anything-java-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    // The Rust JNI crate, still reachable with an explicit kind until it is removed (M5 Task 7);
+    // Java units bridge to Mojo by default (`java_mojo_*` below).
     let outcome = bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/main/java/com/example/text/",
-        kind: None,
+        kind: Some(Kind::Ffi),
         out: Some(dir.clone()),
         name: Some("text-rs".into()),
         force: false,
@@ -1389,4 +1391,266 @@ fn ts_mojo_gate_fails_on_missing_export() {
     assert!(fix.contains("mojo-anything refresh"), "{fix}");
     assert!(!fix.contains("src/port.rs"), "{fix}");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ---- Java units ported to Mojo (`mojo-jvm`) ----------------------------------------------------
+
+/// `tests/fixtures/java`'s text unit bridged to Mojo in a fresh folder.
+fn java_mojo_bridged(tag: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java");
+    let dir = std::env::temp_dir().join(format!(
+        "mojo-anything-java-mojo-{tag}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "src/main/java/com/example/text/",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("text-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    dir
+}
+
+fn java_mojo_record(dir: &Path) -> harness::RecordOutcome {
+    harness::record(&RecordOptions {
+        crate_dir: dir,
+        count: 30,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap()
+}
+
+fn java_mojo_diff(dir: &Path) -> anyhow::Result<harness::DiffOutcome> {
+    harness::diff(&DiffOptions {
+        crate_dir: dir,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    })
+}
+
+/// The fixture's Mojo port in place of the stubs, with the bindings regenerated.
+fn java_mojo_port(dir: &Path) {
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(dir).unwrap();
+}
+
+#[test]
+fn java_mojo_bridge_files() {
+    if !common::have_java() {
+        return;
+    }
+    let dir = java_mojo_bridged("files");
+    for file in [
+        "port.mojo",
+        "dispatcher.mojo",
+        "json.mojo",
+        "pixi.toml",
+        "mojo-anything.json",
+        "README.md",
+        "java/mojoanything/TextMojoNative.java",
+        "java/mojoanything/MojoAnythingJson.java",
+        "java/mojoanything/MojoAnythingError.java",
+        "java/com/example/text/Strings.java",
+        "java/com/example/text/Nums.java",
+    ] {
+        assert!(dir.join(file).is_file(), "{file}");
+    }
+    for rust in ["Cargo.toml", "src"] {
+        assert!(!dir.join(rust).exists(), "{rust}");
+    }
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    for sig in [
+        "def slugify(text: String, max: Int32) raises -> String:",
+        "def words(text: String) raises -> List[String]:",
+        "def frequencies(text: String) raises -> JsonValue:",
+        "def parse_port(text: String) raises -> Int32:",
+        "def gcd(a: Int64, b: Int64) raises -> Int64:",
+        "def mean(values: List[Float64]) raises -> Float64:",
+        "def pages(total: Int32, per_page: Int32) raises -> Int32:",
+    ] {
+        assert!(port.contains(sig), "{sig}\n{port}");
+    }
+    let native =
+        std::fs::read_to_string(dir.join("java/mojoanything/TextMojoNative.java")).unwrap();
+    assert!(native.contains("java.lang.foreign"), "{native}");
+    let pixi = std::fs::read_to_string(dir.join("pixi.toml")).unwrap();
+    assert!(pixi.contains("emberjson"), "{pixi}");
+    let manifest = std::fs::read_to_string(dir.join("mojo-anything.json")).unwrap();
+    assert!(manifest.contains("\"kind\": \"mojo-jvm\""), "{manifest}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_loop_matches() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("loop");
+    let recorded = java_mojo_record(&dir);
+    assert!(recorded.cases > 100, "{recorded:?}");
+    // `parsePort` throws NumberFormatException and `pages` ArithmeticException.
+    assert!(recorded.errors > 0, "{recorded:?}");
+    // The stubs raise `not ported: ...`, which never matches.
+    harness::build(&dir).unwrap();
+    let stubs = java_mojo_diff(&dir).unwrap();
+    assert_eq!(stubs.passed, 0, "{stubs:?}");
+    java_mojo_port(&dir);
+    harness::build(&dir).unwrap();
+    let out = java_mojo_diff(&dir).unwrap();
+    assert_eq!(out.failed, 0, "{out:?}");
+    assert_eq!(out.passed, recorded.cases, "{out:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_rebuild_after_edit() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("rebuild");
+    let recorded = java_mojo_record(&dir);
+    java_mojo_port(&dir);
+    harness::build(&dir).unwrap();
+    assert_eq!(java_mojo_diff(&dir).unwrap().passed, recorded.cases);
+    // A wrong gcd: diff refuses the stale library, and after a build it mismatches.
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    let wrong = port.replace(
+        "        y = t\n    return x\n",
+        "        y = t\n    return x + 1\n",
+    );
+    assert_ne!(port, wrong);
+    std::fs::write(dir.join("port.mojo"), wrong).unwrap();
+    let stale = java_mojo_diff(&dir).unwrap_err().to_string();
+    assert!(stale.contains("mojo-anything build"), "{stale}");
+    harness::build(&dir).unwrap();
+    let out = java_mojo_diff(&dir).unwrap();
+    assert!(out.failed > 0, "{out:?}");
+    assert!(
+        out.mismatches.iter().all(|m| m["fn"] == "gcd"),
+        "{:?}",
+        out.mismatches
+    );
+    assert_eq!(out.passed + out.failed, recorded.cases);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn jvm_parallel_calls_match() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("parallel");
+    java_mojo_port(&dir);
+    let lib = harness::build(&dir).unwrap();
+    let check = dir.join("check");
+    std::fs::create_dir_all(&check).unwrap();
+    std::fs::write(
+        check.join("Parallel.java"),
+        r#"import com.example.text.Nums;
+import com.example.text.Strings;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class Parallel {
+    static String input(int i) {
+        return "Hello, Wörld " + (i % 97) + " ΣΑΣ " + "x".repeat(i % 13);
+    }
+
+    public static void main(String[] args) throws Exception {
+        int calls = 10_000;
+        String[] slugs = new String[calls];
+        int[] hashes = new int[calls];
+        long[] gcds = new long[calls];
+        for (int i = 0; i < calls; i++) {
+            slugs[i] = Strings.slugify(input(i), i % 7);
+            hashes[i] = Strings.hash(input(i));
+            gcds[i] = Nums.gcd(i * 6L, 4_000L);
+        }
+        AtomicInteger wrong = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+        for (int t = 0; t < 8; t++) {
+            final int offset = t * 1_237;
+            Thread thread = new Thread(() -> {
+                for (int k = 0; k < calls; k++) {
+                    int i = (k + offset) % calls;
+                    if (!Strings.slugify(input(i), i % 7).equals(slugs[i])
+                        || Strings.hash(input(i)) != hashes[i]
+                        || Nums.gcd(i * 6L, 4_000L) != gcds[i]) {
+                        wrong.incrementAndGet();
+                    }
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        System.out.println(wrong.get() == 0 ? "same" : wrong.get() + " differ");
+    }
+}
+"#,
+    )
+    .unwrap();
+    let classes = check.join("classes");
+    let mut sources = vec![check.join("Parallel.java")];
+    let mut stack = vec![dir.join("java")];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "java") {
+                sources.push(p);
+            }
+        }
+    }
+    let javac = Command::new("javac")
+        .args(["-encoding", "UTF-8", "-nowarn", "-d"])
+        .arg(&classes)
+        .args(&sources)
+        .output()
+        .unwrap();
+    assert!(
+        javac.status.success(),
+        "{}",
+        String::from_utf8_lossy(&javac.stderr)
+    );
+    let run = Command::new("java")
+        .args([
+            "-XX:-UsePerfData",
+            "--enable-native-access=ALL-UNNAMED",
+            "-Dfile.encoding=UTF-8",
+        ])
+        .arg(format!("-Dmojo-anything.lib.text_mojo={}", lib.display()))
+        .arg("-cp")
+        .arg(&classes)
+        .arg("Parallel")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(stdout.trim(), "same", "{stdout}{stderr}");
+    // No restricted-method warning reaches the output.
+    assert!(!stderr.contains("WARNING"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
