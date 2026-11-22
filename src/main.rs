@@ -319,8 +319,9 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Check the language runtimes, the agent setup and the MCP server, with the command that
-    /// fixes each problem. Exits 1 when something required is missing.
+    /// Check pixi and the pinned Mojo, the language runtimes, the agent setup and the MCP
+    /// server, with the command that fixes each problem. Exits 1 when something required is
+    /// missing.
     Doctor {
         #[arg(long)]
         json: bool,
