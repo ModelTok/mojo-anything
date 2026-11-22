@@ -170,7 +170,7 @@ Read-only.
 
 Tool `package` · CLI `mojo-anything package`
 
-Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Python units get a wheel project (pip wheel builds it offline) and a wheels workflow; the other kinds come with the rest of the packaging plan (M7).
+Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Python units get a wheel project, TS/JS units npm packages (per-platform Node-API addon, or one wasm package), Ruby a platform gem and a pure-Ruby gem, Go a module, C a header and libraries with a pkg-config file, Java and Kotlin a Maven jar; each with a workflow for linux-x64, linux-arm64 and darwin-arm64. No package carries the Mojo runtime.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |

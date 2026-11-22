@@ -165,6 +165,69 @@ fn driver_command(
     Ok(cmd)
 }
 
+/// Replays the recorded cases through the wrapper classes in `jar` (a packaged jar, which finds
+/// its own library) with `env` added to the JVM's environment. The outcome is exact: known diffs
+/// are not applied.
+pub fn replay_jar(
+    unit_dir: &Path,
+    jar: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    crate::jvm::require_java()?;
+    let m = Manifest::load(unit_dir)?;
+    let cases = unit_dir.join(CASES);
+    if !cases.exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            unit_dir.display()
+        );
+    }
+    let work = unit_dir.canonical()?.join(WORK_DIR);
+    let support = work.join("java-package-support");
+    let classes = work.join("java-package");
+    for dir in [&support, &classes] {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir)?;
+        }
+        std::fs::create_dir_all(dir)?;
+    }
+    let driver = support.join("MojoAnythingDriver.java");
+    std::fs::write(&driver, crate::codegen_java::DRIVER_JAVA)?;
+    let json = support.join("MojoAnythingJson.java");
+    std::fs::write(&json, crate::codegen_java::JSON_JAVA)?;
+    run(
+        Command::new("javac")
+            .args(["-encoding", "UTF-8", "-nowarn", "-cp"])
+            .arg(jar)
+            .arg("-d")
+            .arg(&classes)
+            .arg(&driver)
+            .arg(&json),
+        "javac (driver against the jar)",
+    )?;
+    let targets = work.join("targets.json");
+    std::fs::write(&targets, crate::codegen_java::targets(&m).to_string())?;
+    let out = work.join("replay.json");
+    let mut path = std::ffi::OsString::from(classes.as_os_str());
+    path.push(":");
+    path.push(jar);
+    run(
+        Command::new("java")
+            .args(jvm_args(unit_dir, &m, Against::Original)?)
+            .arg("-cp")
+            .arg(path)
+            .arg("mojoanything.MojoAnythingDriver")
+            .arg("diff")
+            .arg(&targets)
+            .arg(&cases)
+            .arg(&out)
+            .arg("0")
+            .envs(env.iter().copied()),
+        "java driver (replay)",
+    )?;
+    Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
+}
+
 pub fn record(unit_dir: &Path, m: &Manifest, cases: &[Value]) -> Result<PathBuf> {
     std::fs::create_dir_all(unit_dir.join(WORK_DIR))?;
     let out = unit_dir.join(CASES);

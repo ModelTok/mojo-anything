@@ -104,15 +104,32 @@ fn local_module_version(module: &str) -> String {
 
 /// Writes and builds a driver module for the original (`rust: false`) or the wrapper.
 fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
+    build_driver_over(crate_dir, m, rust, None, &[])
+}
+
+/// [`build_driver`], over the wrapper module in `wrapper` instead of the unit's `go/` when given.
+fn build_driver_over(
+    crate_dir: &Path,
+    m: &Manifest,
+    rust: bool,
+    wrapper: Option<&Path>,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<PathBuf> {
     let crate_dir = &crate_dir.canonical()?;
     let (module_dir, go_mod, module) = module_of(m)?;
-    let name = if rust { "go-rust" } else { "go-original" };
+    let name = match (rust, wrapper) {
+        (true, Some(_)) => "go-package",
+        (true, None) => "go-rust",
+        (false, _) => "go-original",
+    };
     let dir = crate_dir.join(WORK_DIR).join(name);
     std::fs::create_dir_all(&dir)?;
     let (target_module, target_dir, import) = if rust {
         (
             wrapper_module(m),
-            crate_dir.join("go").canonical()?,
+            wrapper
+                .map_or_else(|| crate_dir.join("go"), Path::to_path_buf)
+                .canonical()?,
             wrapper_module(m),
         )
     } else {
@@ -135,7 +152,10 @@ fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
         std::fs::write(dir.join("go.sum"), sum)?;
     }
     std::fs::write(dir.join("main.go"), crate::codegen_go::driver(m, &import))?;
-    if rust && !crate::harness_mojo_c::library_path(crate_dir, m, false).is_file() {
+    if rust
+        && wrapper.is_none()
+        && !crate::harness_mojo_c::library_path(crate_dir, m, false).is_file()
+    {
         bail!(
             "no built library in {} (run `mojo-anything build` first)",
             crate_dir.join(crate::harness_mojo_c::BUILD_DIR).display()
@@ -147,7 +167,8 @@ fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
         .args(["build", "-o"])
         .arg(&bin)
         .arg(".")
-        .current_dir(&dir);
+        .current_dir(&dir)
+        .envs(env.iter().copied());
     if rust {
         command.env("CGO_ENABLED", "1");
     }
@@ -215,6 +236,35 @@ pub fn diff(crate_dir: &Path, m: &Manifest) -> Result<DiffOutcome> {
             .arg(&cases)
             .arg(&out),
         "Go driver (diff)",
+    )?;
+    Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
+}
+
+/// Replays the recorded cases through the wrapper module in `wrapper` (a packaged Go module)
+/// with `env` added to the driver's environment. The outcome is exact: known diffs are not
+/// applied.
+pub fn replay(
+    crate_dir: &Path,
+    wrapper: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let m = Manifest::load(crate_dir)?;
+    let cases = crate_dir.join(CASES);
+    if !cases.exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            crate_dir.display()
+        );
+    }
+    let bin = build_driver_over(crate_dir, &m, true, Some(wrapper), env)?;
+    let out = crate_dir.join(WORK_DIR).join("replay.json");
+    run(
+        driver_command(crate_dir, &bin)
+            .arg("diff")
+            .arg(&cases)
+            .arg(&out)
+            .envs(env.iter().copied()),
+        "Go driver (replay)",
     )?;
     Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
 }

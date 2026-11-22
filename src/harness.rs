@@ -792,6 +792,31 @@ pub(crate) fn diff_exact(opts: &DiffOptions) -> Result<DiffOutcome> {
     {
         return crate::harness_kotlin::diff(opts.crate_dir, &manifest);
     }
+    node_diff(opts, &[])
+}
+
+/// Replays a JS unit's recorded cases through `module` (an installed package's entry point, say)
+/// with `env` added to Node's environment. The outcome is exact: known diffs and tolerances are
+/// not applied.
+pub fn replay_module(
+    crate_dir: &Path,
+    module: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let crate_dir = std::path::absolute(crate_dir)?;
+    node_diff(
+        &DiffOptions {
+            crate_dir: &crate_dir,
+            module: Some(module),
+            ignore_key_order: false,
+            node_args: &[],
+            float_tolerance: None,
+        },
+        env,
+    )
+}
+
+fn node_diff(opts: &DiffOptions, env: &[(&str, &std::ffi::OsStr)]) -> Result<DiffOutcome> {
     let cases = opts.crate_dir.join(CASES);
     if !cases.exists() {
         bail!(
@@ -823,7 +848,8 @@ pub(crate) fn diff_exact(opts: &DiffOptions) -> Result<DiffOutcome> {
     cmd.args(opts.node_args)
         .arg(&script)
         .args([&module, &cases, &out])
-        .arg(flag);
+        .arg(flag)
+        .envs(env.iter().copied());
     crate::pin::apply(&mut cmd, opts.crate_dir)?;
     run(&mut cmd, "node")?;
     let text = std::fs::read_to_string(&out)?;

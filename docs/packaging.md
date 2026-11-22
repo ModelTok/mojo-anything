@@ -54,12 +54,46 @@ unit's wheel, built by `pip wheel` offline and installed into a fresh venv with 
 packaged `_native.so` no longer names the build's `.pixi` folder. Not run: the workflow (no
 GitHub remote yet), arm64 and macOS, and installing the `mojo-compiler` wheel from PyPI.
 
-## The other kinds
+## The native libraries (npm, gems, Go, C, jars)
 
-npm packages of Mojo ports (`mojo-node`, `mojo-wasm`), gems, Go modules, C archives and jars
-come next in the packaging plan
-([`docs/superpowers/plans/2026-11-21-m7-package-docs-release.md`](superpowers/plans/2026-11-21-m7-package-docs-release.md));
-until then those kinds answer "not yet".
+Every other kind ships the unit's Mojo shared library, with its run path reset to its own
+folder. These packages do not load the runtime themselves: put the runtime's folder on the
+library path (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH` on macOS) when running, and when linking
+against the library (C, Go), since the linker looks for the libraries it needs there too.
+Each kind gets one workflow (`.github/workflows/<kind>.yml`) that builds the Mojo library with the
+unit's pinned Mojo on each platform's runner and uploads the result; none publishes.
+
+| Kind | `package` writes | On a platform without a build |
+| --- | --- | --- |
+| `mojo-node` (TS/JS) | `npm/<name>/`: a loader whose `optionalDependencies` are `<name>-linux-x64`, `-linux-arm64` and `-darwin-arm64`, and the original's npm name (the nearest `package.json` above the unit) as an optional peer; `npm/<name>-<platform>/`: `index.cjs`, the Node-API addon and the Mojo library, with `os` and `cpu` set | the loader requires the original package; with none named, it throws an error naming the supported platforms |
+| `mojo-wasm` (TS/JS) | `npm/<name>/`: one package for every platform with `index.cjs`, the wasm64 module and `"engines": {"node": ">=24"}`; it needs no Mojo runtime | on Node older than 24, loading throws an error naming Node 24 |
+| `ffi` (Ruby) | `gem/`: a gemspec for the one platform whose library is under `lib/<lib>/native/<platform>/`, the Fiddle wrapper; `gem/pure/`: a pure-Ruby gem holding the original's files | `require` raises `LoadError` naming the platforms; the pure gem runs the original (only the files the unit's functions are in, not files they require) |
+| `ffi` (Go) | `go/`: the wrapper module, one cgo file per platform (`//go:build linux && amd64`, ...) linking `lib/<platform>/`, and `unsupported.go`; commit every platform's library | the build stops with an error naming the platforms |
+| `c-abi` | `c/include/<lib>.h`, `c/lib/<platform>/lib<lib>.so` (`.dylib`), `c/lib/pkgconfig/<lib>.pc` (its `platform` variable picks the folder) | nothing to link |
+| `mojo-jvm` (Java, Kotlin) | `java/`: a Maven project (`pom.xml`, Java 22) with the FFM wrappers in `src/main/java` and the library in `src/main/resources/native/<platform>/`, and `MANIFEST.MF` with `Automatic-Module-Name` and `Enable-Native-Access: ALL-UNNAMED`; the native class extracts the library to `$XDG_CACHE_HOME/mojo-anything/<name>-<version>/<platform>/` (else `~/.cache/...`) on first load, unless `mojo-anything.lib.<lib>` or `MOJO_ANYTHING_LIB` names one | loading throws `IllegalStateException` naming the platforms |
+
+Checked (`tests/package.rs`, Mojo 1.2.0, x86-64 Linux, Node 24.22, npm, Ruby 3.3, Go 1.24, OpenJDK
+25, 2026-11-22), each package built for this machine and installed into a scratch folder, with
+the Mojo runtime named by `LD_LIBRARY_PATH`:
+
+- npm: the two tarballs `npm pack` makes install offline into a scratch project and every case
+  recorded from `tests/fixtures/mini` replays through the installed package; with the platform
+  package removed, the package is the original; with `process.platform` set to `win32` the loader
+  falls back, or names the platforms when the original has no npm name.
+- wasm: the packed package replays the `tests/fixtures/wasm-floats` cases; with
+  `process.versions.node` set to `22.0.0` it throws naming Node 24.
+- gem: `gem build` and `gem install --local` of both gems; the platform gem replays the Ruby
+  fixture's cases (all but those with integers beyond 64 bits, which the dispatcher refuses, as
+  before packaging), and the pure gem runs the original.
+- Go: a driver module with a `replace` to the packaged module replays every case (the plan's
+  `go test` is the harness's Go driver here).
+- C: every recorded case through the archive's library, and a C program built against the
+  archive's header and library prints what it prints against the original `text.c`.
+- jar: built with `javac` and `jar` (no Maven here), the jar replays the Java fixture's cases,
+  extracting its library into the cache folder; without the library, loading names the
+  platforms.
+
+Not run: the workflows, `mvn package`, arm64, macOS, and a Kotlin jar (the same generator).
 
 ## What went before
 

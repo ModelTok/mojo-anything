@@ -185,16 +185,45 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest) -> Result<DiffOutcome> {
         );
     }
     let port = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
+    diff_library(crate_dir, manifest, &port, "diff.json", &[])
+}
+
+/// Replays the recorded cases through `library` (a packaged copy of the drop-in library) with
+/// `env` added to the driver's environment. The outcome is exact: known diffs are not applied.
+pub fn replay(
+    crate_dir: &Path,
+    library: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let manifest = Manifest::load(crate_dir)?;
+    if !crate_dir.join(CASES).exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            crate_dir.display()
+        );
+    }
+    diff_library(crate_dir, &manifest, library, "replay.json", env)
+}
+
+fn diff_library(
+    crate_dir: &Path,
+    manifest: &Manifest,
+    port: &Path,
+    out_name: &str,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let cases = crate_dir.join(CASES);
     let (driver, sigs) = driver(crate_dir, manifest)?;
-    let out = crate_dir.join(WORK_DIR).join("diff.json");
+    let out = crate_dir.join(WORK_DIR).join(out_name);
     run(
         python()
             .arg(&driver)
             .arg("diff")
-            .arg(&port)
+            .arg(port)
             .arg(&sigs)
             .arg(&cases)
-            .arg(&out),
+            .arg(&out)
+            .envs(env.iter().copied()),
         "python (ctypes)",
     )?;
     Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)

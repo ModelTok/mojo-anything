@@ -97,6 +97,36 @@ fn driver_command(
     Ok(cmd)
 }
 
+/// Replays the recorded cases through `wrapper` (the wrapper as an installed gem holds it) with
+/// `env` added to Ruby's environment. The outcome is exact: known diffs are not applied.
+pub fn replay(
+    crate_dir: &Path,
+    wrapper: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let m = Manifest::load(crate_dir)?;
+    let cases = crate_dir.join(CASES);
+    if !cases.exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            crate_dir.display()
+        );
+    }
+    let out = crate_dir.join(WORK_DIR).join("replay.json");
+    let cmd = driver_command(crate_dir, &m, "diff", &cases, &out, 0, true)?;
+    // The driver loads the files after its fixed arguments: put the given wrapper in place of
+    // the unit's own.
+    let args: Vec<std::ffi::OsString> = cmd.get_args().map(|a| a.to_os_string()).collect();
+    let keep = args.len() - files(crate_dir, &m, true)?.len();
+    let mut replay = Command::new("ruby");
+    replay
+        .args(&args[..keep])
+        .arg(wrapper)
+        .envs(env.iter().copied());
+    run(&mut replay, "ruby driver (replay)")?;
+    Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
+}
+
 pub fn record(crate_dir: &Path, m: &Manifest, cases: &[Value]) -> Result<PathBuf> {
     let out = crate_dir.join(CASES);
     let pending = crate_dir.join(WORK_DIR).join("recording.jsonl");

@@ -259,7 +259,7 @@ enum Cmd {
     Package {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
-        /// Package name on npm or PyPI; defaults to the crate name.
+        /// Package name (npm, PyPI, RubyGems, Maven artifact); defaults to the unit's name.
         #[arg(long)]
         name: Option<String>,
         /// Package version; defaults to the original package's.

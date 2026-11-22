@@ -55,6 +55,7 @@ pub mod mcp;
 pub mod mcp_prompts;
 pub mod mojo;
 pub mod package;
+mod package_mojo_ffi;
 mod package_mojo_py;
 pub mod pin;
 pub mod port_map;

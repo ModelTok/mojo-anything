@@ -232,12 +232,9 @@ pub(crate) fn repo_relative(root: &Path, path: &Path) -> String {
     }
 }
 
-/// Why `package` fails for a TS/JS unit.
-pub const NPM_NOT_YET: &str = "not yet: npm packages of Mojo ports come with the packaging plan      (M7, docs/superpowers/plans/2026-11-21-m7-package-docs-release.md)";
-
 pub struct Options<'a> {
     pub crate_dir: &'a Path,
-    /// Package name on npm or PyPI; defaults to the crate name.
+    /// Package name (npm, PyPI, RubyGems, Maven artifact); defaults to the unit's name.
     pub name: Option<String>,
     /// Package version; defaults to the original package's.
     pub version: Option<String>,
@@ -307,11 +304,23 @@ pub fn package(opts: &Options) -> Result<Outcome> {
     };
     let generated = match manifest.kind {
         Kind::MojoPy => crate::package_mojo_py::generate(&unit)?,
-        Kind::MojoNode | Kind::MojoWasm => bail!("{NPM_NOT_YET}"),
-        Kind::CAbi | Kind::Ffi | Kind::MojoJvm => bail!(
-            "packaging {:?} units is not supported yet (see the packaging plan, M7)",
-            manifest.kind
+        Kind::MojoNode => {
+            let fallback = crate::package_mojo_ffi::original_package(&manifest, &name);
+            crate::package_mojo_ffi::npm_packages(&unit, fallback.as_deref())?
+        }
+        Kind::MojoWasm => crate::package_mojo_ffi::npm_wasm_package(&unit)?,
+        Kind::CAbi => crate::package_mojo_ffi::c_archive(&unit)?,
+        Kind::Ffi if manifest.language == crate::lang::Lang::Ruby => {
+            crate::package_mojo_ffi::gem(&unit)?
+        }
+        Kind::Ffi if manifest.language == crate::lang::Lang::Go => {
+            crate::package_mojo_ffi::go_module(&unit)?
+        }
+        Kind::Ffi => bail!(
+            "no package for a {} unit of kind `ffi`: bridge again",
+            manifest.language.name()
         ),
+        Kind::MojoJvm => crate::package_mojo_ffi::jar(&unit)?,
     };
     notes.extend(generated.notes);
     let mut files = Vec::new();
