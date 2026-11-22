@@ -2,7 +2,7 @@
 //!
 //! `record` runs the original on cases (the app's own examples, an inputs file, semantic traps)
 //! twice, marks what differs between the two runs as noise, and writes each case as trycmd files
-//! in `rust/app-cases/`. `replay` runs any build against those files and reports what differs.
+//! in `mojo/app-cases/`. `replay` runs any build against those files and reports what differs.
 
 use crate::walk::Canonical;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item, Table, value};
 
-pub const CASES_DIR: &str = "rust/app-cases";
+pub const CASES_DIR: &str = "mojo/app-cases";
 pub const CONFIG_FILE: &str = "mojo-anything.json";
 pub const REPORT_FILE: &str = "replay-report.md";
 pub const FALLBACK_ENV: &str = "MOJO_ANYTHING_FALLBACK_LOG";
@@ -80,7 +80,7 @@ const NOT_APP_NAMES: [&str; 29] = [
     "bundle", "run", "exec", "env", "sudo", "php", "dotnet",
 ];
 
-/// `rust/app-cases/mojo-anything.json`: how to run the original, and the normalizers.
+/// `mojo/app-cases/mojo-anything.json`: how to run the original, and the normalizers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub schema: String,
@@ -1228,11 +1228,11 @@ pub(crate) fn scan_examples<T>(repo: &Path, parse: impl Fn(&str, &Path) -> Optio
     .max_depth(Some(4))
     .sort_by_file_name(|a, b| a.cmp(b))
     .build();
-    let rust_dir = repo.join("rust");
+    let generated = [repo.join("rust"), repo.join("mojo")];
     let mut out = Vec::new();
     for entry in walker.flatten() {
         let path = entry.path();
-        if path.starts_with(&rust_dir) || !path.is_file() {
+        if generated.iter().any(|g| path.starts_with(g)) || !path.is_file() {
             continue;
         }
         let ext = path

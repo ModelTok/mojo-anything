@@ -1,30 +1,30 @@
-//! npm packages and their Rust counterparts.
+//! npm packages and what replaces them in Mojo.
 //!
-//! The table is deliberately small and opinionated: it names the crate a port should reach
-//! for first. A package missing here is reported as `unknown`, never guessed.
+//! The table is deliberately small and opinionated: it names what a port should reach for
+//! first. A package missing here is reported as `unknown`, never guessed.
 
 use serde::Serialize;
 
-/// How well a Rust crate covers what the npm package does.
+/// How well the replacement covers what the library does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Fit {
-    /// A maintained crate does the same job.
+    /// The replacement does the same job.
     Good,
-    /// A crate covers the common case; some behavior needs checking or extra work.
+    /// It covers the common case; some behavior needs checking or extra work.
     Partial,
-    /// No Rust equivalent: keep this part in JS or call it across the bridge.
+    /// Nothing in Mojo does it: keep this part in the source language or call it across the bridge.
     None,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct CrateMatch {
-    pub crates: &'static str,
+    pub replacement: &'static str,
     pub fit: Fit,
     pub note: &'static str,
 }
 
-/// The Rust counterpart of an npm package, if the table knows it.
+/// What replaces an npm package in Mojo, if the table knows it.
 pub fn lookup(package: &str) -> Option<CrateMatch> {
     crate::crates::find("ts", package)
 }
@@ -57,7 +57,11 @@ mod tests {
 
     #[test]
     fn knows_common_packages() {
-        assert_eq!(lookup("json5").map(|m| m.fit), Some(Fit::Good));
+        assert_eq!(lookup("json5").map(|m| m.fit), Some(Fit::Partial));
+        assert_eq!(
+            lookup("semver").map(|m| m.replacement),
+            Some("python:nodesemver")
+        );
         assert_eq!(lookup("jiti").map(|m| m.fit), Some(Fit::None));
         assert!(lookup("left-pad-but-new").is_none());
     }

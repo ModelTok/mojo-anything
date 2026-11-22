@@ -189,7 +189,7 @@ pub struct RiskReport {
 pub struct DependencyReport {
     pub name: String,
     pub used_by: usize,
-    pub crates: Option<&'static str>,
+    pub replacement: Option<&'static str>,
     /// `good`, `partial`, `none`, or `unknown` when the table has no entry.
     pub fit: &'static str,
     pub note: &'static str,
@@ -927,7 +927,7 @@ fn dependency_reports(units: &[UnitReport], lang: Lang) -> Vec<DependencyReport>
             DependencyReport {
                 name: name.to_string(),
                 used_by,
-                crates: found.map(|m| m.crates),
+                replacement: found.map(|m| m.replacement),
                 fit: match found.map(|m| m.fit) {
                     Some(Fit::Good) => "good",
                     Some(Fit::Partial) => "partial",

@@ -1,6 +1,6 @@
 //! `app record --fresh` for a CLI: every case starts from a snapshot of a project folder, written
 //! files are what differs from it, removed files are compared, and a case can remove a file of
-//! the snapshot before it runs. A front door built in a `rust/` that is a symlink still runs the
+//! the snapshot before it runs. A front door built in a `mojo/` that is a symlink still runs the
 //! original from the repository.
 
 use std::path::{Path, PathBuf};
@@ -138,7 +138,7 @@ fn replay_needs_the_snapshot() {
 
 #[cfg(unix)]
 #[test]
-fn a_front_door_in_a_symlinked_rust_dir_finds_the_original() {
+fn a_front_door_in_a_symlinked_mojo_dir_finds_the_original() {
     if Command::new("cargo").arg("--version").output().is_err() {
         return;
     }
@@ -146,7 +146,7 @@ fn a_front_door_in_a_symlinked_rust_dir_finds_the_original() {
     let elsewhere = repo.with_extension("elsewhere");
     let _ = std::fs::remove_dir_all(&elsewhere);
     std::fs::create_dir_all(&elsewhere).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, repo.join("rust")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, repo.join("mojo")).unwrap();
     record(&repo);
     let door = front_door::front_door(&FrontDoorOptions {
         repo: &repo,

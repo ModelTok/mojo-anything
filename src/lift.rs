@@ -1,7 +1,8 @@
 //! `app lift`: once the front door answers every recorded case in Rust, remove the fallback, the
 //! kill switches and the units' bindings, and prove the pure binary on the recorded cases.
 //!
-//! The lift is made on a copy of `rust/` and only copied back when every check passes, so a lift
+//! The lift is made on a copy of the front door and its units (`mojo/app`, `mojo/app-cases`, the
+//! unit folders) and only copied back when every check passes, so a lift
 //! that fails leaves the repository as it was.
 
 use crate::walk::Canonical;
@@ -497,7 +498,7 @@ fn lift_app(
     let mut doc: DocumentMut = std::fs::read_to_string(&cargo)?.parse()?;
     let binary = doc["package"]["name"]
         .as_str()
-        .context("rust/app/Cargo.toml has no package name")?
+        .with_context(|| format!("{APP_DIR}/Cargo.toml has no package name"))?
         .to_string();
     if let Some(description) = doc["package"].get("description").and_then(|d| d.as_str())
         && description.starts_with("Front door for")
@@ -816,15 +817,16 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos())
     ));
-    let stage_rust = stage.join("rust");
-    copy_tree(&app_dir, &stage_rust.join("app"))?;
-    if app::cases_dir(&repo).is_dir() {
-        copy_tree(&app::cases_dir(&repo), &stage_rust.join("app-cases"))?;
+    // The stage mirrors the repository, so the app's relative paths to its units still hold.
+    let staged_path = |dir: &Path| stage.join(dir.strip_prefix(&repo).unwrap_or(dir));
+    copy_tree(&app_dir, &staged_path(&app_dir))?;
+    let cases_dir = app::cases_dir(&repo);
+    if cases_dir.is_dir() {
+        copy_tree(&cases_dir, &staged_path(&cases_dir))?;
     }
     let mut staged_units = Vec::new();
     for (unit, dir) in &units {
-        let rel = dir.strip_prefix(&rust_dir).unwrap_or(dir);
-        let staged = stage_rust.join(rel);
+        let staged = staged_path(dir);
         copy_tree(dir, &staged)?;
         strip_unit(&staged)?;
         staged_units.push((unit.clone(), dir.clone(), staged));
@@ -835,13 +837,12 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
         if dir == app_dir.canonical().unwrap_or_else(|_| app_dir.clone()) {
             continue;
         }
-        let rel = dir.strip_prefix(&rust_dir).unwrap_or(&dir);
-        let staged = stage_rust.join(rel);
+        let staged = staged_path(&dir);
         copy_tree(&dir, &staged)?;
         strip_unit(&staged)?;
         staged_deps.push((dir, staged));
     }
-    let stage_app = stage_rust.join("app");
+    let stage_app = staged_path(&app_dir);
     lift_app(&stage_app, &mut state, &case_bin, &unordered)?;
 
     let mut checklist = Vec::new();
@@ -859,7 +860,7 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
         }
     }
     for check in gate::rust_checks(&stage_app, &target_dir) {
-        checklist.push(Item::from_check("rust/app", check));
+        checklist.push(Item::from_check(APP_DIR, check));
     }
     checklist.push(Item::new(
         "replay in CI",
@@ -873,11 +874,11 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
         } else if state.kind == AppKind::Http {
             "trycmd runs command lines only: run `mojo-anything app replay <repo> --build <the binary>` in CI for the HTTP cases"
         } else if !unordered.is_empty() {
-            "rust/app/tests/app_cases.rs runs the cases with trycmd on `cargo test`, which compares line order exactly, so it skips the cases whose order the original's own runs disagreed on: also run `mojo-anything app replay` in CI for them"
+            "mojo/app/tests/app_cases.rs runs the cases with trycmd on `cargo test`, which compares line order exactly, so it skips the cases whose order the original's own runs disagreed on: also run `mojo-anything app replay` in CI for them"
         } else if key_order {
-            "rust/app/tests/app_cases.rs runs the cases with trycmd on `cargo test`, which compares JSON as text: also run `mojo-anything app replay` in CI for the key-order normalizer"
+            "mojo/app/tests/app_cases.rs runs the cases with trycmd on `cargo test`, which compares JSON as text: also run `mojo-anything app replay` in CI for the key-order normalizer"
         } else {
-            "rust/app/tests/app_cases.rs runs the recorded cases with trycmd on `cargo test`"
+            "mojo/app/tests/app_cases.rs runs the recorded cases with trycmd on `cargo test`"
         },
     ));
     checklist.extend(target_items(&repo, &stage_app, &target_dir));

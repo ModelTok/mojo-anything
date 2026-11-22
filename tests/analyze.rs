@@ -275,7 +275,10 @@ fn php_units_resolve_psr4_imports_and_map_composer_packages() {
         .find(|d| d.name == "nesbot/carbon")
         .unwrap();
     assert!(carbon.declared);
-    assert_eq!(carbon.fit, "good");
+    assert_eq!(
+        (carbon.replacement, carbon.fit),
+        (Some("python:datetime"), "partial")
+    );
     assert!(
         w.dependencies
             .iter()
@@ -507,7 +510,7 @@ fn csharp_units_resolve_namespaces_and_map_nuget_packages() {
         .iter()
         .find(|d| d.name == "Newtonsoft.Json")
         .unwrap();
-    assert_eq!(json.crates, Some("serde_json"));
+    assert_eq!(json.replacement, Some("emberjson"));
     let app = mojo_anything::whole_app::whole_app(&root, &report);
     assert!(
         app.dependencies.iter().all(|d| d.name != "xunit"),
@@ -656,6 +659,24 @@ fn a_requirements_file_names_packages_not_urls() {
             "{bogus} is not a package a registry serves: {declared:?}"
         );
     }
+}
+
+#[test]
+fn whole_app_lists_mojo_replacements() {
+    use mojo_anything::lang::Lang;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/python-reqs");
+    let report = mojo_anything::analyze::analyze_lang(&root, Lang::Python).unwrap();
+    let w = mojo_anything::whole_app::whole_app(&root, &report);
+    let dep = |name: &str| w.dependencies.iter().find(|d| d.name == name).unwrap();
+    assert_eq!(
+        (dep("requests").replacement, dep("requests").fit),
+        (Some("python:requests"), "good")
+    );
+    assert_eq!(
+        (dep("flask").replacement, dep("flask").fit),
+        (Some("-"), "none")
+    );
+    assert_eq!(dep("six").fit, "unknown", "never guessed");
 }
 
 #[test]

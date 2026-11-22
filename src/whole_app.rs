@@ -46,7 +46,7 @@ pub struct Dependency {
     pub declared: bool,
     /// Units that import it.
     pub used_by: usize,
-    pub crates: Option<&'static str>,
+    pub replacement: Option<&'static str>,
     /// `good`, `partial`, `none`, or `unknown` when no table knows it.
     pub fit: &'static str,
     pub note: &'static str,
@@ -637,7 +637,7 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
             Dependency {
                 declared: declared.contains(&name),
                 used_by: used.get(&name).copied().unwrap_or(0),
-                crates: found.map(|m| m.crates),
+                replacement: found.map(|m| m.replacement),
                 fit: fit_label(found.map(|m| m.fit)),
                 note: found.map_or("", |m| m.note),
                 name,
@@ -784,7 +784,7 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
             "none" => ask(
                 format!("dependency {}", dep.name),
                 format!(
-                    "No crate does what {} does ({users}{}). Reimplement what the app uses, or drop the feature?",
+                    "Nothing in Mojo, its pixi packages or CPython does what {} does ({users}{}). Reimplement what the app uses, or drop the feature?",
                     dep.name,
                     if note.is_empty() {
                         String::new()
@@ -796,9 +796,12 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
             ),
             "unknown" => ask(
                 format!("dependency {}", dep.name),
-                format!("Which crate replaces {} ({users})?", dep.name),
                 format!(
-                    "Research it against primary sources into rust/research/{}.md before porting what uses it",
+                    "What replaces {} in Mojo ({users}): a stdlib module, a pixi package or a Python module?",
+                    dep.name
+                ),
+                format!(
+                    "Research it against primary sources into mojo/research/{}.md before porting what uses it",
                     dep.name.replace(['/', ':'], "-")
                 ),
             ),
@@ -807,7 +810,7 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
                 format!(
                     "{} maps to {} only in part ({users}{}). Use it?",
                     dep.name,
-                    dep.crates.unwrap_or("?"),
+                    dep.replacement.unwrap_or("?"),
                     if note.is_empty() {
                         String::new()
                     } else {
@@ -816,7 +819,7 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
                 ),
                 format!(
                     "Use {}, and record cases for the behavior it does not cover",
-                    dep.crates.unwrap_or("it")
+                    dep.replacement.unwrap_or("it")
                 ),
             ),
             _ => {}

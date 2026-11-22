@@ -487,7 +487,7 @@ fn check_language(lang: &Lang) {
     let full = wire(&all, true).replay.unwrap();
     assert_eq!(full.passed, full.total, "{:?}", full.failures);
     assert_eq!(full.fallback.unwrap().cases, 0);
-    sh(&repo.join("rust/app"), "cargo", &["fmt"]);
+    sh(&repo.join(front_door::APP_DIR), "cargo", &["fmt"]);
     sh(&unit, "cargo", &["fmt"]);
 
     let lifted = lift::lift(&LiftOptions { repo: &repo }).unwrap();

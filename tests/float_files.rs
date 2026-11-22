@@ -53,7 +53,7 @@ fn float_files_match_within_the_tolerance_and_report_real_differences() {
     let rounded = replay("1e-7");
     let broken = replay("1e-2");
     let report =
-        std::fs::read_to_string(repo.join("rust/app-cases/replay-report.md")).unwrap_or_default();
+        std::fs::read_to_string(repo.join("mojo/app-cases/replay-report.md")).unwrap_or_default();
     std::fs::remove_dir_all(&repo).unwrap();
     assert!(rounded.status.success(), "{rounded:?}");
     assert!(!broken.status.success(), "{broken:?}");

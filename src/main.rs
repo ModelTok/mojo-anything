@@ -354,7 +354,7 @@ enum Cmd {
 #[allow(clippy::large_enum_variant)]
 enum AppCmd {
     /// Run the original CLI on cases (its own examples, `--inputs`, semantic traps), twice
-    /// each, and store them as trycmd files in `<repo>/rust/app-cases/`.
+    /// each, and store them as trycmd files in `<repo>/mojo/app-cases/`.
     /// `mojo-anything app record . -- python3 cli.py`
     Record {
         /// Repository root.
@@ -435,7 +435,7 @@ enum AppCmd {
         #[arg(last = true)]
         run: Vec<String>,
     },
-    /// Run a build against `<repo>/rust/app-cases/`, print passed/total, write a report with a
+    /// Run a build against `<repo>/mojo/app-cases/`, print passed/total, write a report with a
     /// diff per failing case; exits non-zero on any mismatch.
     Replay {
         /// Repository root.
@@ -459,7 +459,7 @@ enum AppCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Scaffold `<repo>/rust/app`, the Rust binary that owns the CLI's entry point: a clap parser
+    /// Scaffold `<repo>/mojo/app`, the Rust binary that owns the CLI's entry point: a clap parser
     /// for the recorded commands and flags, every command running the original until a unit is
     /// wired. Builds it and replays the cases (100% passed, 100% fallback).
     FrontDoor {
@@ -476,7 +476,7 @@ enum AppCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Hand commands to a unit's `port.rs` (after it passes gate): adds the crate to `rust/app`,
+    /// Hand commands to a unit's `port.rs` (after it passes gate): adds the crate to `mojo/app`,
     /// a glue file to write once, the routing and a kill switch
     /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays.
     Wire {
@@ -500,7 +500,7 @@ enum AppCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Make `rust/app` a pure Rust app, once replay passes with fallback rate 0 and every unit
+    /// Make `mojo/app` a pure Rust app, once replay passes with fallback rate 0 and every unit
     /// passes gate: removes the fallback and the kill switches, turns the units into plain
     /// libraries, runs the lift checklist and replays the pure binary. Checked on a copy first;
     /// the original stays in place.

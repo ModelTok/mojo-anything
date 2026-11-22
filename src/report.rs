@@ -31,7 +31,7 @@ fn whole_app(out: &mut String, w: &crate::whole_app::WholeApp) -> std::fmt::Resu
     } else {
         writeln!(
             out,
-            "| Dependency | Declared | Used by | Rust | Fit | Note |"
+            "| Dependency | Declared | Used by | Mojo | Fit | Note |"
         )?;
         writeln!(out, "| --- | --- | --- | --- | --- | --- |")?;
         for d in &w.dependencies {
@@ -41,7 +41,7 @@ fn whole_app(out: &mut String, w: &crate::whole_app::WholeApp) -> std::fmt::Resu
                 d.name,
                 if d.declared { "yes" } else { "no" },
                 d.used_by,
-                d.crates.unwrap_or("?"),
+                d.replacement.unwrap_or("?"),
                 d.fit,
                 d.note
             )?;
@@ -197,7 +197,7 @@ fn render(out: &mut String, r: &Report, title: &str) -> std::fmt::Result {
 
     if !r.dependencies.is_empty() {
         writeln!(out, "## {} dependencies\n", r.language.registry())?;
-        writeln!(out, "| Package | Units | Rust | Fit | Note |")?;
+        writeln!(out, "| Package | Units | Mojo | Fit | Note |")?;
         writeln!(out, "| --- | ---: | --- | --- | --- |")?;
         for d in &r.dependencies {
             writeln!(
@@ -205,7 +205,7 @@ fn render(out: &mut String, r: &Report, title: &str) -> std::fmt::Result {
                 "| `{}` | {} | {} | {} | {} |",
                 d.name,
                 d.used_by,
-                d.crates.unwrap_or("?"),
+                d.replacement.unwrap_or("?"),
                 d.fit,
                 d.note
             )?;

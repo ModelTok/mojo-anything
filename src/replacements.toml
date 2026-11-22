@@ -1,0 +1,1551 @@
+# What replaces each library a source language's code imports, once the code is Mojo. `analyze`
+# reports the first entry that matches: `names` match exactly, `prefixes` match the start of the
+# name. A library missing here is reported as `unknown`, never guessed.
+#
+# replacement: a Mojo stdlib module (`std.os`), a Mojo package on pixi (`emberjson`), or
+# `python:<module>` for a Python module called through CPython interop; `-` when nothing does.
+# fit: good (it does the same job), partial (the common case; check the rest), none (keep it in
+# the source language). For Python code, `python:<module>` is the same library and fits well; for
+# every other language a Python module is a stand-in and fits partly at best.
+
+[[ts]]
+names = ["yaml", "js-yaml"]
+replacement = "python:yaml"
+fit = "partial"
+note = "No YAML parser in Mojo: PyYAML through CPython interop. Comments and layout are not kept."
+
+[[ts]]
+names = ["json5"]
+replacement = "python:json5"
+fit = "partial"
+note = "No JSON5 reader in Mojo: the `json5` package through CPython interop."
+
+[[ts]]
+names = ["jsonc-parser"]
+replacement = "python:json5"
+fit = "partial"
+note = "JSON5 reads JSONC; there is no CST to edit in place."
+
+[[ts]]
+names = ["oxc-parser", "@babel/parser", "acorn", "espree"]
+replacement = "-"
+fit = "none"
+note = "No JavaScript or TypeScript parser in Mojo or the Python stdlib: keep parsing in JS."
+
+[[ts]]
+names = ["typescript"]
+replacement = "-"
+fit = "none"
+note = "No JavaScript or TypeScript parser in Mojo or the Python stdlib: keep parsing in JS."
+
+[[ts]]
+names = ["valibot", "zod", "yup", "superstruct"]
+replacement = "python:pydantic"
+fit = "partial"
+note = "Schemas become pydantic models through CPython interop; error messages will differ."
+
+[[ts]]
+names = ["ajv"]
+replacement = "python:jsonschema"
+fit = "partial"
+note = "Through CPython interop."
+
+[[ts]]
+names = ["picomatch", "minimatch", "micromatch"]
+replacement = "python:fnmatch"
+fit = "partial"
+note = "No glob matcher in Mojo: Python's `fnmatch` has no braces or extglobs."
+
+[[ts]]
+names = ["tinyglobby", "fast-glob", "globby", "glob"]
+replacement = "python:glob"
+fit = "partial"
+note = "No glob walker in Mojo: Python's `glob`; .gitignore rules are not read."
+
+[[ts]]
+names = ["ignore"]
+replacement = "python:pathspec"
+fit = "partial"
+note = "No .gitignore matcher in Mojo: the `pathspec` package through CPython interop."
+
+[[ts]]
+names = ["chokidar"]
+replacement = "python:watchdog"
+fit = "partial"
+note = "No file watcher in Mojo: the `watchdog` package through CPython interop."
+
+[[ts]]
+names = ["cac", "commander", "yargs", "minimist", "citty"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[ts]]
+names = ["vscode-languageserver"]
+replacement = "python:pygls"
+fit = "partial"
+note = "No LSP server in Mojo: pygls through CPython interop."
+
+[[ts]]
+names = ["vscode-languageserver-textdocument"]
+replacement = "python:pygls"
+fit = "partial"
+note = "LSP positions are UTF-16 by default."
+
+[[ts]]
+names = ["vscode-jsonrpc"]
+replacement = "python:pygls"
+fit = "partial"
+note = "JSON-RPC over stdio through pygls."
+
+[[ts]]
+names = ["jiti", "tsx", "esbuild-register", "unconfig", "c12"]
+replacement = "-"
+fit = "none"
+note = "Loads TS/JS config or plugins at runtime. Keep loading in JS and pass data to Mojo."
+
+[[ts]]
+names = ["@vue/compiler-sfc", "@vue/compiler-dom"]
+replacement = "-"
+fit = "none"
+note = "No Vue compiler outside JS. Keep SFC parsing in JS or split blocks before the bridge."
+
+[[ts]]
+names = ["svelte"]
+replacement = "-"
+fit = "none"
+note = "The Svelte compiler is JS only. Keep it in JS."
+
+[[ts]]
+names = ["semver"]
+replacement = "python:nodesemver"
+fit = "partial"
+note = "npm range syntax: `nodesemver` keeps it; check prerelease rules."
+
+[[ts]]
+names = ["pathe", "upath"]
+replacement = "std.pathlib"
+fit = "good"
+note = "Normalize to `/` separators."
+
+[[ts]]
+names = ["picocolors", "chalk", "kleur", "colorette"]
+replacement = "std"
+fit = "good"
+note = "Write the ANSI escapes; check NO_COLOR and whether stdout is a terminal as the original does."
+
+[[ts]]
+names = ["ws"]
+replacement = "python:websockets"
+fit = "partial"
+note = "No WebSocket client or server in Mojo: `websockets` through CPython interop."
+
+[[ts]]
+names = ["express", "fastify", "h3", "hono", "koa"]
+replacement = "-"
+fit = "none"
+note = "Mojo has no HTTP server in its stdlib: keep the server in its language until the Mojo server front door exists."
+
+[[ts]]
+names = ["fast-xml-parser", "xml2js", "sax"]
+replacement = "python:xml.etree.ElementTree"
+fit = "partial"
+note = "No XML parser in Mojo: Python's ElementTree; DOM and XPath need rewriting."
+
+[[ts]]
+names = ["smol-toml", "toml", "@iarna/toml"]
+replacement = "python:tomllib"
+fit = "partial"
+note = "No TOML parser in Mojo: Python's `tomllib` reads; writing needs `tomli_w`."
+
+[[ts]]
+names = ["dotenv"]
+replacement = "python:dotenv"
+fit = "partial"
+note = "Or read the file and `setenv` (`std.os`) by hand."
+
+[[ts]]
+names = ["uuid", "nanoid"]
+replacement = "python:uuid"
+fit = "partial"
+note = "Python's `uuid`; nanoid-style ids from `std.random`."
+
+[[ts]]
+names = ["dayjs", "date-fns", "luxon", "moment"]
+replacement = "python:datetime"
+fit = "partial"
+note = "No calendar or time-zone support in Mojo: Python's `datetime` and `zoneinfo`."
+
+[[ts]]
+names = ["diff", "jsdiff"]
+replacement = "python:difflib"
+fit = "partial"
+note = "Python's `difflib`; hunks and ordering can differ from jsdiff."
+
+[[ts]]
+names = ["lru-cache", "quick-lru"]
+replacement = "std.collections"
+fit = "partial"
+note = "A `Dict` plus an order list; write the eviction by hand."
+
+[[ts]]
+names = ["p-limit", "p-queue"]
+replacement = "-"
+fit = "none"
+note = "Mojo has no async runtime to limit: run the work in order or keep it in JS."
+
+[[ts]]
+names = ["ofetch", "axios", "node-fetch", "undici", "ky"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[ts]]
+names = ["pino", "debug", "consola", "winston"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[ts]]
+names = ["lodash", "lodash-es", "es-toolkit", "radash"]
+replacement = "std.collections"
+fit = "partial"
+note = "Write the helpers the code uses over `List` and `Dict`."
+
+[[ts]]
+names = ["fuse.js"]
+replacement = "python:rapidfuzz"
+fit = "partial"
+note = "Scores and ranking order differ."
+
+[[ts]]
+names = ["magic-string"]
+replacement = "-"
+fit = "none"
+note = "No source-map-aware string editor in Mojo: keep it in JS."
+
+[[ts]]
+names = ["devframe", "vite", "nuxt", "@nuxt/kit", "vitepress"]
+replacement = "-"
+fit = "none"
+note = "Dev server or UI framework: keep in JS."
+
+[[ts]]
+names = ["fluent-ffmpeg", "ffmpeg-static", "@ffmpeg/ffmpeg", "@ffmpeg/core"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call the libav* C libraries through `external_call`; Mojo has no binding, so each call is declared by hand."
+
+[[ts]]
+names = ["@discordjs/opus", "opusscript"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call libopus through `external_call`."
+
+[[ts]]
+names = ["lamejs"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call libmp3lame through `external_call`."
+
+[[ts]]
+names = ["joi", "@hapi/joi"]
+replacement = "python:pydantic"
+fit = "partial"
+note = "Validation through CPython interop; error messages will differ."
+
+[[ts]]
+names = ["graphql", "@apollo/server", "graphql-yoga", "apollo-server"]
+replacement = "python:graphql"
+fit = "partial"
+note = "graphql-core through CPython interop: the schema carries; the resolvers are rewritten."
+
+[[ts]]
+names = ["mongoose"]
+replacement = "python:pymongo"
+fit = "partial"
+note = "Through CPython interop; an ODM's schemas, middleware and populate do not carry."
+
+[[ts]]
+names = ["ioredis", "redis"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[ts]]
+names = ["rxjs"]
+replacement = "-"
+fit = "none"
+note = "Mojo has no async streams: operators become loops or stay in JS."
+
+[[ts]]
+names = ["socket.io", "socket.io-client"]
+replacement = "python:socketio"
+fit = "partial"
+note = "python-socketio through CPython interop."
+
+[[ts]]
+names = ["puppeteer", "puppeteer-core", "playwright", "playwright-core"]
+replacement = "python:playwright"
+fit = "partial"
+note = "Playwright for Python through CPython interop; the page API is close, not the same."
+
+[[ts]]
+names = ["sharp"]
+replacement = "python:PIL"
+fit = "partial"
+note = "Pillow through CPython interop; resampling filters differ."
+
+[[ts]]
+names = ["bcrypt", "bcryptjs"]
+replacement = "python:bcrypt"
+fit = "partial"
+note = "The `bcrypt` package through CPython interop."
+
+[[ts]]
+names = ["jsonwebtoken", "jose"]
+replacement = "python:jwt"
+fit = "partial"
+note = "PyJWT through CPython interop."
+
+[[ts]]
+names = ["execa", "cross-spawn"]
+replacement = "std.subprocess"
+fit = "partial"
+note = "`run` captures stdout only: exit status and stdin go through `external_call` (fork, execvp, waitpid), as the front door's original.mojo does."
+
+[[ts]]
+names = ["pg", "postgres"]
+replacement = "python:psycopg"
+fit = "partial"
+note = "psycopg through CPython interop."
+
+[[ts]]
+names = ["mysql2", "mysql"]
+replacement = "python:pymysql"
+fit = "partial"
+note = "PyMySQL through CPython interop."
+
+[[ts]]
+names = ["better-sqlite3", "sqlite3"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[ts]]
+names = ["csv-parse", "papaparse"]
+replacement = "python:csv"
+fit = "partial"
+note = "Python's `csv` through CPython interop; dialect options differ."
+
+[[ts]]
+names = ["cheerio", "node-html-parser"]
+replacement = "python:bs4"
+fit = "partial"
+note = "Beautiful Soup through CPython interop."
+
+[[ts]]
+names = ["marked", "markdown-it", "remark"]
+replacement = "python:markdown"
+fit = "partial"
+note = "Python-Markdown through CPython interop; CommonMark corner cases differ."
+
+[[ts]]
+names = ["helmet", "cors", "compression"]
+replacement = "-"
+fit = "none"
+note = "Server middleware stays with the server."
+
+[[ts]]
+names = ["multer"]
+replacement = "-"
+fit = "none"
+note = "Multipart uploads belong to the server, which stays in its language."
+
+[[ts]]
+names = ["inquirer", "prompts", "enquirer"]
+replacement = "-"
+fit = "none"
+note = "Interactive prompts: read stdin by hand, or keep them in the original."
+
+[[ts]]
+names = ["ora", "listr2", "cli-progress"]
+replacement = "python:tqdm"
+fit = "partial"
+note = "tqdm through CPython interop, or write the bar to stderr by hand."
+
+[[ts]]
+names = ["@prisma/client", "knex", "drizzle-orm", "sequelize", "typeorm"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "An ORM's dynamic queries need redesign."
+
+[[python]]
+names = ["requests"]
+replacement = "python:requests"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["httpx"]
+replacement = "python:httpx"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["urllib3"]
+replacement = "python:urllib3"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["aiohttp"]
+replacement = "python:aiohttp"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["numpy"]
+replacement = "python:numpy"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pandas"]
+replacement = "python:pandas"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pyyaml"]
+replacement = "python:yaml"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["yaml"]
+replacement = "python:yaml"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["ruamel-yaml"]
+replacement = "python:ruamel.yaml"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["regex"]
+replacement = "python:regex"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["click"]
+replacement = "python:click"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["typer"]
+replacement = "python:typer"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["docopt"]
+replacement = "python:docopt"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["toml"]
+replacement = "python:toml"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["tomli"]
+replacement = "python:tomli"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["tomli-w"]
+replacement = "python:tomli_w"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pydantic"]
+replacement = "python:pydantic"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["attrs"]
+replacement = "python:attrs"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["marshmallow"]
+replacement = "python:marshmallow"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["jinja2"]
+replacement = "python:jinja2"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["lxml"]
+replacement = "python:lxml"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["beautifulsoup4"]
+replacement = "python:bs4"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["bs4"]
+replacement = "python:bs4"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["python-dateutil"]
+replacement = "python:dateutil"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["dateutil"]
+replacement = "python:dateutil"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pendulum"]
+replacement = "python:pendulum"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["arrow"]
+replacement = "python:arrow"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["orjson"]
+replacement = "python:orjson"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["ujson"]
+replacement = "python:ujson"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["simplejson"]
+replacement = "python:simplejson"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["rich"]
+replacement = "python:rich"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["colorama"]
+replacement = "python:colorama"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["termcolor"]
+replacement = "python:termcolor"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["tqdm"]
+replacement = "python:tqdm"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["cryptography"]
+replacement = "python:cryptography"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pycryptodome"]
+replacement = "python:Crypto"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pillow"]
+replacement = "python:PIL"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["pil"]
+replacement = "python:PIL"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["sqlalchemy"]
+replacement = "python:sqlalchemy"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["psycopg2"]
+replacement = "python:psycopg2"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["psycopg"]
+replacement = "python:psycopg"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["django", "flask", "fastapi", "starlette"]
+replacement = "-"
+fit = "none"
+note = "Web framework: keep the app in Python."
+
+[[python]]
+names = ["pytest", "hypothesis", "mypy"]
+replacement = "-"
+fit = "none"
+note = "Tooling, not runtime."
+
+[[python]]
+names = ["av"]
+replacement = "python:av"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["ffmpeg-python"]
+replacement = "python:ffmpeg"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["ffmpeg"]
+replacement = "python:ffmpeg"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["imageio-ffmpeg"]
+replacement = "python:imageio_ffmpeg"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[python]]
+names = ["opuslib"]
+replacement = "python:opuslib"
+fit = "good"
+note = "The same library through CPython interop: a lifted binary still needs CPython and the package."
+
+[[c]]
+names = ["<zlib.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libz: call it through `external_call`."
+
+[[c]]
+prefixes = ["<openssl/"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links OpenSSL: call it through `external_call`."
+
+[[c]]
+names = ["<sqlite3.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libsqlite3: call it through `external_call`."
+
+[[c]]
+names = ["<curl/curl.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libcurl: call it through `external_call`."
+
+[[c]]
+names = ["<pcre.h>", "<pcre2.h>", "<regex.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links the regex library: call it through `external_call`."
+
+[[c]]
+names = ["<pthread.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call pthreads through `external_call`; Mojo has no thread API of its own to match."
+
+[[c]]
+names = ["<sys/socket.h>", "<netinet/in.h>", "<arpa/inet.h>", "<netdb.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call the libc socket functions through `external_call`."
+
+[[c]]
+names = ["<unistd.h>", "<fcntl.h>", "<sys/stat.h>", "<sys/types.h>", "<dirent.h>"]
+replacement = "std.os, std.ffi"
+fit = "good"
+note = "`std.os` for files and the environment; the rest of libc through `external_call`."
+
+[[c]]
+names = ["<sys/wait.h>"]
+replacement = "std.subprocess"
+fit = "partial"
+note = "`run` captures stdout only: exit status and stdin go through `external_call` (fork, execvp, waitpid), as the front door's original.mojo does."
+
+[[c]]
+names = ["<poll.h>", "<sys/select.h>", "<sys/epoll.h>", "<sys/event.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call poll/epoll through `external_call`."
+
+[[c]]
+names = ["<getopt.h>"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[c]]
+names = ["<dlfcn.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call dlopen and dlsym through `external_call`."
+
+[[c]]
+names = ["<sys/mman.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call mmap through `external_call`."
+
+[[c]]
+names = ["<syslog.h>"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call syslog(3) through `external_call`, or `std.logger` for stderr."
+
+[[c]]
+names = ["<iconv.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links iconv: call it through `external_call`."
+
+[[c]]
+names = ["<math.h>", "<string.h>", "<stdlib.h>", "<stdio.h>", "<ctype.h>", "<stdint.h>", "<stdbool.h>", "<stddef.h>", "<limits.h>", "<errno.h>", "<assert.h>"]
+replacement = "std"
+fit = "good"
+
+[[c]]
+prefixes = ["<libavcodec/", "<libavformat/", "<libavutil/", "<libswscale/", "<libswresample/", "<libavfilter/"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links the libav* libraries: call it through `external_call`."
+
+[[c]]
+names = ["<opus.h>", "<opus/opus.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libopus: call it through `external_call`."
+
+[[c]]
+names = ["<lame/lame.h>", "<lame.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libmp3lame: call it through `external_call`."
+
+[[c]]
+prefixes = ["<json-c/"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[c]]
+prefixes = ["<libxml/", "<libxslt/"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libxml2: call it through `external_call`."
+
+[[c]]
+names = ["<png.h>", "<jpeglib.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libpng and libjpeg: call it through `external_call`."
+
+[[c]]
+names = ["<libpq-fe.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libpq: call it through `external_call`."
+
+[[c]]
+prefixes = ["<hiredis/"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links hiredis: call it through `external_call`."
+
+[[c]]
+names = ["<uuid/uuid.h>"]
+replacement = "std.ffi"
+fit = "good"
+note = "The program already links libuuid: call it through `external_call`."
+
+[[go]]
+prefixes = ["github.com/spf13/cobra", "github.com/urfave/cli", "github.com/urfave/cli/v2"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[go]]
+prefixes = ["github.com/spf13/viper"]
+replacement = "python:tomllib"
+fit = "partial"
+note = "Read the config files with `tomllib` and the environment with `std.os.getenv`."
+
+[[go]]
+prefixes = ["github.com/sirupsen/logrus", "go.uber.org/zap", "github.com/rs/zerolog"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[go]]
+prefixes = ["github.com/stretchr/testify"]
+replacement = "std.testing"
+fit = "good"
+note = "Asserts from `std.testing`, run with `mojo run` (no `mojo test` in 1.2)."
+
+[[go]]
+prefixes = ["github.com/google/uuid"]
+replacement = "python:uuid"
+fit = "partial"
+note = "Python's `uuid` through CPython interop."
+
+[[go]]
+prefixes = ["github.com/gorilla/mux", "github.com/gin-gonic/gin", "github.com/labstack/echo/v4", "github.com/go-chi/chi"]
+replacement = "-"
+fit = "none"
+note = "Mojo has no HTTP server in its stdlib: keep the server in its language until the Mojo server front door exists."
+
+[[go]]
+prefixes = ["gopkg.in/yaml.v3", "gopkg.in/yaml.v2", "sigs.k8s.io/yaml"]
+replacement = "python:yaml"
+fit = "partial"
+note = "No YAML parser in Mojo: PyYAML through CPython interop."
+
+[[go]]
+prefixes = ["github.com/BurntSushi/toml", "github.com/pelletier/go-toml/v2"]
+replacement = "python:tomllib"
+fit = "partial"
+note = "No TOML parser in Mojo: Python's `tomllib` reads; writing needs `tomli_w`."
+
+[[go]]
+prefixes = ["golang.org/x/text"]
+replacement = "python:unicodedata"
+fit = "partial"
+note = "Normalization through Python's `unicodedata`; collation and locales are not covered."
+
+[[go]]
+prefixes = ["golang.org/x/sync"]
+replacement = "-"
+fit = "none"
+note = "Mojo has no task runtime to match goroutines or coroutines: keep the concurrent part in the original."
+
+[[go]]
+prefixes = ["github.com/jackc/pgx/v5", "github.com/lib/pq"]
+replacement = "python:psycopg"
+fit = "partial"
+note = "psycopg through CPython interop."
+
+[[go]]
+prefixes = ["github.com/mattn/go-sqlite3"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[go]]
+prefixes = ["github.com/prometheus/client_golang"]
+replacement = "python:prometheus_client"
+fit = "partial"
+note = "Through CPython interop."
+
+[[go]]
+prefixes = ["google.golang.org/grpc"]
+replacement = "python:grpc"
+fit = "partial"
+note = "grpcio through CPython interop."
+
+[[go]]
+prefixes = ["google.golang.org/protobuf", "github.com/golang/protobuf"]
+replacement = "python:google.protobuf"
+fit = "partial"
+note = "protobuf through CPython interop."
+
+[[go]]
+prefixes = ["github.com/dlclark/regexp2"]
+replacement = "python:re"
+fit = "partial"
+note = "No regex engine in Mojo's stdlib: Python's `re`; syntax differs."
+
+[[go]]
+prefixes = ["github.com/u2takey/ffmpeg-go", "github.com/asticode/go-astiav", "github.com/giorgisio/goav"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call the libav* C libraries through `external_call`; Mojo has no binding, so each call is declared by hand."
+
+[[go]]
+prefixes = ["github.com/pkg/errors", "go.uber.org/multierr"]
+replacement = "std"
+fit = "good"
+note = "Errors become `raises` and `Error`."
+
+[[go]]
+prefixes = ["gorm.io/gorm", "gorm.io/driver"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "An ORM's dynamic queries need redesign."
+
+[[go]]
+prefixes = ["github.com/redis/go-redis", "github.com/gomodule/redigo"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[go]]
+prefixes = ["github.com/golang-jwt/jwt", "github.com/dgrijalva/jwt-go"]
+replacement = "python:jwt"
+fit = "partial"
+note = "PyJWT through CPython interop."
+
+[[go]]
+prefixes = ["github.com/go-playground/validator"]
+replacement = "python:pydantic"
+fit = "partial"
+note = "Validation through CPython interop; error messages will differ."
+
+[[ruby]]
+names = ["rails", "sinatra", "roda", "hanami", "action_controller", "action_view", "action_mailer", "action_cable", "action_dispatch", "active_job", "active_storage", "railties"]
+replacement = "-"
+fit = "none"
+note = "a web framework is an application rewrite, not a port"
+
+[[ruby]]
+names = ["activesupport", "active_support"]
+replacement = "python:inflection"
+fit = "partial"
+note = "Core extensions have no single counterpart."
+
+[[ruby]]
+names = ["activerecord", "active_record", "sequel"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "An ORM's dynamic queries need redesign."
+
+[[ruby]]
+names = ["nokogiri"]
+replacement = "python:bs4"
+fit = "partial"
+note = "Beautiful Soup through CPython interop."
+
+[[ruby]]
+names = ["json", "oj", "multi_json"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[ruby]]
+names = ["httparty", "faraday", "rest-client", "http"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[ruby]]
+names = ["thor", "optparse", "slop"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[ruby]]
+names = ["rspec", "minitest", "test-unit"]
+replacement = "std.testing"
+fit = "good"
+note = "Asserts from `std.testing`, run with `mojo run` (no `mojo test` in 1.2)."
+
+[[ruby]]
+names = ["rake"]
+replacement = "-"
+fit = "none"
+note = "A build tool: keep it."
+
+[[ruby]]
+names = ["redis"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[ruby]]
+names = ["pg"]
+replacement = "python:psycopg"
+fit = "partial"
+note = "psycopg through CPython interop."
+
+[[ruby]]
+names = ["sqlite3"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[ruby]]
+names = ["dry-types", "dry-struct"]
+replacement = "std"
+fit = "partial"
+note = "Typed records become Mojo structs; coercion rules are written by hand."
+
+[[ruby]]
+names = ["nanoid"]
+replacement = "std.random"
+fit = "partial"
+note = "Draw from `std.random` over the same alphabet."
+
+[[ruby]]
+names = ["tzinfo"]
+replacement = "python:zoneinfo"
+fit = "partial"
+note = "Python's `zoneinfo` through CPython interop."
+
+[[ruby]]
+names = ["i18n"]
+replacement = "python:gettext"
+fit = "partial"
+note = "Python's `gettext`; message formats differ."
+
+[[ruby]]
+names = ["kramdown", "redcarpet", "commonmarker"]
+replacement = "python:markdown"
+fit = "partial"
+note = "Python-Markdown through CPython interop; CommonMark corner cases differ."
+
+[[ruby]]
+names = ["rouge"]
+replacement = "python:pygments"
+fit = "partial"
+note = "Pygments through CPython interop; token names differ."
+
+[[ruby]]
+names = ["zeitwerk", "bootsnap"]
+replacement = "-"
+fit = "none"
+note = "Ruby loading machinery: drop it"
+
+[[java]]
+prefixes = ["com.google.guava", "com.google.common"]
+replacement = "std.collections"
+fit = "partial"
+note = "Guava spans many modules; `Dict` keeps insertion order."
+
+[[java]]
+prefixes = ["org.apache.commons"]
+replacement = "std.collections"
+fit = "partial"
+note = "Write the helpers the code uses over `List` and `Dict`."
+
+[[java]]
+prefixes = ["com.fasterxml.jackson", "com.google.gson", "com.google.code.gson"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[java]]
+prefixes = ["org.slf4j", "ch.qos.logback", "org.apache.logging"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[java]]
+prefixes = ["org.junit", "junit", "org.assertj"]
+replacement = "std.testing"
+fit = "good"
+note = "Asserts from `std.testing`, run with `mojo run` (no `mojo test` in 1.2)."
+
+[[java]]
+prefixes = ["org.springframework"]
+replacement = "-"
+fit = "none"
+note = "a framework is an application rewrite, not a port"
+
+[[java]]
+prefixes = ["org.projectlombok", "lombok"]
+replacement = "std"
+fit = "good"
+note = "Lombok's generated code becomes `@fieldwise_init` structs."
+
+[[java]]
+prefixes = ["com.squareup.okhttp3", "org.apache.httpcomponents"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[java]]
+prefixes = ["org.yaml"]
+replacement = "python:yaml"
+fit = "partial"
+note = "No YAML parser in Mojo: PyYAML through CPython interop."
+
+[[java]]
+prefixes = ["info.picocli", "com.beust"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[java]]
+prefixes = ["org.postgresql"]
+replacement = "python:psycopg"
+fit = "partial"
+note = "psycopg through CPython interop."
+
+[[java]]
+prefixes = ["org.xerial"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[java]]
+prefixes = ["com.ibm.icu"]
+replacement = "python:icu"
+fit = "partial"
+note = "PyICU through CPython interop."
+
+[[java]]
+prefixes = ["org.bytedeco.ffmpeg", "org.bytedeco.javacv", "net.bramp.ffmpeg"]
+replacement = "std.ffi"
+fit = "partial"
+note = "Call the libav* C libraries through `external_call`; Mojo has no binding, so each call is declared by hand."
+
+[[java]]
+prefixes = ["io.grpc"]
+replacement = "python:grpc"
+fit = "partial"
+note = "grpcio through CPython interop."
+
+[[java]]
+prefixes = ["com.google.protobuf"]
+replacement = "python:google.protobuf"
+fit = "partial"
+note = "protobuf through CPython interop."
+
+[[java]]
+prefixes = ["org.apache.kafka"]
+replacement = "python:confluent_kafka"
+fit = "partial"
+note = "librdkafka's Python client through CPython interop."
+
+[[java]]
+prefixes = ["redis.clients", "io.lettuce"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[php]]
+names = ["laravel/framework", "slim/slim", "symfony/framework-bundle", "laminas/laminas-mvc", "cakephp/cakephp", "yiisoft/yii2"]
+replacement = "-"
+fit = "none"
+note = "a web framework is an application rewrite, not a port"
+
+[[php]]
+names = ["symfony/http-foundation", "psr/http-message", "nyholm/psr7", "guzzlehttp/psr7"]
+replacement = "-"
+fit = "none"
+note = "HTTP messages belong to the server, which stays in its language for now."
+
+[[php]]
+names = ["symfony/console"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[php]]
+names = ["symfony/yaml"]
+replacement = "python:yaml"
+fit = "partial"
+note = "No YAML parser in Mojo: PyYAML through CPython interop."
+
+[[php]]
+names = ["symfony/process"]
+replacement = "std.subprocess"
+fit = "partial"
+note = "`run` captures stdout only: exit status and stdin go through `external_call` (fork, execvp, waitpid), as the front door's original.mojo does."
+
+[[php]]
+names = ["symfony/finder"]
+replacement = "std.os, std.pathlib"
+fit = "partial"
+note = "`listdir` and `Path`; walk and match by hand."
+
+[[php]]
+names = ["symfony/string"]
+replacement = "python:unicodedata"
+fit = "partial"
+note = "Grapheme clusters are not covered."
+
+[[php]]
+names = ["guzzlehttp/guzzle"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[php]]
+names = ["monolog/monolog", "psr/log"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[php]]
+names = ["doctrine/orm", "illuminate/database"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "An ORM's dynamic queries need redesign."
+
+[[php]]
+names = ["doctrine/dbal"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "SQL through SQLAlchemy Core and CPython interop."
+
+[[php]]
+names = ["nesbot/carbon"]
+replacement = "python:datetime"
+fit = "partial"
+note = "No calendar or time-zone support in Mojo: Python's `datetime`."
+
+[[php]]
+names = ["ramsey/uuid"]
+replacement = "python:uuid"
+fit = "partial"
+note = "Python's `uuid` through CPython interop."
+
+[[php]]
+names = ["league/commonmark", "erusev/parsedown"]
+replacement = "python:markdown"
+fit = "partial"
+note = "Python-Markdown through CPython interop; CommonMark corner cases differ."
+
+[[php]]
+names = ["twig/twig"]
+replacement = "python:jinja2"
+fit = "partial"
+note = "Jinja2 through CPython interop; template syntax differs."
+
+[[php]]
+names = ["league/csv"]
+replacement = "python:csv"
+fit = "partial"
+note = "Python's `csv` through CPython interop; dialect options differ."
+
+[[php]]
+names = ["league/flysystem"]
+replacement = "python:fsspec"
+fit = "partial"
+note = "Through CPython interop."
+
+[[php]]
+names = ["vlucas/phpdotenv"]
+replacement = "python:dotenv"
+fit = "partial"
+note = "Or read the file and `setenv` (`std.os`) by hand."
+
+[[php]]
+names = ["firebase/php-jwt", "lcobucci/jwt"]
+replacement = "python:jwt"
+fit = "partial"
+note = "PyJWT through CPython interop."
+
+[[php]]
+names = ["predis/predis"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[php]]
+names = ["phpunit/phpunit", "pestphp/pest"]
+replacement = "std.testing"
+fit = "good"
+note = "Asserts from `std.testing`, run with `mojo run` (no `mojo test` in 1.2)."
+
+[[php]]
+names = ["respect/validation"]
+replacement = "python:pydantic"
+fit = "partial"
+note = "Validation through CPython interop; error messages will differ."
+
+[[php]]
+names = ["brick/math"]
+replacement = "python:decimal"
+fit = "partial"
+note = "Python's `decimal` and int through CPython interop."
+
+[[php]]
+names = ["composer/composer"]
+replacement = "-"
+fit = "none"
+note = "PHP's package manager: drop it"
+
+[[csharp]]
+prefixes = ["Newtonsoft.Json", "System.Text.Json"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[csharp]]
+prefixes = ["Serilog", "NLog", "log4net", "Microsoft.Extensions.Logging"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[csharp]]
+prefixes = ["xunit", "NUnit", "MSTest", "FluentAssertions", "Microsoft.NET.Test.Sdk"]
+replacement = "std.testing"
+fit = "good"
+note = "Asserts from `std.testing`, run with `mojo run` (no `mojo test` in 1.2)."
+
+[[csharp]]
+prefixes = ["Microsoft.AspNetCore"]
+replacement = "-"
+fit = "none"
+note = "a framework is an application rewrite, not a port"
+
+[[csharp]]
+prefixes = ["Microsoft.EntityFrameworkCore"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "An ORM's dynamic queries need redesign."
+
+[[csharp]]
+prefixes = ["Dapper"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "SQL through SQLAlchemy Core and CPython interop."
+
+[[csharp]]
+prefixes = ["Npgsql"]
+replacement = "python:psycopg"
+fit = "partial"
+note = "psycopg through CPython interop."
+
+[[csharp]]
+prefixes = ["Microsoft.Data.Sqlite", "System.Data.SQLite"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[csharp]]
+prefixes = ["CsvHelper"]
+replacement = "python:csv"
+fit = "partial"
+note = "Python's `csv` through CPython interop; dialect options differ."
+
+[[csharp]]
+prefixes = ["YamlDotNet"]
+replacement = "python:yaml"
+fit = "partial"
+note = "No YAML parser in Mojo: PyYAML through CPython interop."
+
+[[csharp]]
+prefixes = ["System.CommandLine", "CommandLineParser", "Spectre.Console.Cli"]
+replacement = "std.sys"
+fit = "partial"
+note = "Mojo has no argument parser: read `argv()` and parse it by hand."
+
+[[csharp]]
+prefixes = ["RestSharp", "Flurl"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[csharp]]
+prefixes = ["Polly"]
+replacement = "std"
+fit = "partial"
+note = "Retries become a loop; no circuit breakers."
+
+[[csharp]]
+prefixes = ["NodaTime"]
+replacement = "python:datetime"
+fit = "partial"
+note = "No calendar or time-zone support in Mojo: Python's `datetime`."
+
+[[csharp]]
+prefixes = ["Humanizer"]
+replacement = "-"
+fit = "none"
+note = "reimplement what the app uses"
+
+[[csharp]]
+prefixes = ["AutoMapper"]
+replacement = "std"
+fit = "good"
+note = "Mappings become constructors."
+
+[[csharp]]
+prefixes = ["MediatR", "Microsoft.Extensions.DependencyInjection"]
+replacement = "-"
+fit = "none"
+note = "plain function calls and constructors replace the container"
+
+[[csharp]]
+prefixes = ["BouncyCastle", "Portable.BouncyCastle"]
+replacement = "python:cryptography"
+fit = "partial"
+note = "Through CPython interop."
+
+[[csharp]]
+prefixes = ["Microsoft.Extensions.Configuration"]
+replacement = "python:tomllib"
+fit = "partial"
+note = "Read the config files with `tomllib` and the environment with `std.os.getenv`."
+
+[[csharp]]
+prefixes = ["StackExchange.Redis"]
+replacement = "python:redis"
+fit = "partial"
+note = "redis-py through CPython interop."
+
+[[csharp]]
+prefixes = ["MongoDB.Driver"]
+replacement = "python:pymongo"
+fit = "partial"
+note = "Through CPython interop; an ODM's schemas, middleware and populate do not carry."
+
+[[csharp]]
+prefixes = ["RabbitMQ.Client"]
+replacement = "python:pika"
+fit = "partial"
+note = "Through CPython interop."
+
+[[csharp]]
+prefixes = ["Grpc.Net.Client", "Grpc.AspNetCore", "Grpc.Core"]
+replacement = "python:grpc"
+fit = "partial"
+note = "grpcio through CPython interop."
+
+[[csharp]]
+prefixes = ["Google.Protobuf"]
+replacement = "python:google.protobuf"
+fit = "partial"
+note = "protobuf through CPython interop."
+
+[[csharp]]
+prefixes = ["Microsoft.Data.SqlClient"]
+replacement = "python:pymssql"
+fit = "partial"
+note = "Through CPython interop; connection pooling differs."
+
+[[csharp]]
+prefixes = ["FluentValidation"]
+replacement = "python:pydantic"
+fit = "partial"
+note = "Validation through CPython interop; error messages will differ."
+
+[[kotlin]]
+prefixes = ["kotlinx.serialization"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi (what `json.mojo` wraps); classes become structs."
+
+[[kotlin]]
+prefixes = ["kotlinx.coroutines", "kotlinx.coroutines."]
+replacement = "-"
+fit = "none"
+note = "Mojo has no task runtime to match goroutines or coroutines: keep the concurrent part in the original."
+
+[[kotlin]]
+prefixes = ["com.fasterxml.jackson", "com.google.gson", "com.google.code.gson", "org.json"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[kotlin]]
+prefixes = ["org.slf4j", "ch.qos.logback"]
+replacement = "std.logger"
+fit = "partial"
+note = "Levels and a line format; no structured fields or sinks."
+
+[[kotlin]]
+prefixes = ["io.ktor", "com.squareup.okhttp3"]
+replacement = "-"
+fit = "none"
+note = "The server side stays in its language; the client side is `python:urllib.request`."
+
+[[kotlin]]
+prefixes = ["kotlinx.datetime"]
+replacement = "python:datetime"
+fit = "partial"
+note = "No calendar or time-zone support in Mojo: Python's `datetime` and `zoneinfo`."
+
+[[kotlin]]
+prefixes = ["com.squareup.moshi"]
+replacement = "emberjson"
+fit = "good"
+note = "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+
+[[kotlin]]
+prefixes = ["retrofit2", "com.squareup.retrofit2"]
+replacement = "python:urllib.request"
+fit = "partial"
+note = "No HTTP client in Mojo: Python's `urllib.request` through CPython interop."
+
+[[kotlin]]
+prefixes = ["androidx.room", "android.arch.persistence"]
+replacement = "python:sqlite3"
+fit = "partial"
+note = "Python's `sqlite3` through CPython interop, or libsqlite3 through `external_call`."
+
+[[kotlin]]
+prefixes = ["org.jetbrains.exposed"]
+replacement = "python:sqlalchemy"
+fit = "partial"
+note = "SQL through SQLAlchemy Core and CPython interop."
+
+[[kotlin]]
+prefixes = ["com.google.dagger", "dagger.hilt"]
+replacement = "-"
+fit = "none"
+note = "A dependency-injection container: keep the wiring in Kotlin, or pass the objects in."
+
+[[kotlin]]
+prefixes = ["androidx.compose", "androidx.lifecycle", "androidx.activity"]
+replacement = "-"
+fit = "none"
+note = "UI and lifecycle: an application rewrite, not a port."
+
+[[kotlin]]
+prefixes = ["androidx.", "android."]
+replacement = "-"
+fit = "none"
+note = "The Android framework is the platform the port runs under, not a library it replaces."
+

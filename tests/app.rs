@@ -743,7 +743,7 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
     let replay = all.replay.unwrap();
     assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
     assert_eq!(replay.fallback.unwrap().cases, 0);
-    for dir in ["rust/app", "rust/wordcount-rs", "rust/textops-rs"] {
+    for dir in ["mojo/app", "rust/wordcount-rs", "rust/textops-rs"] {
         sh(&repo.join(dir), "cargo", &["fmt"]);
     }
 
@@ -758,7 +758,7 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
         lifted
             .checklist
             .iter()
-            .any(|i| i.name == "rust/app: cargo test" && i.mark == lift::Mark::Pass)
+            .any(|i| i.name == "mojo/app: cargo test" && i.mark == lift::Mark::Pass)
     );
     let replay = lifted.replay.as_ref().unwrap();
     assert_eq!(replay.passed, replay.total);

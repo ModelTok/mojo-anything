@@ -254,7 +254,7 @@ pub fn resolve(from: &str, spec: &str, index: &HashMap<&str, usize>) -> super::R
     if spec.starts_with('<') {
         // The C standard library is part of every platform; other system headers are libraries.
         return match lookup(spec) {
-            Some(m) if m.crates == "std" => super::Resolution::Stdlib,
+            Some(m) if m.replacement == "std" => super::Resolution::Stdlib,
             _ if STANDARD_HEADERS.contains(&spec) => super::Resolution::Stdlib,
             _ => super::Resolution::External(spec.to_string()),
         };

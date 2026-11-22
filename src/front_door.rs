@@ -1,4 +1,4 @@
-//! The front door: `rust/app`, a Rust binary that owns a CLI's entry point from day one and runs
+//! The front door: `mojo/app`, a binary that owns a CLI's entry point from day one and runs
 //! the original for every command not ported yet, and `wire`, which hands commands to a unit's
 //! `port.rs` behind a kill switch.
 
@@ -14,10 +14,12 @@ use toml_edit::{DocumentMut, InlineTable, value};
 use crate::app::{self, ReplayOptions, ReplayOutcome};
 use crate::front_door_http as http_door;
 
-pub const APP_DIR: &str = "rust/app";
+pub const APP_DIR: &str = "mojo/app";
 pub const STATE_FILE: &str = "mojo-anything.json";
 pub const KILL_SWITCH_PREFIX: &str = "MOJO_ANYTHING_UNIT_";
-const SCHEMA: &str = "mojo-anything/front-door@1";
+const SCHEMA: &str = "mojo-anything/app@1";
+/// Where rust-anything kept its front door.
+const OLD_APP_DIR: &str = "rust/app";
 const GLUE_MARKER: &str = "unimplemented!(\"glue for";
 
 /// The glue file still holds the stub `wire` wrote, however rustfmt wrapped it.
@@ -26,7 +28,7 @@ pub(crate) fn is_stub(glue: &str) -> bool {
     squash(glue).contains(&squash(GLUE_MARKER))
 }
 
-/// `rust/app/mojo-anything.json`: the commands the front door routes and the units wired to them.
+/// `mojo/app/mojo-anything.json`: the commands the front door routes and the units wired to them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     pub schema: String,
@@ -87,13 +89,33 @@ pub struct WiredUnit {
 impl State {
     pub fn load(repo: &Path) -> Result<State> {
         let path = repo.join(APP_DIR).join(STATE_FILE);
+        if !path.is_file() {
+            let old = repo.join(OLD_APP_DIR);
+            if [crate::bridge::OLD_MANIFEST, STATE_FILE]
+                .iter()
+                .any(|f| old.join(f).is_file())
+            {
+                bail!(
+                    "{} is a Rust front door from before the move to Mojo: run `mojo-anything app front-door` again to scaffold {APP_DIR}",
+                    old.display()
+                );
+            }
+        }
         let text = std::fs::read_to_string(&path).with_context(|| {
             format!(
                 "reading {}: run `mojo-anything app front-door` first",
                 path.display()
             )
         })?;
-        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        let value: serde_json::Value =
+            serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let schema = value["schema"].as_str().unwrap_or_default();
+        ensure!(
+            schema == SCHEMA,
+            "{} was written by an older front door (schema `{schema}`, not `{SCHEMA}`): move it aside and run `mojo-anything app front-door` again",
+            path.display()
+        );
+        serde_json::from_value(value).with_context(|| format!("parsing {}", path.display()))
     }
 
     fn save(&self, repo: &Path) -> Result<()> {
@@ -130,11 +152,31 @@ fn package_name(name: &str) -> String {
 
 /// `MOJO_ANYTHING_UNIT_<NAME>`, the variable that sends a unit back to the original.
 pub fn kill_switch(crate_name: &str) -> String {
-    let name = crate_name.strip_suffix("-rs").unwrap_or(crate_name);
+    let name = unit_name(crate_name);
     format!(
         "{KILL_SWITCH_PREFIX}{}",
         ident(name).trim_start_matches("unit_").to_uppercase()
     )
+}
+
+/// The unit's name without the `-mojo` suffix `bridge` gives its folder (or the `-rs` of a
+/// unit still bridged to Rust).
+pub(crate) fn unit_name(crate_name: &str) -> &str {
+    crate_name
+        .strip_suffix("-mojo")
+        .or_else(|| crate_name.strip_suffix("-rs"))
+        .unwrap_or(crate_name)
+}
+
+/// `path` as the front door names it: relative to `mojo/app` when it is inside the repository.
+pub(crate) fn from_app_dir(repo: &Path, path: &Path) -> String {
+    match path.strip_prefix(repo) {
+        Ok(rel) => {
+            let up = "../".repeat(Path::new(APP_DIR).components().count());
+            format!("{up}{}", rel.to_string_lossy().replace('\\', "/"))
+        }
+        Err(_) => path.to_string_lossy().into_owned(),
+    }
 }
 
 pub(crate) fn ident(name: &str) -> String {
@@ -796,10 +838,7 @@ fn library_wire(
         crate_dir,
         previous.and_then(|i| state.units[i].shadow.as_deref()),
     )?;
-    let path = match crate_dir.strip_prefix(repo.join("rust")) {
-        Ok(rel) => format!("../{}", rel.to_string_lossy().replace('\\', "/")),
-        Err(_) => crate_dir.to_string_lossy().into_owned(),
-    };
+    let path = from_app_dir(repo, crate_dir);
     let entry = WiredUnit {
         name: name.clone(),
         crate_name: crate_name.clone(),
@@ -964,10 +1003,7 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
             "{crate_name} is not a Rust library: add \"rlib\" to `crate-type` in its Cargo.toml"
         );
     }
-    let name = crate_name
-        .strip_suffix("-rs")
-        .unwrap_or(&crate_name)
-        .to_string();
+    let name = unit_name(&crate_name).to_string();
     let switch = kill_switch(&crate_name);
 
     let gate = if opts.skip_gate {
@@ -1050,10 +1086,7 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
             bail!("`{command}` is already wired to {}", other.name);
         }
     }
-    let path = match crate_dir.strip_prefix(repo.join("rust")) {
-        Ok(rel) => format!("../{}", rel.to_string_lossy().replace('\\', "/")),
-        Err(_) => crate_dir.to_string_lossy().into_owned(),
-    };
+    let path = from_app_dir(&repo, &crate_dir);
     let entry = WiredUnit {
         name: name.clone(),
         crate_name: crate_name.clone(),
@@ -1143,6 +1176,42 @@ mod tests {
                 assert!(err.contains("is a Mojo unit"), "{given}: {err}");
             }
         }
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn kill_switch_names_mojo_units() {
+        assert_eq!(
+            kill_switch("colorsys-pkg-mojo"),
+            "MOJO_ANYTHING_UNIT_COLORSYS_PKG"
+        );
+        assert_eq!(kill_switch("textops"), "MOJO_ANYTHING_UNIT_TEXTOPS");
+    }
+
+    #[test]
+    fn old_front_door_state_says_rerun() {
+        let repo = crate::app::temp_dir("old-front-door").unwrap();
+        let old = repo.join("rust/app");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(
+            old.join("rust-anything.json"),
+            r#"{"schema": "rust-anything/front-door@1", "name": "tcli", "commands": []}"#,
+        )
+        .unwrap();
+        let err = format!("{:#}", State::load(&repo).unwrap_err());
+        assert!(err.contains("rust/app"), "{err}");
+        assert!(err.contains("app front-door` again"), "{err}");
+
+        // A state file in the new place but written by an older schema says the same.
+        let app = repo.join(APP_DIR);
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(
+            app.join(STATE_FILE),
+            r#"{"schema": "mojo-anything/front-door@1", "name": "tcli", "commands": []}"#,
+        )
+        .unwrap();
+        let err = format!("{:#}", State::load(&repo).unwrap_err());
+        assert!(err.contains("app front-door` again"), "{err}");
         std::fs::remove_dir_all(&repo).unwrap();
     }
 

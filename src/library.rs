@@ -1,5 +1,5 @@
 //! Libraries (no `main`, no server): the front door is the library's public API as a Rust crate,
-//! `rust/app`, re-exporting each unit's `port.rs` once it is wired. Until the lift, the original
+//! `mojo/app`, re-exporting each unit's `port.rs` once it is wired. Until the lift, the original
 //! package keeps its callers and reaches Rust through each unit's bindings and shadow drop-in,
 //! which honors the unit's kill switch.
 
@@ -18,7 +18,7 @@ use crate::lang::Lang;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiUnit {
     pub unit: String,
-    /// The module that re-exports it in `rust/app`.
+    /// The module that re-exports it in `mojo/app`.
     pub module: String,
     pub exports: Vec<String>,
 }
@@ -95,7 +95,7 @@ pub(crate) fn cargo_toml(package: &str, name: &str) -> String {
     )
 }
 
-/// `rust/app/src/lib.rs`: the wired units' ports, one module each.
+/// `mojo/app/src/lib.rs`: the wired units' ports, one module each.
 pub(crate) fn lib_rs(state: &State, lifted: bool) -> String {
     let mut out = if lifted {
         format!(
@@ -271,7 +271,7 @@ pub(crate) fn original_references(repo: &Path, state: &State) -> Vec<String> {
     let walker = crate::walk::filtered(repo, |e| {
         !matches!(
             e.file_name().to_string_lossy().as_ref(),
-            "rust" | "target" | "node_modules" | ".git"
+            "rust" | "mojo" | "target" | "node_modules" | ".git"
         )
     })
     .build();

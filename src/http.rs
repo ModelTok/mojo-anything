@@ -36,7 +36,7 @@ const SKIP_HEADERS: [&str; 12] = [
 ];
 const LOCAL_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"];
 
-/// `http` in `rust/app-cases/mojo-anything.json`: the app is a server.
+/// `http` in `mojo/app-cases/mojo-anything.json`: the app is a server.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HttpConfig {
     /// A port the original always listens on. When unset, every start gets a free port through
