@@ -59,6 +59,13 @@ caller's `catch (const std::invalid_argument &)` and terminated it, and its `wha
 `type: ` prefix. The shim now records `<type> (<base>): <what()>` with the nearest standard base
 (a `dynamic_cast` chain), and the wrapper throws that base with the original `what()`.
 
+**A string that was not UTF-8 reached Mojo unchecked.** The generated `_str` built the port's
+`String` with `unsafe_from_utf8`, and the driver turned a `{"$bytes": [255]}` input into the
+text `{'$bytes': [255]}`, so such a case could neither be recorded nor reach the port safely.
+`_str` now checks with `String(from_utf8=...)` and raises `std::invalid_argument` into the error
+slot, and the driver passes `$bytes` as the bytes. Treat bytes from C as unchecked until a
+checked constructor has seen them.
+
 **Two C spellings made one Mojo helper twice.** `std::vector<long>` and
 `std::vector<std::int64_t>` are both `List[Int64]`, and `exports.mojo` defined `_list_int64` once
 per spelling, so `build` failed. Name and de-duplicate generated helpers by the same key

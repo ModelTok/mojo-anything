@@ -733,3 +733,52 @@ fn cpp_derived_exceptions_reach_callers_as_their_standard_base() {
     }
     std::fs::remove_dir_all(&repo).unwrap();
 }
+
+const UTF8_CALLER: &str = r#"#include <iostream>
+#include <stdexcept>
+
+#include "mixed.hpp"
+
+int main()
+{
+    std::cout << mixed::length("h\xc3\xa9llo") << "\n";
+    try {
+        std::cout << mixed::length(std::string("\xff", 1)) << "\n";
+    } catch (const std::invalid_argument &e) {
+        std::cout << "invalid_argument: " << e.what() << "\n";
+    }
+    return 0;
+}
+"#;
+
+#[test]
+fn cpp_string_not_utf8_is_recorded_and_refused_by_the_port() {
+    if !ready() {
+        return;
+    }
+    let (repo, dir) = mixed("utf8");
+    let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
+    assert!(
+        cases.contains(r#""fn": "mixed::length", "args": [{"$bytes": [255]}], "ok": 1}"#),
+        "{cases}"
+    );
+    // A Mojo `String` holds UTF-8 only: the port refuses the byte, and diff shows that case.
+    let d = diff(&dir);
+    let what = "`s` of `mixed::length` is not valid UTF-8";
+    let length: Vec<&serde_json::Value> = d
+        .mismatches
+        .iter()
+        .filter(|c| c["fn"] == "mixed::length")
+        .collect();
+    assert_eq!(length.len(), 1, "{:?}", d.mismatches);
+    assert_eq!(
+        length[0]["actual"]["error"],
+        format!("std::invalid_argument: {what}"),
+        "{:?}",
+        length[0]
+    );
+    let (original, ported) = callers(&repo, &dir, "src/mixed.cpp", UTF8_CALLER);
+    assert_eq!(original, "6\n1\n");
+    assert_eq!(ported, format!("6\ninvalid_argument: {what}\n"));
+    std::fs::remove_dir_all(&repo).unwrap();
+}

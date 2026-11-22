@@ -68,7 +68,9 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   `external_call["free", NoneType](p)`. The dispatcher hands answers to C this way, so the
   caller's `free` and the library's agree (`tests/mojo_dispatcher.rs`, 2026-11-22).
 - C bytes to a string: `String(unsafe_from_utf8=Span[UInt8, ImmutAnyOrigin](unsafe_ptr=p,
-  length=n))` copies the bytes without checking them.
+  length=n))` copies the bytes without checking them; `String(from_utf8=span)` checks them and
+  raises `Cannot construct a String from invalid UTF-8 data` (byte 255, 2026-11-22). C++ units'
+  `_str` uses the checked one.
 - `--Werror` rejects a value assigned and then overwritten before use (`var s = String()`
   followed by assignments on every path): declare it as `var s: String`.
 - Contraction: Mojo fuses `a * b + c` on `Float64` into one multiply-add (`vfmadd` on x86-64)

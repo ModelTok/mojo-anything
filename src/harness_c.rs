@@ -1015,8 +1015,12 @@ def call(functions, c):
         elif kind == "error":
             args[i] = ctypes.addressof(error)
         elif kind == "utf8":
-            # A C++ string: its UTF-8 bytes and their count, NUL bytes included.
-            data = str(value if value is not None else "").encode("utf-8")
+            # A C++ string: its UTF-8 bytes and their count, NUL bytes included; `{"$bytes": [...]}`
+            # gives the bytes themselves, which need not be UTF-8.
+            if isinstance(value, dict) and list(value) == ["$bytes"]:
+                data = bytes(value["$bytes"])
+            else:
+                data = str(value if value is not None else "").encode("utf-8")
             buf = ctypes.create_string_buffer(data, max(len(data), 1))
             memory[i] = (buf, len(data))
             args[i] = ctypes.cast(buf, ctypes.c_void_p)

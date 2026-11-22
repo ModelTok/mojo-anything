@@ -510,15 +510,19 @@ fn scalar_size(e: &str) -> usize {
 }
 
 const MOJO_STR: &str = r#"
-def _str(p: Optional[Pointer[UInt8, ImmutAnyOrigin]], n: UInt) -> String:
+def _str(
+    p: Optional[Pointer[UInt8, ImmutAnyOrigin]], n: UInt, what: String
+) raises -> String:
     if not p or n == 0:
         return String()
-    # SAFETY: the shim passes NULL or `n` readable bytes of a `std::string`, valid for the call.
-    return String(
-        unsafe_from_utf8=Span[UInt8, ImmutAnyOrigin](
-            unsafe_ptr=p.value(), length=Int(n)
-        )
-    )
+    # SAFETY: a caller of the C symbol (the wrapper, the driver, any C code) passes NULL or
+    # `n` readable bytes, valid for the call; `from_utf8` checks them.
+    var bytes = Span[UInt8, ImmutAnyOrigin](unsafe_ptr=p.value(), length=Int(n))
+    try:
+        return String(from_utf8=bytes)
+    except:
+        # A Mojo `String` holds UTF-8 only; the original took any bytes.
+        raise Error("std::invalid_argument: " + what + " is not valid UTF-8")
 "#;
 
 const MOJO_OWNED_STR: &str = r#"
@@ -622,7 +626,10 @@ pub fn exports_mojo_cpp(m: &Manifest, api: &crate::codegen::PortApi) -> Result<S
                     any_str = true;
                     params.push(format!("{a}: Optional[Pointer[UInt8, ImmutAnyOrigin]]"));
                     params.push(format!("{a}_len: UInt"));
-                    args.push(format!("_str({a}, {a}_len)"));
+                    args.push(format!(
+                        "_str({a}, {a}_len, \"`{}` of `{}`\")",
+                        p.name, f.name
+                    ));
                 }
                 CppType::Vec(e) => {
                     // Helpers are named by their Mojo type, which several C spellings share
@@ -673,7 +680,12 @@ pub fn exports_mojo_cpp(m: &Manifest, api: &crate::codegen::PortApi) -> Result<S
             }
         };
         let returns = ret.is_some();
-        let lines = if fallible(f) {
+        // A string argument that is not UTF-8 raises in `_str`, so it needs the error slot too.
+        let takes_str = f
+            .params
+            .iter()
+            .any(|p| matches!(param_crossing(f, p).map(|c| c.ty), Ok(CppType::Str)));
+        let lines = if fallible(f) || takes_str {
             any_error = true;
             let (ok, err) = match failed {
                 Some(zero) => (
@@ -835,7 +847,15 @@ mod tests {
         assert!(plain.contains("def _owned_list_int32("), "{plain}");
         assert!(plain.contains("def _owned_list_float64("), "{plain}");
         assert!(plain.contains("def _owned_str("), "{plain}");
-        assert!(!plain.contains("_set_error"), "no port raises yet: {plain}");
+        // No port raises yet, but a string that is not UTF-8 does.
+        assert!(
+            plain.contains("    try:\n        return port.count_bytes(_str(a_s, a_s_len, \"`s` of `kit::count_bytes`\"))\n    except e:\n        _set_error(a_mojo_anything_error, String(e))\n        return 0\n"),
+            "{plain}"
+        );
+        assert!(
+            !plain.contains("    try:\n        return port.add("),
+            "{plain}"
+        );
         let raising = stubs.replace(
             "def checked_sqrt(x: Float64) -> Float64:",
             "def checked_sqrt(x: Float64) raises -> Float64:",
