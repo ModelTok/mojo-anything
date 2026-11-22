@@ -1450,3 +1450,86 @@ fn batches_use_the_chosen_allocator() {
     assert!(!read(&dir, "Cargo.toml").contains("rusty_alloc"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// `util.ts` bridged to a Mojo port behind the Node-API addon.
+fn bridged_mojo(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("mojo-anything-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    bridge::bridge(&bridge::Options {
+        root: &fixture(),
+        unit: "packages/a/src/util.ts",
+        kind: Some(Kind::MojoNode),
+        out: Some(dir.clone()),
+        name: None,
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+        allocator: Default::default(),
+    })
+    .unwrap();
+    dir
+}
+
+#[test]
+fn ts_mojo_bridge_files() {
+    let dir = bridged_mojo("ts-mojo-files");
+    for f in [
+        "port.mojo",
+        "dispatcher.mojo",
+        "json.mojo",
+        "node_shim.c",
+        "binding.gyp",
+        "index.cjs",
+        "pixi.toml",
+        "mojo-anything.json",
+        "README.md",
+    ] {
+        assert!(dir.join(f).is_file(), "{f}");
+    }
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    assert!(
+        port.contains("def range_of(text: String, word: String) raises -> JsonValue:"),
+        "{port}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn ts_mojo_loop_matches() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
+        return;
+    }
+    let dir = bridged_mojo("ts-mojo-loop");
+    let recorded = harness::record(&RecordOptions {
+        crate_dir: &dir,
+        count: 120,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    harness::build(&dir).unwrap();
+    let outcome = harness::diff(&DiffOptions {
+        crate_dir: &dir,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    })
+    .unwrap();
+    assert_eq!(
+        (outcome.passed, outcome.failed),
+        (recorded.cases, 0),
+        "{:#?}",
+        outcome.mismatches
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

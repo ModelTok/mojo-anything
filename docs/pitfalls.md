@@ -52,6 +52,11 @@ comment block above; keep the reason in that block, touching the line it explain
 **`mojo build` rejected raising a call result.** `raise _no_method(...)` failed with "aliasing
 values passed mutably to '__error__'". Bind the error first (`var e = f(...)`, then `raise e^`).
 
+**A unit in a folder with spaces could not build EmberJson.** pixi builds EmberJson from git
+inside the unit's `.pixi/bld`, and its build script passes that path to `mojo` unquoted ("too many
+inputs"). `crate::mojo::command` runs such a unit's environment from a copy of its `pixi.toml` in
+a space-free cache folder; test a new Mojo dependency from a path with spaces.
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,

@@ -974,6 +974,18 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
             files: files.into_iter().map(|(p, _)| p).collect(),
         });
     }
+    if manifest.kind == Kind::MojoNode {
+        let port =
+            std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
+        let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+        match_export_names(&manifest, &mut api);
+        let files = mojo_node_bindings(&manifest, &api)?;
+        write_files(crate_dir, &files)?;
+        return Ok(Refreshed {
+            functions: manifest.exports.iter().map(|f| f.name.clone()).collect(),
+            files: files.into_iter().map(|(p, _)| p).collect(),
+        });
+    }
     if manifest.kind == Kind::Ffi && mojo_unit(manifest.kind, manifest.language) {
         if crate_dir.join("Cargo.toml").exists() {
             bail!(
@@ -1341,6 +1353,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     if kind == Kind::MojoPy {
         return bridge_mojo_py(&manifest, &crate_dir, &js_only);
     }
+    if kind == Kind::MojoNode {
+        return bridge_mojo_node(&manifest, &crate_dir, &js_only);
+    }
     let port = codegen::port_rs(&manifest);
     let fns = codegen::parse_port(&port);
     let modules = codegen::Modules {
@@ -1493,6 +1508,99 @@ __pycache__/
         exports: m.exports.iter().map(|f| f.name.clone()).collect(),
         notes,
     })
+}
+
+fn bridge_mojo_node(m: &Manifest, crate_dir: &Path, js_only: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_mojo::port_mojo(m);
+    let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+    match_export_names(m, &mut api);
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        (
+            ".gitignore".into(),
+            ".pixi/
+.mojo-anything/
+*.node
+*.so
+*.dylib
+"
+            .into(),
+        ),
+        ("README.md".into(), readme(m)),
+        (
+            MANIFEST.into(),
+            serde_json::to_string_pretty(m)?
+                + "
+",
+        ),
+    ];
+    files.extend(mojo_node_bindings(m, &api)?);
+    write_files(crate_dir, &files)?;
+    let mut notes = vec![format!(
+        "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+        crate_dir.display()
+    )];
+    for c in &m.classes {
+        notes.push(format!(
+            "Class `{}` is not bridged to Mojo yet; it stays in {}.",
+            c.name,
+            m.language.name()
+        ));
+    }
+    for j in js_only {
+        notes.push(format!(
+            "`{}` stays in {}: {}.",
+            j.name,
+            m.language.name(),
+            j.reason
+        ));
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: m.kind,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: m.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
+}
+
+/// The generated layers of a `mojo-node` unit: `pixi.toml`, `json.mojo`, the dispatcher, the
+/// Node-API addon source, `binding.gyp` and `index.cjs`.
+fn mojo_node_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
+    if !m.batches.is_empty() {
+        bail!("not yet: batches for Mojo ports of TS/JS units come with M4 Task 4");
+    }
+    let mut exported = api.clone();
+    exported
+        .functions
+        .retain(|f| m.exports.iter().any(|e| e.name == f.js_name));
+    let api = &exported;
+    Ok(vec![
+        (
+            "pixi.toml".to_string(),
+            crate::codegen_mojo_py::unit_pixi_toml(m, true),
+        ),
+        (
+            "json.mojo".into(),
+            crate::codegen_mojo::JSON_MOJO.to_string(),
+        ),
+        (
+            crate::codegen_ffi::DISPATCHER.into(),
+            crate::codegen_ffi::dispatcher_mojo(m, api).map_err(anyhow::Error::msg)?,
+        ),
+        (
+            crate::harness_mojo_node::NODE_SHIM.into(),
+            crate::codegen_mojo_node::node_shim_c(m),
+        ),
+        (
+            "binding.gyp".into(),
+            crate::codegen_mojo_node::binding_gyp(m),
+        ),
+        (
+            "index.cjs".into(),
+            crate::codegen_mojo_node::index_cjs_mojo(m, api),
+        ),
+    ])
 }
 
 fn mojo_readme(m: &Manifest) -> String {

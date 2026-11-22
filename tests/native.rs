@@ -743,3 +743,182 @@ console.log(JSON.stringify([batch.run(), batch instanceof WrapBatch, refused, ne
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+fn have_node_mojo() -> bool {
+    common::have("node") && common::have("cc") && common::have_mojo()
+}
+
+/// Bridge `unit` as a Mojo port behind the Node-API addon, put `port` in place and build.
+fn mojo_node_unit(root: &Path, unit: &str, port: &str) -> PathBuf {
+    let dir = root.join("port");
+    bridge::bridge(&bridge::Options {
+        root,
+        unit,
+        kind: Some(Kind::MojoNode),
+        out: Some(dir.clone()),
+        name: None,
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+        allocator: Default::default(),
+    })
+    .unwrap();
+    std::fs::write(dir.join("port.mojo"), port).unwrap();
+    bridge::refresh(&dir).unwrap();
+    harness::build(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn node_addon_loads_from_unicode_path() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node path with spaces ünïcøde",
+        &[
+            ("package.json", r#"{"name":"shout","version":"0.1.0"}"#),
+            (
+                "src/shout.ts",
+                "export function shout(text: string): string {\n  return text + \"!\";\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/shout.ts",
+        "def shout(text: String) raises -> String:\n    return text + \"!\"\n",
+    );
+    let recorded = harness::record(&RecordOptions {
+        crate_dir: &dir,
+        count: 30,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap();
+    let outcome = harness::diff(&DiffOptions {
+        crate_dir: &dir,
+        module: None,
+        ignore_key_order: false,
+        node_args: &[],
+        float_tolerance: None,
+    })
+    .unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(recorded.cases > 0);
+    assert_eq!(
+        (outcome.passed, outcome.failed),
+        (outcome.total, 0),
+        "{:#?}",
+        outcome.mismatches
+    );
+}
+
+#[test]
+fn node_errors_keep_their_class_and_async_rejects() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-errors",
+        &[
+            ("package.json", r#"{"name":"guard","version":"0.1.0"}"#),
+            (
+                "src/guard.ts",
+                "export function check(text: string): string {\n  if (text === '') throw new TypeError('empty');\n  return text;\n}\n\
+                 export async function later(text: string): Promise<string> {\n  return text;\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/guard.ts",
+        "def check(text: String) raises -> String:\n    if text.byte_length() == 0:\n        raise Error(\"TypeError: empty\")\n    return text\n\n\n\
+         def later(text: String) raises -> String:\n    return text\n",
+    );
+    let script = r#"
+const m = require(process.argv[1])
+const out = []
+try { m.check('') } catch (e) { out.push(e instanceof TypeError, e.message) }
+try { m.check('a\uD800') } catch (e) { out.push(e instanceof TypeError && /lone surrogate/.test(e.message)) }
+let threw = false
+const p = (() => { try { return m.later(5) } catch { threw = true } })()
+out.push(!threw && p instanceof Promise)
+;(p ? p.catch(e => e.code) : Promise.resolve(null)).then(code => {
+  out.push(code)
+  return m.later('x')
+}).then(x => { out.push(x); console.log(JSON.stringify(out)) })
+"#;
+    let output = Command::new("node")
+        .args(["-e", script])
+        .arg(dir.join("index.cjs"))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    std::fs::remove_dir_all(&root).unwrap();
+    // `later(5)` passes a number for a string: the dispatcher answers with a panic, and the
+    // promise rejects with it instead of throwing.
+    assert_eq!(
+        stdout.trim(),
+        r#"[true,"empty",true,true,"MOJO_PANIC","x"]"#,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn node_carries_markers_through_mojo() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-markers",
+        &[
+            ("package.json", r#"{"name":"same","version":"0.1.0"}"#),
+            (
+                "src/same.ts",
+                "export function same(v: unknown): unknown { return v }\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/same.ts",
+        "from json import JsonValue\n\n\ndef same(v: JsonValue) raises -> JsonValue:\n    return v.copy()\n",
+    );
+    let script = r#"
+const { same } = require(process.argv[1])
+const when = new Date('2024-02-29T12:00:00.000Z')
+const bytes = same(new Uint8Array([0, 7, 255]))
+console.log(JSON.stringify([
+  same(undefined) === undefined,
+  Object.is(same(NaN), NaN),
+  Object.is(same(-0), -0),
+  same(Infinity) === Infinity,
+  same(9007199254740993n) === 9007199254740993n,
+  same(when) instanceof Date && same(when).getTime() === when.getTime(),
+  [...same(new Map([['a', 1]]))].join(),
+  [...same(new Set(['x', 'y']))].join(),
+  bytes instanceof Uint8Array && [...bytes].join(),
+  same('a\uD800') === 'a\uD800',
+  Object.is(same({ k: undefined, n: [1.5, -0] }).n[1], -0),
+]))
+"#;
+    let output = Command::new("node")
+        .args(["-e", script])
+        .arg(dir.join("index.cjs"))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        stdout.trim(),
+        r#"[true,true,true,true,true,true,"a,1","x,y","0,7,255",true,true]"#,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -465,6 +465,10 @@ fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
             let built = crate::harness_mojo_c::library_path(crate_dir, manifest, false);
             return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
         }
+        Kind::MojoNode => {
+            let built = crate::harness_mojo_node::addon_path(crate_dir, manifest);
+            return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
+        }
         _ => return None,
     };
     sources_newer_than(crate_dir, &built).then_some(built)
@@ -524,7 +528,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
             crate::harness_go::build(crate_dir, &manifest)
         }
         Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
-        Kind::MojoNode => bail!("building mojo-node units is not wired yet"),
+        Kind::MojoNode => crate::harness_mojo_node::build(crate_dir, &manifest),
         Kind::Napi => {
             let target = crate_dir.join("target");
             run(

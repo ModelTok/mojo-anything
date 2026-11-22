@@ -68,14 +68,74 @@ pub fn command(project: &Path) -> Result<Command> {
     let mut cmd = Command::new(pixi);
     cmd.arg("run")
         .arg("--manifest-path")
-        .arg(project.join("pixi.toml"))
+        .arg(env_manifest(project)?)
         .arg("mojo");
     Ok(cmd)
+}
+
+/// The `pixi.toml` whose environment runs Mojo for `project`: its own, unless the project's
+/// path holds whitespace. Packages pixi builds from source (EmberJson) run build scripts that
+/// do not quote paths, so such a project gets a copy of its `pixi.toml` in a cache folder named
+/// by the file's hash, shared by every project with the same file.
+fn env_manifest(project: &Path) -> Result<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let own = project.join("pixi.toml");
+    let absolute = std::path::absolute(project)?;
+    if !absolute.to_string_lossy().contains(char::is_whitespace) {
+        return Ok(own);
+    }
+    let text =
+        std::fs::read(&own).map_err(|e| anyhow::anyhow!("reading {}: {e}", own.display()))?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = cache
+        .join("mojo-anything")
+        .join("pixi")
+        .join(format!("{:016x}", hasher.finish()));
+    if dir.to_string_lossy().contains(char::is_whitespace) {
+        bail!(
+            "{} has whitespace in its path, and so does the cache folder {}: Mojo packages built \
+             from source cannot build there; move the project",
+            project.display(),
+            dir.display()
+        );
+    }
+    std::fs::create_dir_all(&dir)?;
+    let copy = dir.join("pixi.toml");
+    if std::fs::read(&copy).ok().as_deref() != Some(&text[..]) {
+        std::fs::write(&copy, &text)?;
+    }
+    Ok(copy)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_project_path_with_spaces_gets_its_environment_elsewhere() {
+        let base = std::env::temp_dir().join(format!("mojo env spaces {}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("pixi.toml"), "[workspace]\nname = \"x\"\n").unwrap();
+        let manifest = env_manifest(&base).unwrap();
+        assert!(
+            !manifest.to_string_lossy().contains(char::is_whitespace),
+            "{}",
+            manifest.display()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&manifest).unwrap(),
+            "[workspace]\nname = \"x\"\n"
+        );
+        let plain = std::env::temp_dir().join(format!("mojo-env-plain-{}", std::process::id()));
+        assert_eq!(env_manifest(&plain).unwrap(), plain.join("pixi.toml"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 
     #[test]
     fn no_pixi_without_path_or_home() {
