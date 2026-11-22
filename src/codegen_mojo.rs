@@ -92,6 +92,9 @@ pub fn mojo_escape(name: &str) -> String {
 /// The text every stub raises, which `gate` counts to find functions still to port.
 pub const STUB_MARK: &str = "not ported: ";
 
+/// `json.mojo`, the JSON reader and writer emitted into units with structured values.
+pub const JSON_MOJO: &str = include_str!("mojo/json.mojo");
+
 /// The Mojo type of a port parameter.
 fn param_mojo(m: &Manifest, p: &crate::ts::exports::Param) -> String {
     let t = if crate::codegen_py::has_literal_default(p) {

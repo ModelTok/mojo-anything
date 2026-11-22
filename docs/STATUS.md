@@ -31,6 +31,7 @@ Details of every run: [real-world.md](real-world.md) (TS/JS) and
 | --- | --- | --- |
 | `analyze` | Verified | every language above, x18n's 142 units |
 | `bridge`, `record`, `diff`, `gate`, `build` | Verified | the runs above; `bridge --as-json` on json-server's `paginate` |
+| JSON for Mojo units (`src/mojo/json.mojo`) | Tested | EmberJson 0.5.0 plus `$num` markers: 473 V8 floats round-trip bit for bit, 64-bit integers exact, big integers and lone surrogates refused, 200 deep (`tests/mojo_json.rs`, 2026-11-22); no unit emits it yet |
 | `build --profile android` | Tested | Kotlin fixture, one ABI per test run (all three built by hand), entry points and 16 KB alignment checked; `armeabi-v7a` library loaded on an Android 11 TV and called through JNI |
 | `record`/`diff --profile android` | Tested | Kotlin fixture on an Android 11 TV: record 291 cases under ART, then diff against the Android `.so` (12 of them did not match yet, not investigated); guarded test `tests/android_device.rs` skips without a device |
 | Types for untyped JS in `bridge` (sibling `.d.ts`/`.d.mts`/`.d.cts`, then JSDoc) | Tested | `tests/untyped_js_types.rs` |

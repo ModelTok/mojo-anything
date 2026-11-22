@@ -60,6 +60,27 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   the C fields in declaration order matches the C layout and calling convention, also for
   `struct { int a; double b; }` passed and returned by value.
 
+## JSON
+
+Units with structured values use `src/mojo/json.mojo`, a thin layer over EmberJson
+(github.com/bgreni/EmberJson, Apache-2.0), checked by `tests/mojo_json.rs` (2026-11-22).
+
+- EmberJson comes from its git tag `0.5.0`, the release that pins `mojo ==1.2.0`, built by
+  pixi-build (`preview = ["pixi-build"]` in the workspace). The conda package (0.4.0) is
+  precompiled for Mojo 1.1 and does not load under 1.2.0; EmberJson's main tracks the nightly.
+- API: `from_json[Value](text)` and `to_json(value)`; `Value` is an int (`Int64`), uint
+  (`UInt64`), float, string, bool, `Object` (keys keep their order), `Array` or null.
+- Floats round-trip bit for bit (473 lines of V8 output, including 154 cases where Mojo's
+  `String(Float64)` picks other digits than V8), but the layout is not V8's (`1e21`, `100.0`).
+  The other ends parse numbers, so only the value has to survive.
+- Integers are exact up to the 64-bit limits. A bare integer beyond them reads as a float (V8 and
+  Go write large floats that way); `parse_json(text, refuse_big_ints=True)` raises instead, for
+  Ruby, whose such tokens are bignums.
+- A lone surrogate (`"\ud800"`) is refused ("Bad unicode codepoint"). Nesting is limited to
+  1024 levels. EmberJson writes NaN as `null`, so `write_json` writes `$num` markers for NaN, the
+  infinities and -0.0 first.
+- Mojo's `atof` read all 20,003 probe doubles exactly; `String(Float64)` failed to round-trip 7.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.
