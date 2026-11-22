@@ -250,8 +250,10 @@ mojo-anything gate <port>
 a stub, `abort`, raw pointers and `external_call` only with a `# SAFETY:` comment (a `c-abi` port:
 no pointers in `port.mojo` at all), every place the original fails on purpose (`throw`, `raise`,
 an `error` result) reached by a recorded failing case (add one with `record --inputs` when gate
-names it), the port at most 3x the original's lines plus 50 for imports and signatures (over that,
-use the replacements `analyze` lists and fold repeated code), `mojo build --Werror`, every export
+names it), the port at most three times the original's lines plus 50 for imports and signatures
+(over that, use the replacements `analyze` lists and fold repeated code; C that calls the C
+library is not compared, since its lines say nothing about the `strtol` a port reimplements),
+`mojo build --Werror`, every export
 present (for `c-abi` the exported symbols, for `mojo-jvm` every public member of each replaced
 class, checked with `javap`), and every recorded case matching. `gate`'s stub and unsafe
 checks read `port.mojo` only: when the port spreads over other modules, check those yourself.

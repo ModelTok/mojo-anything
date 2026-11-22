@@ -37,7 +37,12 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
             "port the functions still stubbed in src/port.rs, then `mojo-anything gate` again"
                 .into()
         }
-        "size" => "use the crates `mojo-anything analyze` lists and fold repeated code".into(),
+        "size" if crate_dir.join("Cargo.toml").exists() => {
+            "use the crates `mojo-anything analyze` lists and fold repeated code".into()
+        }
+        "size" => {
+            "use the Mojo replacements `mojo-anything analyze` lists and fold repeated code".into()
+        }
         "build" => format!("fix the compile error above, then `mojo-anything build {c}`"),
         "recording" => format!("mojo-anything record {c}"),
         "behavior" if check.detail.contains("no recorded cases") => {
@@ -205,6 +210,9 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
     if manifest.language == crate::lang::Lang::Ts {
         files = with_local_imports(&manifest.root, files);
     }
+    // C library functions the ported C calls: the port reimplements them, and the C's own
+    // lines (a facade of one-line wrappers) say nothing about how large that should be.
+    let mut library = Vec::new();
     if manifest.language == crate::lang::Lang::C {
         let ported: Vec<&str> = manifest.exports.iter().map(|f| f.name.as_str()).collect();
         files.extend(crate::lang::c::called_implementations(
@@ -212,6 +220,7 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
             &manifest.unit,
             &ported,
         ));
+        library = crate::lang::c::library_calls(&manifest.root, &manifest.unit, &ported);
     }
     let source: usize = files
         .iter()
@@ -241,7 +250,13 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
     };
     let port_language = if mojo { "Mojo" } else { "Rust" };
     let growth = rust as f64 / source as f64;
-    let passed = rust as f64 <= MAX_GROWTH * source as f64 + ALLOWANCE;
+    let passed = !library.is_empty() || rust as f64 <= MAX_GROWTH * source as f64 + ALLOWANCE;
+    let libraries = if mojo {
+        "a library already provides, or a case handled one by one: use the Mojo replacements \
+         `analyze` lists"
+    } else {
+        "a crate already provides, or a case handled one by one: use the crates `analyze` lists"
+    };
     Some(Check {
         fix: None,
         name: "size",
@@ -249,12 +264,18 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
         detail: format!(
             "{rust} lines of {port_language} for {source} lines of {} ({growth:.1}x){}",
             manifest.language.name(),
-            if passed {
+            if !library.is_empty() {
+                let names: Vec<String> = library.iter().map(|n| format!("`{n}`")).collect();
+                format!(
+                    "; not compared: the C calls {} from outside the repository, which the \
+                     port reimplements",
+                    names.join(", ")
+                )
+            } else if passed {
                 String::new()
             } else {
                 format!(
-                    "; over {MAX_GROWTH}x usually means code a crate already provides, or a case \
-                     handled one by one: use the crates `analyze` lists and fold repeated code"
+                    "; over {MAX_GROWTH}x usually means code {libraries} and fold repeated code"
                 )
             }
         ),
@@ -1004,9 +1025,55 @@ fn last_lines(text: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Check, c_port_pointers, fix_for, missing_exports, mojo_stubs, stubs, unexplained_unsafe,
-        unsafe_blocks,
+        Check, c_port_pointers, fix_for, missing_exports, mojo_stubs, size_check, stubs,
+        unexplained_unsafe, unsafe_blocks,
     };
+
+    /// A C unit of one line over `call`, ported to 200 lines of Mojo.
+    fn c_size(name: &str, call: &str) -> Check {
+        let root = std::env::temp_dir().join(format!("ma-size-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("unit")).unwrap();
+        std::fs::write(
+            root.join("src/facade.c"),
+            format!(
+                "#include <stdlib.h>\nstatic long local(const char *t, void *e, int b) {{ return b; }}\n\
+                 long parse_long(const char *t, int b) {{ return {call}(t, NULL, b); }}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(root.join("unit/port.mojo"), "var x = 1\n".repeat(200)).unwrap();
+        let manifest: crate::bridge::Manifest = serde_json::from_str(&format!(
+            r#"{{"schema": "mojo-anything/bridge@1", "root": "{}", "unit": "src/facade.c",
+                "language": "c", "kind": "c-abi", "crate_name": "facade-mojo",
+                "exports": [{{"name": "parse_long", "file": "src/facade.c", "line": 3,
+                              "params": [], "returns": "int", "is_async": false}}]}}"#,
+            root.display()
+        ))
+        .unwrap();
+        let check = size_check(&root.join("unit"), &manifest).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        check
+    }
+
+    #[test]
+    fn size_does_not_compare_a_port_of_c_library_calls() {
+        // The C's lines say nothing about the size of the `strtol` the port reimplements.
+        let facade = c_size("facade", "strtol");
+        assert!(facade.passed, "{}", facade.detail);
+        assert!(facade.detail.contains("not compared"), "{}", facade.detail);
+        assert!(facade.detail.contains("`strtol`"), "{}", facade.detail);
+        // Calls into the unit itself are compared as before, and the advice names no crates.
+        let local = c_size("local", "local");
+        assert!(!local.passed, "{}", local.detail);
+        assert!(
+            local.detail.contains("200 lines of Mojo"),
+            "{}",
+            local.detail
+        );
+        assert!(!local.detail.contains("crate"), "{}", local.detail);
+    }
 
     #[test]
     fn mojo_stub_count() {

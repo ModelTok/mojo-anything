@@ -222,6 +222,10 @@ mojo-wasm (github.com/lee101/mojo-wasm at 3551aa4: clang 22.1.8, wasm-ld) and No
   (any raised `Error`), `write`, `dup`, `fdopen`, `fflush`, `fclose`, `KGEN_CompilerRT_fprintf`,
   `__multi3`, `__ashlti3`, `__lshrti3` (`src/mojo/wasm_runtime.c`). With a stub stack trace,
   `raises Error` works.
+- Mojo 1.2's LLVM spells special floats in a syntax clang 22 cannot read: `+inf`, `-qnan`,
+  `+nan(0x<payload>)` (quiet; the payload is the significand below the quiet bit), `-snan(0x1)`
+  and `f0x<bits>`, also as untyped operands (`fmul double %a, +inf`). `harness_mojo_wasm`
+  rewrites them to `0x<16 hex>` (`double` and `float`), `0xH` (`half`) and `0xR` (`bfloat`).
 - On wasm64, `String(Float64)` returns (it hung on mojo-wasm's wasm32 route) and EmberJson's
   float writer round-tripped 99,952 random doubles.
 - mojo-wasm's pinned Mojo (1.2.0.dev2026092605) is older than 1.2.0: no `std.hash`, no

@@ -92,10 +92,16 @@ that names `llvm.x86.`, and check a module's exports and imports, not only that 
 of JSON values lost its tags (`["a","bb"]` came back as `[97,25186]`). The wasm kind compiles
 64-bit IR to wasm64 instead; probe `List[Variant]` growth before trusting any new target.
 
-**Mojo's LLVM writes float constants clang 22 cannot read.** `double +qnan`, `double -inf` and
-`double f0x7FEFFFFFFFFFFFFF` fail with "expected value token"; `harness_mojo_wasm` rewrites them
-to the old hex form. A unit with no float parameters hid this in the spike: test floats in and
-out.
+**Mojo's LLVM writes float constants clang 22 cannot read.** `double +qnan`, `double -inf`,
+`double f0x7FEFFFFFFFFFFFFF`, and NaNs with a payload, `double +nan(0x7FFFFFFFFFFFF)` (quiet) and
+`double -snan(0x1)` (signalling), fail with "expected value token"; `harness_mojo_wasm` rewrites
+them to the old hex form. The payload is the significand without its quiet bit (a probe of
+`bitcast` constants gave `+nan(0x7FFFFFFFFFFFF)` for the bits `0x7FFFFFFFFFFFFFFF`); a `float`
+NaN's old form is the `double` with its significand moved up 29 bits. An operand after the
+instruction's type has none of its own (`fmul double %a, +inf`, `phi double [ +inf, %bb ]`), so
+the rewrite takes the type named last on the line, and leaves quoted text alone. A unit with no
+float parameters hid this in the spike, and vercel/ms only failed on a payload NaN after the
+first fix: test floats in and out, and check a rewrite's bits by compiling it with clang.
 
 **`0.1 + 0.2` in a Mojo port is 0.3.** Float literals are exact until they become `Float64`, so
 the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as `Float64` values

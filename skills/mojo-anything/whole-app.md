@@ -140,7 +140,7 @@ or `{port}` (`--port` if it is fixed), and requests come from `curl` lines in it
 app sends email, calls webhooks or APIs, or writes a database, record those too: `--effects
 http,smtp` (and `--effect-env VAR=KIND` for its own URL or mail settings), `--db-reset` and
 `--db-dump` for the database. Ask the user for the reset and dump commands when the database is
-not a local file. Then `mojo-anything app replay <repo>`: the original must pass 100%.
+not a local file. Then `mojo-anything app replay <repo>`: the original must pass every case.
 
 What the recording can miss, each seen on a real app:
 
@@ -181,11 +181,11 @@ runs the original through `fork`/`execvp`, for a server a Mojo server on libc so
 `TCP_NODELAY`) that starts the original on a port of its own and proxies to it, for a library (no
 `main`, no server, or `--library`) a Mojo package (`mojo/app/__init__.mojo`, built with
 `mojo precompile`) that re-exports every wired unit. Each is built with `mojo build --Werror` (a
-library with `mojo precompile --Werror`). `replay` against the front door must match 100% before
-any unit moves, and always give `replay` the build: without `--build` it runs the original, which
-passes everything and reports no fallback rate. Count the fallbacks: the **fallback rate** is the
-share of cases (for a library, of public exports) the original still answers, and it only goes
-down. The code in `mojo/app` is yours once scaffolded: `front-door` never overwrites it.
+library with `mojo precompile --Werror`). `replay` against the front door must match every case
+before any unit moves, and always give `replay` the build: without `--build` it runs the
+original, which passes everything and reports no fallback rate. Count the fallbacks: the
+**fallback rate** is the share of cases (for a library, of public exports) the original still
+answers, and it only goes down. The code in `mojo/app` is yours once scaffolded: `front-door` never overwrites it.
 
 A front door is written for the system it was generated on (Linux or macOS), and a binary built on
 the other one stops at start and says so: generate it again there. mojo-anything tells a front
@@ -214,7 +214,7 @@ Each unit goes through steps 1 to 5 of SKILL.md, then:
    route: the unit's `port.mojo` is re-exported from `mojo/app/__init__.mojo` under the unit's
    name, and `wire` writes the unit's shadow; change the original package to import the shadow in
    place of the unit, so its callers reach the Mojo.
-2. `wire` replays: 100% again, and a lower fallback rate.
+2. `wire` replays: every case matches again, and the fallback rate is lower.
 3. Keep the **kill switch** `wire` adds: `MOJO_ANYTHING_UNIT_<NAME>=original` sends the unit back
    to the original, until the lift.
 
@@ -273,8 +273,8 @@ release are yours), then report them to the user.
 
 `app lift` ends with `replay` against the pure Mojo app; run `mojo-anything app replay <repo>
 --build <path to the binary>` again after any change, and in CI: every case matches to the bar in
-`DECISIONS.md`. A library is proved before its lift: every unit's `app replay` at 100%; after it,
-the `test_*.mojo` files you added. A mismatch is a bug in the port, never in the cases; change a
+`DECISIONS.md`. A library is proved before its lift: every case of every unit's `app replay`;
+after it, the `test_*.mojo` files you added. A mismatch is a bug in the port, never in the cases; change a
 case only with the user's approval, and record why in `DECISIONS.md`.
 
 After the lift, the Mojo app no longer has to mirror the original's structure: the cases check

@@ -95,8 +95,8 @@ impl Risk {
     pub fn title(self) -> &'static str {
         match self {
             Self::StringOffsets => "String offsets and slicing",
-            Self::RegexSyntax => "Regex features the `regex` crate lacks",
-            Self::DynamicRegex => "Regexes built at runtime",
+            Self::RegexSyntax => "Regexes (Mojo has no engine; lookaround, backreferences, `y`)",
+            Self::DynamicRegex => "Regexes built at runtime (Mojo has no engine)",
             Self::DynamicCode => "Dynamic code (eval, new Function, computed import)",
             Self::DynamicTyping => "Dynamic typing",
             Self::OrderedCollections => "Insertion-ordered maps and object keys",
@@ -129,15 +129,18 @@ impl Risk {
                  the boundary must be converted, or non-ASCII text gets wrong ranges silently."
             }
             Self::RegexSyntax => {
-                "Lookaround, backreferences and the `y` flag are not in the `regex` crate. Use \
-                 `fancy-regex` for those patterns, or rewrite them, and test them on non-ASCII \
-                 text: `\\w`, `\\b` and case-insensitive matching differ between engines even \
-                 where a pattern compiles. JS `/i` without `u` never matches a non-ASCII letter to \
-                 an ASCII one, Rust `(?i)` does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): \
-                 write `(?i-u)` or compare with `eq_ignore_ascii_case`."
+                "Mojo's standard library has no regex engine: rewrite the pattern by hand, or run \
+                 it through Python's `re` over CPython interop, which a lifted binary then still \
+                 needs. Lookaround and backreferences make a hand rewrite harder, and `re` has \
+                 no `y` flag. Test either on non-ASCII text: `\\w`, `\\b` and case-insensitive \
+                 matching differ between engines even where a pattern compiles. JS `/i` without \
+                 `u` never matches a non-ASCII letter to an ASCII one, `re.IGNORECASE` on a `str` \
+                 does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): add `re.ASCII`, or \
+                 compare ASCII letters by hand."
             }
             Self::DynamicRegex => {
-                "Patterns come from data or config in JS syntax. Rust regex syntax differs, so \
+                "Patterns come from data or config in the original's syntax at runtime. Mojo has \
+                 no regex engine, and Python's `re` reads some of that syntax differently, so \
                  user-visible behavior can change. Pin it with tests on real patterns."
             }
             Self::DynamicCode => {
@@ -413,8 +416,21 @@ pub fn regex_needs_fancy(pattern: &str, flags: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        compiled_by, python_compiled, regex_folds_differently, regex_needs_fancy, uses_regex,
+        Risk, compiled_by, python_compiled, regex_folds_differently, regex_needs_fancy, uses_regex,
     };
+
+    #[test]
+    fn regex_advice_is_for_mojo() {
+        // Mojo has no regex engine: the advice is a hand rewrite or Python's `re`, not a crate.
+        for risk in [Risk::RegexSyntax, Risk::DynamicRegex] {
+            let text = format!("{} {}", risk.title(), risk.guidance());
+            assert!(text.contains("Mojo"), "{text}");
+            assert!(text.contains("`re`"), "{text}");
+            for stale in ["crate", "fancy-regex", "Rust"] {
+                assert!(!text.contains(stale), "{stale}: {text}");
+            }
+        }
+    }
 
     #[test]
     fn detects_case_folds_rust_widens() {

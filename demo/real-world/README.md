@@ -1,12 +1,13 @@
 # Real-world ports
 
-The crates mojo-anything produced in the runs described in
-[`docs/real-world-languages.md`](../../docs/real-world-languages.md): each holds the port
-(`port.mojo` in the `-mojo` folders, `src/port.rs` in the Rust ones from before mojo-anything
-targeted Mojo), the generated bridge, `cases.jsonl` (the recorded behavior of the original) and,
+The ports produced in the runs described in
+[`docs/real-world-languages.md`](../../docs/real-world-languages.md): the `-mojo` folders are Mojo
+units (or a lifted Mojo app) made by mojo-anything, the `-rs` folders Rust crates made by
+rust-anything before it targeted Mojo. Each holds the port (`port.mojo`, or `src/port.rs` in a
+Rust crate), the generated bridge, `cases.jsonl` (the recorded behavior of the original) and,
 where used, `inputs.jsonl` (extra inputs passed to `mojo-anything record --inputs`).
 
-| Crate | Original | Where it came from |
+| Folder | Original | Where it came from |
 | --- | --- | --- |
 | `go-path-mojo` | Go's `path` package, ported to Mojo | `$(go env GOROOT)/src/path` (Go 1.24), as `path/` of module `example.com/gopath`, with `internal/bytealg` calls replaced by their `strings` equivalents; `cases.rust-era.jsonl` is the recording the Rust port passed; build it in Linux or macOS (Mojo 1.2.0 and EmberJson 0.5.0 from its `pixi.toml`) |
 | `ruby-shellwords-mojo` | Ruby's `shellwords.rb`, ported to Mojo | `RbConfig::CONFIG["rubylibdir"]/shellwords.rb` (Ruby 3.3), as `lib/shellwords.rb` of a project with a `Gemfile`; `cases.rust-era.jsonl` is the recording the Rust port passed; build it in Linux or macOS (Mojo 1.2.0 and EmberJson 0.5.0 from its `pixi.toml`) |
@@ -23,11 +24,11 @@ where used, `inputs.jsonl` (extra inputs passed to `mojo-anything record --input
 | `ffmpeg-mojo` | `libavutil`'s `rational.c`, ported to Mojo (LGPL-2.1+) | the tree `ffmpeg-rs/scripts/prepare.sh` assembles; `scripts/verify.sh` records, builds, diffs and gates each unit (no cases are kept here; see its README) |
 
 The originals are not copied here: the standard-library sources keep their own licenses, and the
-ports name theirs in `src/port.rs`. To rerun one, put the original in place as described, point
-`mojo-anything.json`'s `root` at that project, and run:
+ports name theirs in `port.mojo` (`src/port.rs` in a Rust crate). To rerun a Mojo unit, put the
+original in place as described, point `mojo-anything.json`'s `root` at that project, and run:
 
 ```sh
-mojo-anything record <crate> --inputs <crate>/inputs.jsonl   # or keep the recorded cases.jsonl
-mojo-anything gate <crate>
-mojo-anything bench <crate>
+mojo-anything record <unit> --inputs <unit>/inputs.jsonl   # or keep the recorded cases.jsonl
+mojo-anything gate <unit>
+mojo-anything bench <unit>
 ```

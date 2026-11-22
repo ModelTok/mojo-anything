@@ -144,79 +144,145 @@ fn retarget(ir: &str) -> Result<String> {
     special_floats(&out)
 }
 
+/// The old spelling of an infinity or NaN of type `ty` whose sign is `negative` and whose
+/// significand (the bits below the exponent, quiet bit included) is `significand`: a `double`
+/// or `float` as the `double` hex of the same value (a `float`'s significand moves up 29 bits,
+/// which keeps its quiet bit and payload), a `half` or `bfloat` as its own bits.
+fn special_old(ty: &str, negative: bool, significand: u64) -> Option<String> {
+    let sign = u64::from(negative);
+    match ty {
+        "double" => Some(format!("0x{:016X}", sign << 63 | 0x7FF << 52 | significand)),
+        "float" => Some(format!(
+            "0x{:016X}",
+            sign << 63 | 0x7FF << 52 | significand << 29
+        )),
+        "half" => Some(format!("0xH{:04X}", sign << 15 | 0x1F << 10 | significand)),
+        "bfloat" => Some(format!("0xR{:04X}", sign << 15 | 0xFF << 7 | significand)),
+        _ => None,
+    }
+}
+
+/// The significand of the newer spelling of an infinity or NaN without its sign: `inf`,
+/// `qnan`, `nan(0x<payload>)` (quiet) or `snan(0x<payload>)` (signalling, payload not zero).
+/// The payload is the significand without the quiet bit, as Mojo 1.2's LLVM writes it (a probe
+/// gave `double +nan(0x7FFFFFFFFFFFF)` for the bits 0x7FFFFFFFFFFFFFFF and `double +snan(0x1)`
+/// for 0x7FF0000000000001). `None` when the spelling or payload is not one of these.
+fn special_significand(ty: &str, body: &str) -> Option<u64> {
+    let width = match ty {
+        "double" => 52,
+        "float" => 23,
+        "half" => 10,
+        "bfloat" => 7,
+        _ => return None,
+    };
+    let quiet = 1u64 << (width - 1);
+    let payload = |inner: &str| {
+        let digits = inner.strip_prefix("(0x")?.strip_suffix(')')?;
+        u64::from_str_radix(digits, 16).ok().filter(|&p| p < quiet)
+    };
+    match body {
+        "inf" => Some(0),
+        "qnan" => Some(quiet),
+        _ => {
+            if let Some(inner) = body.strip_prefix("snan") {
+                payload(inner).filter(|&p| p != 0)
+            } else {
+                body.strip_prefix("nan")
+                    .and_then(payload)
+                    .map(|p| quiet | p)
+            }
+        }
+    }
+}
+
 /// The old spelling of one float constant in the newer syntax Mojo's LLVM writes, or `None`
 /// when `token` is already old syntax. `ty` is the constant's type.
 fn old_float(ty: &str, token: &str) -> Result<Option<String>> {
     let double = |bits: u64| Some(format!("0x{bits:016X}"));
     let hex = |digits: &str| u64::from_str_radix(digits, 16).ok();
-    Ok(match token {
-        "+qnan" => double(0x7FF8_0000_0000_0000),
-        "-qnan" => double(0xFFF8_0000_0000_0000),
-        "+inf" => double(0x7FF0_0000_0000_0000),
-        "-inf" => double(0xFFF0_0000_0000_0000),
-        _ => match token.strip_prefix("f0x").map(|d| (d, hex(d))) {
-            // The bits of the constant's own type: a `double` keeps them; a `float` is written
-            // as the `double` of the same value; `half` and `bfloat` take their own prefixes.
-            Some((_, Some(bits))) if ty == "double" => double(bits),
-            Some((_, Some(bits))) if ty == "float" => {
-                let x =
-                    f32::from_bits(u32::try_from(bits).context("a float constant over 32 bits")?);
-                double(f64::from(x).to_bits())
-            }
-            Some((digits, Some(_))) if ty == "half" => Some(format!("0xH{digits}")),
-            Some((digits, Some(_))) if ty == "bfloat" => Some(format!("0xR{digits}")),
-            Some(_) => {
-                bail!("the dispatcher's IR has a float constant clang cannot read: `{ty} {token}`")
-            }
-            None if token.starts_with(['+', '-'])
-                && token[1..].starts_with(|c: char| c.is_ascii_alphabetic()) =>
-            {
-                bail!("the dispatcher's IR has a float constant clang cannot read: `{ty} {token}`")
-            }
-            None => None,
-        },
+    let cannot =
+        || format!("the dispatcher's IR has a float constant clang cannot read: `{ty} {token}`");
+    if let Some(body) = token.strip_prefix(['+', '-'])
+        && body.starts_with(|c: char| c.is_ascii_alphabetic())
+    {
+        let old =
+            special_significand(ty, body).and_then(|s| special_old(ty, token.starts_with('-'), s));
+        return old.map(Some).with_context(cannot);
+    }
+    Ok(match token.strip_prefix("f0x").map(|d| (d, hex(d))) {
+        // The bits of the constant's own type: a `double` keeps them; a `float` is written as
+        // the `double` of the same value; `half` and `bfloat` take their own prefixes.
+        Some((_, Some(bits))) if ty == "double" => double(bits),
+        Some((_, Some(bits))) if ty == "float" => {
+            let x = f32::from_bits(u32::try_from(bits).context("a float constant over 32 bits")?);
+            double(f64::from(x).to_bits())
+        }
+        Some((digits, Some(_))) if ty == "half" => Some(format!("0xH{digits}")),
+        Some((digits, Some(_))) if ty == "bfloat" => Some(format!("0xR{digits}")),
+        Some(_) => bail!(cannot()),
+        None => None,
     })
 }
 
 /// Mojo's LLVM writes float constants in a syntax the LLVM behind clang 22 cannot read
-/// (`double +qnan`, `double -inf`, `double f0x7FEFFFFFFFFFFFFF`): they become the hex forms
-/// both read.
+/// (`double +qnan`, `double -inf`, `double +nan(0x1)`, `double -snan(0x1)`,
+/// `double f0x7FEFFFFFFFFFFFFF`): they become the hex forms both read.
 fn special_floats(ir: &str) -> Result<String> {
     let mut out = String::with_capacity(ir.len());
-    let mut rest = ir;
-    'scan: while !rest.is_empty() {
-        for ty in ["double", "float", "half", "bfloat"] {
-            let Some(after) = rest.strip_prefix(ty).and_then(|r| r.strip_prefix(' ')) else {
-                continue;
-            };
-            let end = after
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '-'))
-                .unwrap_or(after.len());
-            if let Some(old) = old_float(ty, &after[..end])? {
-                out.push_str(ty);
-                out.push(' ');
-                out.push_str(&old);
-                rest = &after[end..];
-                continue 'scan;
-            }
-        }
-        let mut chars = rest.chars();
-        if let Some(c) = chars.next() {
-            out.push(c);
-            // Skip the rest of an identifier, so `mydouble +x` is never read as a constant.
-            if c.is_ascii_alphanumeric() || c == '_' {
-                let tail = chars.as_str();
-                let n = tail
-                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .unwrap_or(tail.len());
-                out.push_str(&tail[..n]);
-                rest = &tail[n..];
-                continue;
-            }
-        }
-        rest = chars.as_str();
+    for line in ir.split_inclusive('\n') {
+        special_floats_in_line(line, &mut out)?;
     }
     Ok(out)
+}
+
+/// Rewrites the float constants of one line. A constant takes the float type named last before
+/// it on the line: its own (`double +inf`), or the instruction's for an operand written without
+/// one (`fmul double %a, +inf`, `phi double [ %a, %b ], [ +inf, %c ]`). Quoted text (`c"..."`,
+/// names, metadata strings) is copied as it is.
+fn special_floats_in_line(line: &str, out: &mut String) -> Result<()> {
+    let word = |c: char| c.is_ascii_alphanumeric() || "_.$%@+-".contains(c);
+    let mut ty: Option<&str> = None;
+    let mut rest = line;
+    while let Some(c) = rest.chars().next() {
+        if c == '"' {
+            let end = rest[1..].find('"').map_or(rest.len(), |n| n + 2);
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+        if !word(c) {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+            continue;
+        }
+        let mut end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
+        let token = &rest[..end];
+        let special = token.starts_with(['+', '-'])
+            && token[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+        if special && rest[end..].starts_with('(') {
+            // A NaN's payload follows in parentheses: `+nan(0x1)`, `-snan(0x1)`.
+            end += rest[end..].find(')').map_or(rest.len() - end, |n| n + 1);
+        }
+        let token = &rest[..end];
+        if special || token.starts_with("f0x") {
+            let Some(t) = ty else {
+                bail!(
+                    "the dispatcher's IR has a float constant with no type on its line: `{token}`"
+                )
+            };
+            out.push_str(old_float(t, token)?.as_deref().unwrap_or(token));
+        } else {
+            if let Some(t) = ["double", "float", "half", "bfloat"]
+                .into_iter()
+                .find(|t| *t == token)
+            {
+                ty = Some(t);
+            }
+            out.push_str(token);
+        }
+        rest = &rest[end..];
+    }
+    Ok(())
 }
 
 /// Reads a LEB128 unsigned integer at `*at`.
@@ -445,6 +511,70 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("double +snan"), "{err}");
+    }
+
+    /// Each spelling Mojo 1.2's LLVM wrote for a constant of known bits (a probe that returned
+    /// `bitcast` constants from `@export` functions), with the bits it stands for.
+    #[test]
+    fn writes_nans_with_payloads_in_hex() {
+        let cases = [
+            ("double +nan(0x7FFFFFFFFFFFF)", "double 0x7FFFFFFFFFFFFFFF"),
+            ("double -nan(0x7FFFFFFFFFFFF)", "double 0xFFFFFFFFFFFFFFFF"),
+            ("double +nan(0x1)", "double 0x7FF8000000000001"),
+            ("double +nan(0x4000000000000)", "double 0x7FFC000000000000"),
+            ("double +snan(0x1)", "double 0x7FF0000000000001"),
+            ("double -snan(0x4000000000000)", "double 0xFFF4000000000000"),
+            ("float +nan(0x3FFFFF)", "float 0x7FFFFFFFE0000000"),
+            ("float +nan(0x1)", "float 0x7FF8000020000000"),
+            ("float -snan(0x1)", "float 0xFFF0000020000000"),
+            ("float +qnan", "float 0x7FF8000000000000"),
+            ("half +nan(0x1FF)", "half 0xH7FFF"),
+            ("half -snan(0x1)", "half 0xHFC01"),
+            ("half +qnan", "half 0xH7E00"),
+            ("bfloat +nan(0x3F)", "bfloat 0xR7FFF"),
+            ("bfloat -inf", "bfloat 0xRFF80"),
+        ];
+        for (new, old) in cases {
+            let out = special_floats(&format!("ret {new}\n")).unwrap();
+            assert_eq!(out, format!("ret {old}\n"), "{new}");
+        }
+        let out = special_floats("store double +nan(0x1), ptr %p\n").unwrap();
+        assert_eq!(out, "store double 0x7FF8000000000001, ptr %p\n");
+        // A phi names the type once; its incoming values follow without one (vercel/ms).
+        let phi = "  %1366 = phi double [ %1364, %1363 ], [ +inf, %1247 ]\n\
+                   %2 = phi nnan float [ -nan(0x1), %a ], [ 1.0, %b ]\n\
+                   %3 = phi ptr [ %p, %a ]\n";
+        let out = special_floats(phi).unwrap();
+        assert_eq!(
+            out,
+            "  %1366 = phi double [ %1364, %1363 ], [ 0x7FF0000000000000, %1247 ]\n\
+             %2 = phi nnan float [ 0xFFF8000020000000, %a ], [ 1.0, %b ]\n\
+             %3 = phi ptr [ %p, %a ]\n"
+        );
+        // So does a binary operation or a comparison for its second operand; a string that
+        // spells a constant is left alone.
+        let ops = "  %145 = fmul contract double %144, +inf\n\
+                   %c = fcmp olt float %x, -qnan\n\
+                   @s = constant [9 x i8] c\"double -inf\"\n";
+        let out = special_floats(ops).unwrap();
+        assert_eq!(
+            out,
+            "  %145 = fmul contract double %144, 0x7FF0000000000000\n\
+             %c = fcmp olt float %x, 0xFFF8000000000000\n\
+             @s = constant [9 x i8] c\"double -inf\"\n"
+        );
+        for bad in [
+            "double +nan(0x8000000000000)",
+            "double +snan(0x0)",
+            "float +nan(0x400000)",
+            "double +nan(0x1",
+            "double +nan(12)",
+        ] {
+            let err = special_floats(&format!("ret {bad}\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("clang cannot read"), "{bad}: {err}");
+        }
     }
 
     #[test]
