@@ -47,6 +47,12 @@ replaced class must keep every public member a caller can link to: `java api` co
 them (fields, constructors and public nested classes too), and a test runs a caller compiled
 against the original on the wrappers.
 
+**The C++ wrapper dropped what was not bridged.** `cpp/wrapper.cpp` defines only the bridged
+functions, and the bridge note said to link it in place of the unit, so a caller of a refused
+function in the same file (`helper_kept(int*)`) got `undefined reference`, while `gate` passed.
+`cpp api` now names every strong external definition of the unit the wrapper lacks; keep those
+in a file of their own.
+
 **Two C spellings made one Mojo helper twice.** `std::vector<long>` and
 `std::vector<std::int64_t>` are both `List[Int64]`, and `exports.mojo` defined `_list_int64` once
 per spelling, so `build` failed. Name and de-duplicate generated helpers by the same key

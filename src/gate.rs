@@ -816,10 +816,11 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
 }
 
 /// A C++ unit's wrapper against the original: a C++ caller links against the mangled names the
-/// original defines, so `cpp/wrapper.cpp` must define the same ones.
+/// original defines, so `cpp/wrapper.cpp` must define the same ones, and the wrapper replaces
+/// the unit's file, so that file must define nothing else a program needs.
 fn cpp_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
     match crate::harness_c::cpp_api(unit_dir, manifest) {
-        Ok(api) if api.different.is_empty() => Check {
+        Ok(api) if api.different.is_empty() && api.dropped.is_empty() => Check {
             name: "cpp api",
             passed: true,
             detail: format!(
@@ -829,17 +830,37 @@ fn cpp_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
             ),
             fix: None,
         },
-        Ok(api) => Check {
-            name: "cpp api",
-            passed: false,
-            detail: api.different.join("\n"),
-            fix: Some(format!(
-                "`mojo-anything refresh {}` rewrites {} from the manifest; if the original's \
-                 signature changed, bridge again",
-                unit_dir.display(),
-                crate::codegen_cpp::WRAPPER
-            )),
-        },
+        Ok(api) => {
+            let wrapper = crate::codegen_cpp::WRAPPER;
+            let mut detail = api.different.clone();
+            let mut fixes = Vec::new();
+            if !api.different.is_empty() {
+                fixes.push(format!(
+                    "`mojo-anything refresh {}` rewrites {wrapper} from the manifest; if the \
+                     original's signature changed, bridge again",
+                    unit_dir.display()
+                ));
+            }
+            if !api.dropped.is_empty() {
+                detail.push(format!(
+                    "{} also defines what {wrapper} does not, so a program linking the wrapper \
+                     in its place has no `{}`",
+                    manifest.unit,
+                    api.dropped.join("`, `")
+                ));
+                fixes.push(format!(
+                    "move the definitions that are not ported out of {} into a file of their \
+                     own, which stays in the build beside {wrapper}, or bridge and port them too",
+                    manifest.unit
+                ));
+            }
+            Check {
+                name: "cpp api",
+                passed: false,
+                detail: detail.join("\n"),
+                fix: Some(fixes.join("; ")),
+            }
+        }
         Err(e) => Check {
             name: "cpp api",
             passed: false,

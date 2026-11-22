@@ -575,3 +575,44 @@ fn cpp_one_mojo_type_two_spellings_builds_and_round_trips() {
     assert!(wrong.is_empty(), "{:?}", d.mismatches);
     std::fs::remove_dir_all(&repo).unwrap();
 }
+
+#[test]
+fn cpp_api_names_definitions_the_wrapper_drops() {
+    if !ready() {
+        return;
+    }
+    let repo = project("dropped");
+    let out = bridged(&repo, "src/refused.cpp");
+    let notes = out.notes.join("\n");
+    assert!(
+        notes.contains("replaces only the bridged functions"),
+        "{notes}"
+    );
+    let dir = out.crate_dir;
+    ported(&dir, "def kept(x: Int32) -> Int32:\n    return x\n");
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let api = gate.checks.iter().find(|c| c.name == "cpp api").unwrap();
+    assert!(!api.passed, "{}", api.detail);
+    // Every external definition of refused.cpp but `kept` is gone from a program that links the
+    // wrapper in its place; inline, constexpr, template and internal ones never were external.
+    for dropped in [
+        "Meter::read() const",
+        "pick(int)",
+        "pick(double)",
+        "step(EnergyPlusData&, double)",
+        "take(std::",
+        "name()",
+        "total(int, ...)",
+    ] {
+        assert!(api.detail.contains(dropped), "{dropped} in {}", api.detail);
+    }
+    for kept in ["kept(int)", "fast(int)", "twice", "hidden", "anonymous"] {
+        assert!(!api.detail.contains(kept), "{kept} in {}", api.detail);
+    }
+    assert!(
+        api.fix.as_deref().unwrap().contains("file of their own"),
+        "{:?}",
+        api.fix
+    );
+    std::fs::remove_dir_all(&repo).unwrap();
+}

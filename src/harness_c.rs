@@ -388,10 +388,16 @@ pub struct CppApi {
     pub same: Vec<String>,
     /// One line per export the wrapper does not define as the original does.
     pub different: Vec<String>,
+    /// The original's other external definitions (demangled), which a program linking the
+    /// wrapper in place of the unit no longer has.
+    pub dropped: Vec<String>,
 }
 
 /// Compiles the unit and `cpp/wrapper.cpp` to objects and compares the mangled names they
 /// define for each export: a C++ caller links against those names, so they must not change.
+/// Every other external definition of the unit that the wrapper lacks is listed as dropped:
+/// strong ones only (`T`, `D`, `B`, `R`), since an inline function, an implicit member or a
+/// template instance (`W`, `V`) is emitted again by every file that uses it.
 pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
     let work = crate_dir.join(WORK_DIR).join("api");
     std::fs::create_dir_all(&work)?;
@@ -415,7 +421,7 @@ pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
         &wrapper,
         "c++ (cpp/wrapper.cpp)",
     )?;
-    let defined = |obj: &Path| -> Result<Vec<(String, String)>> {
+    let defined = |obj: &Path| -> Result<Vec<(bool, String, String)>> {
         let list = |demangle: bool| -> Result<Vec<String>> {
             let mut cmd = Command::new("nm");
             cmd.arg("--defined-only");
@@ -439,17 +445,33 @@ pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
                 let mut parts = r.splitn(3, ' ');
                 let (_, kind, mangled) = (parts.next()?, parts.next()?, parts.next()?);
                 let demangled = d.splitn(3, ' ').nth(2)?;
-                matches!(kind, "T" | "W").then(|| (mangled.to_string(), demangled.to_string()))
+                let strong = matches!(kind, "T" | "D" | "B" | "R");
+                (strong || matches!(kind, "W" | "V"))
+                    .then(|| (strong, mangled.to_string(), demangled.to_string()))
             })
             .collect())
     };
     let (theirs, ours) = (defined(&original)?, defined(&wrapper)?);
     let mut api = CppApi::default();
+    let prefixes: Vec<String> = manifest
+        .exports
+        .iter()
+        .map(|f| format!("{}(", f.name))
+        .collect();
+    for (strong, mangled, demangled) in &theirs {
+        if *strong
+            && !ours.iter().any(|(_, m, _)| m == mangled)
+            && !prefixes.iter().any(|p| demangled.starts_with(p))
+        {
+            api.dropped.push(demangled.clone());
+        }
+    }
     for f in &manifest.exports {
         let prefix = format!("{}(", f.name);
-        let expected: Vec<&(String, String)> = theirs
+        let expected: Vec<(&String, &String)> = theirs
             .iter()
-            .filter(|(_, d)| d.starts_with(&prefix))
+            .filter(|(_, _, d)| d.starts_with(&prefix))
+            .map(|(_, m, d)| (m, d))
             .collect();
         if expected.is_empty() {
             api.different.push(format!(
@@ -459,13 +481,13 @@ pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
             continue;
         }
         for (mangled, demangled) in expected {
-            if ours.iter().any(|(m, _)| m == mangled) {
+            if ours.iter().any(|(_, m, _)| m == mangled) {
                 api.same.push(demangled.clone());
             } else {
                 let wrote: Vec<&str> = ours
                     .iter()
-                    .filter(|(_, d)| d.starts_with(&prefix))
-                    .map(|(_, d)| d.as_str())
+                    .filter(|(_, _, d)| d.starts_with(&prefix))
+                    .map(|(_, _, d)| d.as_str())
                     .collect();
                 api.different.push(format!(
                     "{} defines `{demangled}` ({mangled}); {} defines {}",

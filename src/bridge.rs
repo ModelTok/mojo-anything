@@ -1709,7 +1709,10 @@ fn bridge_cpp(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
             crate_dir.display()
         ),
         format!(
-            "C++ callers keep the original header: compile {} and link {}/{library} in place of {}.",
+            "C++ callers keep the original header: compile {0} and link {1}/{library} instead of \
+             {2}. The wrapper replaces only the bridged functions of {2}, so move its other \
+             definitions into a file of their own that stays in the build (`gate`'s `cpp api` \
+             names any left behind).",
             crate::codegen_cpp::WRAPPER,
             crate::harness_mojo_c::BUILD_DIR,
             manifest.unit
