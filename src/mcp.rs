@@ -408,13 +408,13 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "bridge",
-            "description": "Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
+            "description": "Scaffold the port of one unit: stubs to port in port.mojo and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "unit": { "type": "string", "description": "Unit id from analyze." },
                 "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet." },
-                "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Kotlin)." },
-                "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin)." },
+                "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name>." },
+                "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo`." },
                 "force": { "type": "boolean", "description": "Bridge a unit the plan marks blocked or keep." },
                 "keep": { "type": "array", "items": { "type": "string" }, "description": "Exports to keep in the source language: `name` or `name: reason`." },
                 "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
@@ -423,7 +423,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "refresh",
-            "description": "Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Kotlin), after changing them, adding any new batch classes. Never touches the port.",
+            "description": "Regenerate a port's generated layers from the signatures in port.mojo, after changing them, adding any new batch classes. Never touches the port.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes to add, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
@@ -441,31 +441,21 @@ fn tool_schemas() -> Value {
                 "float_tolerance": { "type": "number", "description": "Numeric code: floats match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9. Saved with the crate for diff and gate; 0 removes it." },
                 "node_args": { "type": "array", "items": { "type": "string" }, "description": "Extra arguments for node, e.g. [\"--import=tsx\"]." },
                 "test_command": { "type": "array", "items": { "type": "string" }, "description": "TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. [\"npx\", \"jest\"] or [\"pytest\"]. Runs in the original's folder." },
-                "profile": { "type": "string", "enum": ["host", "android"], "description": "Record on this machine (default) or on a connected Android device (JVM crates)." },
-                "device": { "type": "string", "description": "Android device serial; picked automatically when only one is connected." },
                 "pin_clock": { "type": "boolean", "description": "TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning." },
             }, "required": ["crate"] },
         },
         {
             "name": "build",
-            "description": "Build the port: the Node-API addon, Python extension or shared library. With `profile: \"android\"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).",
+            "description": "Build the port: the Node-API addon, Python extension or shared library.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
-                "profile": { "type": "string", "enum": ["host", "android"], "description": "Build for this machine (default) or for Android." },
-                "abi": { "type": "array", "items": { "type": "string", "enum": ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"] }, "description": "Android ABIs; defaults to arm64-v8a, armeabi-v7a and x86_64." },
-                "api": { "type": "integer", "description": "Android API level (at least 26; default 26)." },
-                "ndk": { "type": "string", "description": "Android NDK root; found from ANDROID_NDK_HOME or the SDK when omitted." },
-                "jni_libs": { "type": "string", "description": "Where to install the Android libraries; defaults to <crate>/jniLibs." },
             }, "required": ["crate"] },
         },
         {
             "name": "diff",
-            "description": "Replay cases.jsonl against the built Rust module and list mismatches. With `profile: \"android\"`, replay on the device against the .so built for its ABI.",
+            "description": "Replay cases.jsonl against the built port and list mismatches.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
-                "profile": { "type": "string", "enum": ["host", "android"], "description": "Diff on this machine (default) or on a connected Android device (JVM crates)." },
-                "device": { "type": "string", "description": "Android device serial; picked automatically when only one is connected." },
-                "jni_libs": { "type": "string", "description": "Android libraries folder to diff; defaults to <crate>/jniLibs." },
                 "ignore_key_order": { "type": "boolean" },
                 "module": { "type": "string", "description": "Test this JS module instead of the crate's `index.cjs`." },
                 "node_args": { "type": "array", "items": { "type": "string" }, "description": "Extra arguments for node, e.g. [\"--import=tsx\"]." },
@@ -652,13 +642,6 @@ fn call(name: &str, args: &Value) -> Result<Value> {
         }
         "record" => {
             let crate_dir = path("crate")?;
-            let profile = args["profile"].as_str().unwrap_or("host");
-            if profile == "host" && !args["device"].is_null() {
-                anyhow::bail!("`device` needs profile `android`");
-            }
-            if !matches!(profile, "host" | "android") {
-                anyhow::bail!("unknown record profile `{profile}`: use host or android");
-            }
             let mut inputs = opt_path("inputs");
             let test_command = strings("test_command");
             let captured = if test_command.is_empty() {
@@ -697,12 +680,7 @@ fn call(name: &str, args: &Value) -> Result<Value> {
                 resolve_from: resolve_from.as_deref(),
                 node_args: &strings("node_args"),
             };
-            let device = args["device"].as_str();
-            let mut out = serde_json::to_value(match profile {
-                "host" => harness::record(&opts)?,
-                "android" => harness::record_android(&opts, device)?,
-                other => anyhow::bail!("unknown record profile `{other}`: use host or android"),
-            })?;
+            let mut out = serde_json::to_value(harness::record(&opts)?)?;
             if let Some(c) = captured {
                 out["from_tests"] = c;
             }
@@ -733,41 +711,7 @@ fn call(name: &str, args: &Value) -> Result<Value> {
         }
         "build" => {
             let crate_dir = path("crate")?;
-            match args["profile"].as_str().unwrap_or("host") {
-                "android" => {
-                    if !args["abi"].is_null() && !args["abi"].is_array() {
-                        anyhow::bail!("`abi` must be an array of Android ABI names");
-                    }
-                    let api = if args["api"].is_null() {
-                        crate::android::DEFAULT_API
-                    } else {
-                        let v = args["api"]
-                            .as_u64()
-                            .context("`api` must be a non-negative integer")?;
-                        u32::try_from(v).context("`api` is too large")?
-                    };
-                    serde_json::to_value(harness::build_android(
-                        &crate_dir,
-                        &crate::android::Options {
-                            abis: strings("abi"),
-                            api,
-                            ndk: opt_path("ndk"),
-                            out: opt_path("jni_libs"),
-                        },
-                    )?)?
-                }
-                "host" => {
-                    if !args["abi"].is_null()
-                        || !args["api"].is_null()
-                        || !args["ndk"].is_null()
-                        || !args["jni_libs"].is_null()
-                    {
-                        anyhow::bail!("`abi`, `api`, `ndk` and `jni_libs` need profile `android`");
-                    }
-                    json!({ "artifact": harness::build(&crate_dir)? })
-                }
-                other => anyhow::bail!("unknown build profile `{other}`: use host or android"),
-            }
+            json!({ "artifact": harness::build(&crate_dir)? })
         }
         "diff" => {
             let crate_dir = path("crate")?;
@@ -779,20 +723,7 @@ fn call(name: &str, args: &Value) -> Result<Value> {
                 node_args: &strings("node_args"),
                 float_tolerance: args["float_tolerance"].as_f64(),
             };
-            serde_json::to_value(match args["profile"].as_str().unwrap_or("host") {
-                "host" => {
-                    if !args["device"].is_null() || !args["jni_libs"].is_null() {
-                        anyhow::bail!("`device` and `jni_libs` need profile `android`");
-                    }
-                    harness::diff(&opts)?
-                }
-                "android" => harness::diff_android(
-                    &opts,
-                    args["device"].as_str(),
-                    args["jni_libs"].as_str().map(Path::new),
-                )?,
-                other => anyhow::bail!("unknown diff profile `{other}`: use host or android"),
-            })?
+            serde_json::to_value(harness::diff(&opts)?)?
         }
         "bench" => {
             let crate_dir = path("crate")?;

@@ -3,9 +3,9 @@
 //!
 //! Kotlin has no `static` keyword, but it has two ways to produce a JVM static method:
 //! a top-level function (compiled into `<File>Kt`) and `@JvmStatic` in an `object` or a
-//! `companion object`. Both are exported here with a Java-shaped `prototype`, so the
-//! existing Java JNI codegen, batch codegen, reflection driver and shadow generation can
-//! be reused without changes. A Java wrapper can call a Kotlin static method directly.
+//! `companion object`. Both are exported here with a Java-shaped `prototype`, so the Java
+//! wrappers over the Mojo port, the reflection driver and shadow generation are reused without
+//! changes. A Java wrapper can call a Kotlin static method directly.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -593,7 +593,7 @@ fn collect(
             blocker = Some("suspend functions keep their continuation in Kotlin".into());
         }
         if mods.split_whitespace().any(|w| w == "inline") {
-            blocker.get_or_insert_with(|| "inline functions are not callable over JNI".into());
+            blocker.get_or_insert_with(|| "inline functions are copied into their callers".into());
         }
         if mods.contains("JvmName") {
             blocker.get_or_insert_with(|| "renames the JVM method with `@JvmName`".into());
@@ -718,8 +718,8 @@ fn is_java_identifier(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-/// JVM-visible functions of a Kotlin file, with Java-shaped prototypes so the Java JNI
-/// codegen can be reused unchanged.
+/// JVM-visible functions of a Kotlin file, with Java-shaped prototypes so the Java codegen
+/// can be reused unchanged.
 pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
     if !path.ends_with(".kt") {
         return Vec::new();

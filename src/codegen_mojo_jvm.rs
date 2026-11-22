@@ -296,7 +296,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("MOJO_ANYTHING_LIB"), "{text}");
-        assert!(!text.contains(" native "), "a JNI method: {text}");
+        assert!(!text.contains(" native "), "a `native` method: {text}");
         assert!(!text.contains("System.loadLibrary"), "{text}");
         assert!(!text.contains("System.load("), "{text}");
     }

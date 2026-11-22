@@ -40,12 +40,12 @@ enum KindArg {
     Wasm,
 }
 
+/// Where `record`, `build` and `diff` run. Only this machine: the Android profile went with
+/// the Rust JNI crates.
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Profile {
-    /// Build for this machine.
+    /// This machine.
     Host,
-    /// Build the JNI library for Android ABIs, into `jniLibs/`.
-    Android,
 }
 
 #[derive(Subcommand)]
@@ -78,11 +78,10 @@ enum Cmd {
         /// Bridge to generate; defaults to the plan's choice.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
-        /// Port folder; defaults to `<root>/mojo/<name>` (`<root>/rust/<name>` for
-        /// Kotlin).
+        /// Port folder; defaults to `<root>/mojo/<name>`.
         #[arg(long, short)]
         out: Option<PathBuf>,
-        /// Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin).
+        /// Port name; defaults to `<unit>-mojo`.
         #[arg(long)]
         name: Option<String>,
         /// Bridge a unit the plan marks blocked or keep.
@@ -140,12 +139,9 @@ enum Cmd {
         /// The test command for `--from-tests`, after `--`; it runs in the original's folder.
         #[arg(last = true)]
         test_command: Vec<String>,
-        /// Target: this machine, or a connected Android device (for JVM crates).
+        /// Target: this machine.
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
-        /// Android device serial; picked automatically when only one is connected.
-        #[arg(long)]
-        device: Option<String>,
         /// Pin the clock and random numbers while recording and diffing (TS/JS with the node
         /// bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
         /// `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port
@@ -157,40 +153,21 @@ enum Cmd {
         #[arg(long)]
         no_pin_clock: bool,
     },
-    /// 3b. Build the port (Node-API addon, Python extension, shared library) or, with
-    /// `--profile android`, the JNI library for Android ABIs into `jniLibs/`.
+    /// 3b. Build the port (Node-API addon, Python extension, shared library).
     Build {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
-        /// Target: this machine, or Android (needs the NDK and the Rust Android targets).
+        /// Target: this machine.
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
-        /// Android ABI to build; repeatable. Defaults to arm64-v8a, armeabi-v7a and x86_64.
-        #[arg(long)]
-        abi: Vec<String>,
-        /// Android API level the libraries target (at least 26; defaults to 26).
-        #[arg(long)]
-        api: Option<u32>,
-        /// Android NDK root; found from ANDROID_NDK_HOME or the SDK when omitted.
-        #[arg(long)]
-        ndk: Option<PathBuf>,
-        /// Where to install the Android libraries; defaults to `<crate>/jniLibs`.
-        #[arg(long)]
-        jni_libs: Option<PathBuf>,
     },
     /// 3c. Replay recorded cases against the Rust module.
     Diff {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
-        /// Target: this machine, or a connected Android device (for JVM crates).
+        /// Target: this machine.
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
-        /// Android device serial; picked automatically when only one is connected.
-        #[arg(long)]
-        device: Option<String>,
-        /// Android libraries folder to diff; defaults to `<crate>/jniLibs`.
-        #[arg(long)]
-        jni_libs: Option<PathBuf>,
         /// Test this JS module instead of the crate's `index.cjs`.
         #[arg(long)]
         module: Option<PathBuf>,
@@ -626,7 +603,6 @@ fn run() -> Result<ExitCode> {
             from_tests,
             test_command,
             profile,
-            device,
             pin_clock,
             no_pin_clock,
         } => {
@@ -682,13 +658,7 @@ fn run() -> Result<ExitCode> {
                 node_args: &node_args,
             };
             let outcome = match profile {
-                Profile::Host => {
-                    if device.is_some() {
-                        anyhow::bail!("`--device` needs `--profile android`");
-                    }
-                    harness::record(&opts)?
-                }
-                Profile::Android => harness::record_android(&opts, device.as_deref())?,
+                Profile::Host => harness::record(&opts)?,
             };
             say!(
                 "Recorded {} cases ({} threw) in {}",
@@ -744,47 +714,12 @@ fn run() -> Result<ExitCode> {
                 r.functions.join(", ")
             );
         }
-        Cmd::Build {
-            crate_dir,
-            profile,
-            abi,
-            api,
-            ndk,
-            jni_libs,
-        } => match profile {
-            Profile::Host => {
-                if !abi.is_empty() || api.is_some() || jni_libs.is_some() || ndk.is_some() {
-                    anyhow::bail!(
-                        "`--abi`, `--api`, `--ndk` and `--jni-libs` need `--profile android`"
-                    );
-                }
-                say!("Built {}", harness::build(&crate_dir)?.display());
-            }
-            Profile::Android => {
-                let report = harness::build_android(
-                    &crate_dir,
-                    &mojo_anything::android::Options {
-                        abis: abi,
-                        api: api.unwrap_or(mojo_anything::android::DEFAULT_API),
-                        ndk,
-                        out: jni_libs,
-                    },
-                )?;
-                for library in &report.libraries {
-                    say!(
-                        "Built {} ({} JNI entry points checked, API {})",
-                        library.path.display(),
-                        library.entry_points,
-                        report.api
-                    );
-                }
-            }
+        Cmd::Build { crate_dir, profile } => match profile {
+            Profile::Host => say!("Built {}", harness::build(&crate_dir)?.display()),
         },
         Cmd::Diff {
             crate_dir,
             profile,
-            device,
-            jni_libs,
             module,
             ignore_key_order,
             float_tolerance,
@@ -799,15 +734,7 @@ fn run() -> Result<ExitCode> {
                 float_tolerance,
             };
             let d = match profile {
-                Profile::Host => {
-                    if device.is_some() || jni_libs.is_some() {
-                        anyhow::bail!("`--device` and `--jni-libs` need `--profile android`");
-                    }
-                    harness::diff(&opts)?
-                }
-                Profile::Android => {
-                    harness::diff_android(&opts, device.as_deref(), jni_libs.as_deref())?
-                }
+                Profile::Host => harness::diff(&opts)?,
             };
             let stale = mojo_anything::bridge::Manifest::load(&crate_dir)
                 .ok()
@@ -1474,4 +1401,27 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
 /// a relative crate path points nowhere.
 fn absolute(arg: &str) -> Result<PathBuf, String> {
     std::path::absolute(arg).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--profile` keeps only `host`: the Android build, record and diff went with JNI.
+    #[test]
+    fn android_profile_is_gone() {
+        for step in ["build", "record", "diff"] {
+            let Err(err) =
+                Cli::try_parse_from(["mojo-anything", step, "--profile", "android", "."])
+            else {
+                panic!("{step} accepted --profile android");
+            };
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::InvalidValue,
+                "{step}: {err}"
+            );
+            assert!(err.to_string().contains("invalid value"), "{step}: {err}");
+        }
+    }
 }

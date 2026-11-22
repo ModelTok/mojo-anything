@@ -20,15 +20,15 @@ Read-only.
 
 Tool `bridge` · CLI `mojo-anything bridge`
 
-Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.
+Scaffold the port of one unit: stubs to port in port.mojo and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `root` | string | yes |  |
 | `unit` | string | yes | Unit id from analyze. |
 | `kind` | string |  | Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet. |
-| `out` | string |  | Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Kotlin). |
-| `name` | string |  | Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Kotlin). |
+| `out` | string |  | Port folder; defaults to <root>/mojo/<name>. |
+| `name` | string |  | Port name; defaults to `<unit>-mojo`. |
 | `force` | boolean |  | Bridge a unit the plan marks blocked or keep. |
 | `keep` | string[] |  | Exports to keep in the source language: `name` or `name: reason`. |
 | `batch` | string[] |  | Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call. |
@@ -38,7 +38,7 @@ Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Kotli
 
 Tool `refresh` · CLI `mojo-anything refresh`
 
-Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Kotlin), after changing them, adding any new batch classes. Never touches the port.
+Regenerate a port's generated layers from the signatures in port.mojo, after changing them, adding any new batch classes. Never touches the port.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -63,41 +63,31 @@ Runs the original's code or commands.
 | `float_tolerance` | number |  | Numeric code: floats match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9. Saved with the crate for diff and gate; 0 removes it. |
 | `node_args` | string[] |  | Extra arguments for node, e.g. ["--import=tsx"]. |
 | `test_command` | string[] |  | TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. ["npx", "jest"] or ["pytest"]. Runs in the original's folder. |
-| `profile` | string |  | Record on this machine (default) or on a connected Android device (JVM crates). |
-| `device` | string |  | Android device serial; picked automatically when only one is connected. |
 | `pin_clock` | boolean |  | TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning. |
 
 ## Build crate
 
 Tool `build` · CLI `mojo-anything build`
 
-Build the port: the Node-API addon, Python extension or shared library. With `profile: "android"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).
+Build the port: the Node-API addon, Python extension or shared library.
 
 Runs the original's code or commands.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `crate` | string | yes | Folder of the generated crate (holds mojo-anything.json). |
-| `profile` | string |  | Build for this machine (default) or for Android. |
-| `abi` | string[] |  | Android ABIs; defaults to arm64-v8a, armeabi-v7a and x86_64. |
-| `api` | integer |  | Android API level (at least 26; default 26). |
-| `ndk` | string |  | Android NDK root; found from ANDROID_NDK_HOME or the SDK when omitted. |
-| `jni_libs` | string |  | Where to install the Android libraries; defaults to <crate>/jniLibs. |
 
 ## Diff port against recording
 
 Tool `diff` · CLI `mojo-anything diff`
 
-Replay cases.jsonl against the built Rust module and list mismatches. With `profile: "android"`, replay on the device against the .so built for its ABI.
+Replay cases.jsonl against the built port and list mismatches.
 
 Runs the original's code or commands.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `crate` | string | yes | Folder of the generated crate (holds mojo-anything.json). |
-| `profile` | string |  | Diff on this machine (default) or on a connected Android device (JVM crates). |
-| `device` | string |  | Android device serial; picked automatically when only one is connected. |
-| `jni_libs` | string |  | Android libraries folder to diff; defaults to <crate>/jniLibs. |
 | `ignore_key_order` | boolean |  |  |
 | `module` | string |  | Test this JS module instead of the crate's `index.cjs`. |
 | `node_args` | string[] |  | Extra arguments for node, e.g. ["--import=tsx"]. |

@@ -1823,24 +1823,6 @@ fn lift_strips_bridge_bindings_in_every_language() {
         assert!(err.contains("mojo-jvm"), "{lang}: {err}");
         assert!(dir.join("port.mojo").is_file());
         assert!(dir.join("dispatcher.mojo").is_file());
-        // A Java unit bridged to a Rust crate has no port.mojo, and is refused too.
-        let rust = base.join("java-rs");
-        mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
-            root: &fixtures.join(fixture),
-            unit,
-            kind: Some(mojo_anything::bridge::Kind::Ffi),
-            out: Some(rust.clone()),
-            name: None,
-            force: false,
-            keep: Vec::new(),
-            lang: None,
-            batch: Vec::new(),
-            as_json: Vec::new(),
-        })
-        .unwrap();
-        let err = format!("{:#}", lift::strip_unit(&rust).unwrap_err());
-        assert!(err.contains("no port.mojo"), "{lang}: {err}");
-        assert!(rust.join("src/port.rs").is_file());
     }
     std::fs::remove_dir_all(&base).unwrap();
 }

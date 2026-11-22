@@ -30,7 +30,8 @@ threads, WSL2, load average 1.2-1.8, 2026-11-22): 0.03x overall, every function 
 Java. A call through FFM and the JSON dispatcher costs about 1 µs before any work
 (`reverseBits`: 9-10 ns in Java, 1,030-1,034 ns through Mojo); `formatDouble` takes 12.1-13.5 µs
 against 80-91 ns, as it works on exact big numbers; the closest is `parseRadix` at 0.21-0.22x.
-The Rust JNI bridge's 0.18x below came from typed JNI calls, which `mojo-jvm` does not have.
+The Rust-era Java rows (typed JNI calls and a binary wire, 0.18x on the same facade) went with
+the JNI bridge in M5; `mojo-jvm` sends every call through JSON.
 
 The first bridges for Python, Go, Ruby and Java sent every argument and result through JSON
 text, which cost 10-50x more than the work in these functions. They were rebuilt to convert
@@ -42,25 +43,22 @@ whether to ship.
 | Ruby | 6.9-9.5 µs (Fiddle + JSON) | 0.36-1.15 µs (magnus extension) | **4.4x faster** (3.6-7x per function) | ship |
 | Python | 11.7 µs (JSON) | about 0.3 µs (direct PyO3 conversion) | **1.35x faster** (1.5-1.9x on most calls) | ship |
 | C | - | no crossing: linked directly | 0.87x: ctype 1.1-1.4x faster, glibc's tuned `strtod`, `strspn`, `strcmp` 0.5-0.7x | optimize or keep the slower ones |
-| Java | about 1.7 µs (JNI + JSON) | 30-800 ns (typed JNI and binary wire) | 0.18x | port bigger units |
 | Go | 2.6 µs (cgo + JSON) | 0.11-0.42 µs (typed cgo and binary wire) | 0.04x | port bigger units |
 
-Lists, maps, structs and several results in Go and Java cross as a binary wire generated per
-type: Go's `WordFreq` (a map) went from 5.1 to 1.0 µs, `Midpoint` (a struct) from 7.2 to 1.0 µs;
-Java's `frequencies` (a `Map`) from 8.4 to 1.0 µs, and `words` (a `List<String>`) from 6.0 µs to
-0.57 µs, 1.39x faster than Java itself.
+Lists, maps, structs and several results in Go crossed as a binary wire generated per type:
+`WordFreq` (a map) went from 5.1 to 1.0 µs, `Midpoint` (a struct) from 7.2 to 1.0 µs.
 
 TypeScript (x18n core, nine units, 27 functions on the same cases): the binary wire cut the
 bridge cost by a third on average (`rangeContains` 3.6 -> 1.1 µs, `applyTextEdits` 10.4 -> 5.7
 µs, `toWireRange` 5.0 -> 2.6 µs), and `buildTree` went from even to 2.0x faster than TS. The
-other functions are leaves that V8 runs in 15-600 ns: still slower in Rust, as for Go and Java.
+other functions are leaves that V8 runs in 15-600 ns: still slower in Rust, as for Go.
 
 What decides it:
 
 - **Interpreted originals (Python, Ruby)**: the call into Rust costs about 100-300 ns and the
   Rust code is much faster than the interpreter, so even small functions win.
 - **Compiled originals (Go, Java after the JIT)**: the original leaf function takes 4-90 ns; one
-  cgo call alone costs about 80 ns, a JNI call with strings more. No bridge can make a 5 ns
+  cgo call alone costs about 80 ns, and a call into Mojo from Java about 1 µs. No bridge can make a 5 ns
   function faster. These languages gain only when one call does a lot of work: port a function
   together with its callers. `bench` says so.
 - **C**: there is no crossing; the Rust code is compared with the C code directly, and the result
@@ -94,8 +92,7 @@ is the algorithm, so the benchmark also runs TS with the same narrowing: Rust is
 than that (wasm 5x).
 
 The same pattern in the other languages: the Rust batch on 4 cores against the original on one
-thread, identical results and errors. The Go and Java rows are not a fair race; see the
-correction below.
+thread, identical results and errors. The Go row is not a fair race; see the correction below.
 
 | Language | Workload | Original (1 thread) | Per-call port vs original | Batch (4 cores) vs original |
 | --- | --- | ---: | ---: | ---: |
@@ -103,23 +100,19 @@ correction below.
 | Ruby | fixture `slugify`, 20,000 strings | 110 ms | - | 12.7x |
 | Ruby | `Shellwords.shellescape`, 50,000 mixed values | 88 ms | - | 11.8x |
 | Go | fixture `Slugify`, 50,000 strings | 49 ms | 0.93x | 3.3-4.1x |
-| Java | fixture `slugify`, 50,000 strings | 43 ms | 0.68x | 3.0x |
 
 The Go batch first ran slower than one thread: the port allocates per item and glibc's allocator
 serialized the threads inside the Go process. Batch crates now use mimalloc. The shellescape batch
 also found a port bug that per-call recording had missed: Ruby symbols (`shellescape(:sym)`) came
 back as their JSON marker. Fixed in the port.
 
-Go and Java then went from 2.5x and 1.7x to 4x and 3x. Inside the batch, half the time was not
-the work: results were joined and freed on one thread, Go copied them a second time, and Java
-made one JNI call per string through modified UTF-8. String results now go back in bulk, written
-on all cores into Go's own buffer or one Java `char[]`. The other half was the ports: on one
-thread the Rust `slugify` was barely faster than Go's and slower than Java's JIT. Lowering ASCII
-without table lookups and without an intermediate string fixed that; Java's port keeps the
-final-sigma rule by lowering only the whitespace-separated piece that holds a `Σ` as a whole.
-Per call, the Go port went from 0.73x to 0.93x, the Java one from 0.46x to 0.68x.
+Go then went from 2.5x to 4x. Inside the batch, half the time was not the work: results were
+joined and freed on one thread, and Go copied them a second time; string results went back in
+bulk, written on all cores into Go's own buffer. The other half was the port: on one thread the
+Rust `slugify` was barely faster than Go's. Lowering ASCII without table lookups and without an
+intermediate string fixed that. Per call, the Go port went from 0.73x to 0.93x.
 
-**Correction (2026-11-19, [#110](https://github.com/erkamyaman/rust-anything/issues/110)).** The Java `slugify` numbers above do not hold up:
+**Correction (2026-11-19, [#110](https://github.com/erkamyaman/rust-anything/issues/110)).** The Java `slugify` numbers measured then (0.68x per call, 3.0x as a batch; their rows went with the JNI bridge in M5) did not hold up:
 
 - **The port was wrong on some text.** Java's `Character.isLetterOrDigit` takes letters and
   decimal digits per UTF-16 unit; the port used Rust's `char::is_alphanumeric`, which also takes
@@ -243,6 +236,6 @@ Handled in the first port, and confirmed by the recorded cases:
 | --- | --- | --- | --- | --- |
 | Go | generated driver, built as its own module with a `replace` to the original | the same driver over the cgo wrapper | typed cgo with a binary wire + package with the original API | package with the original API, runs both |
 | Ruby | generated driver loads the original files | the same driver loads the magnus extension | magnus extension defining the same modules | file to require after the original: `prepend`s both |
-| Java | reflection driver compiled with the original sources | the same driver compiled with the JNI wrapper classes | typed JNI with a binary wire + wrapper classes with the original static methods | `<Class>Shadow` classes |
+| Java | reflection driver compiled with the original sources | the same driver compiled with the wrapper classes | the Mojo dispatcher, called through the Foreign Function & Memory API (Java 22+) from wrapper classes with the original static methods | `<Class>Shadow` classes |
 | Python | in-process driver imports the original | the same driver imports the PyO3 package | PyO3 | module with the original API |
 | C | `cc -shared` of the original, called through ctypes, one fork per case | ctypes over the Rust `cdylib` | `extern "C"` functions with the original names and a header | shadow `.c` with `-D` renames; the crate's `shadow` feature exports only `rust_anything_` names |

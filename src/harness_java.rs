@@ -1,7 +1,6 @@
 //! The Java side of record, build, diff and bench. A generated driver calls the unit's static
 //! methods by reflection: compiled with the original sources to record, and with the wrapper
-//! classes to diff: over the Mojo library through the Foreign Function & Memory API for a
-//! `mojo-jvm` unit, over the Rust library through JNI for a Rust-era `ffi` crate.
+//! classes to diff, over the Mojo library through the Foreign Function & Memory API.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -10,7 +9,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-use crate::bridge::{Kind, Manifest};
+use crate::bridge::Manifest;
 use crate::harness::{BenchRow, CASES, DiffOutcome};
 pub use crate::harness_mojo_jvm::Against;
 
@@ -120,39 +119,17 @@ fn driver(
     run(&mut cmd, &format!("java driver ({mode})"))
 }
 
-/// Java class files for a dexed on-device run: support driver plus either the original Java
-/// sources (`rust: false`) or the generated JNI wrappers (`rust: true`).
-pub(crate) fn android_classes(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<Vec<PathBuf>> {
-    let against = if rust {
-        Against::Port
-    } else {
-        Against::Original
-    };
-    let classes = compile(crate_dir, m, against)?;
-    Ok(crate::walk::builder(&classes)
-        .require_git(false)
-        .build()
-        .flatten()
-        .map(|e| e.into_path())
-        .filter(|p| p.extension().is_some_and(|e| e == "class"))
-        .collect())
-}
-
 /// The JVM's flags: UTF-8, no perf data file (pitfall: a JVM warning about a locked
 /// `hsperfdata` file reached a recording), native access, and for the port its library.
 pub(crate) fn jvm_args(unit_dir: &Path, m: &Manifest, against: Against) -> Result<Vec<String>> {
     let mut args = vec![
         "-Dfile.encoding=UTF-8".to_string(),
         "-XX:-UsePerfData".into(),
-        // `java.lang.foreign` and `System.load` are restricted: without this Java 22+ warns.
+        // `java.lang.foreign` is restricted: without this Java 22+ warns.
         "--enable-native-access=ALL-UNNAMED".into(),
     ];
     if against == Against::Port {
-        let lib = if m.kind == Kind::MojoJvm {
-            crate::harness_mojo_jvm::built_library(unit_dir, m)?
-        } else {
-            crate::harness_cargo::built_library(unit_dir, m)?
-        };
+        let lib = crate::harness_mojo_jvm::built_library(unit_dir, m)?;
         args.push(format!(
             "-Dmojo-anything.lib.{}={}",
             m.lib_name(),

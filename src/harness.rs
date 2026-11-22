@@ -322,17 +322,6 @@ pub(crate) fn record_with(
     })
 }
 
-/// Records on a connected Android device: the cases are generated here, the original Kotlin
-/// runs under ART, and the results come back as the same `cases.jsonl`.
-pub fn record_android(opts: &RecordOptions, device: Option<&str>) -> Result<RecordOutcome> {
-    let manifest = Manifest::load(opts.crate_dir)?;
-    let (cases, traps, regex_functions) = generate_cases(opts, &manifest)?;
-    let _ = std::fs::remove_file(opts.crate_dir.join(WORK_DIR).join(TIMED_OUT));
-    let out = crate::android_device::record(opts.crate_dir, &manifest, &cases, device)?;
-    crate::recording::save_fingerprint(opts.crate_dir, &manifest, None)?;
-    summarize(opts, &out, traps, regex_functions, None)
-}
-
 fn summarize(
     opts: &RecordOptions,
     out: &Path,
@@ -468,48 +457,6 @@ fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
     crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built)
 }
 
-/// True when `Cargo.toml` or any `.rs` file under `src/` is newer than `built`.
-pub(crate) fn sources_newer_than(crate_dir: &Path, built: &Path) -> bool {
-    let Ok(built_at) = std::fs::metadata(built).and_then(|m| m.modified()) else {
-        return false;
-    };
-    let mut sources = vec![crate_dir.join("Cargo.toml")];
-    sources.extend(
-        walkdir_rs(&crate_dir.join("src"))
-            .into_iter()
-            .filter(|p| p.extension().is_some_and(|e| e == "rs")),
-    );
-    sources
-        .iter()
-        .filter_map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
-        .any(|changed| changed > built_at)
-}
-
-fn walkdir_rs(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            out.extend(walkdir_rs(&path));
-        } else {
-            out.push(path);
-        }
-    }
-    out
-}
-
-/// Builds a JNI crate for Android: one library per ABI, installed into `jniLibs/`.
-pub fn build_android(
-    crate_dir: &Path,
-    opts: &crate::android::Options,
-) -> Result<crate::android::Report> {
-    let manifest = Manifest::load(crate_dir)?;
-    crate::android::build(crate_dir, &manifest, opts)
-}
-
 pub fn build(crate_dir: &Path) -> Result<PathBuf> {
     let manifest = Manifest::load(crate_dir)?;
     if crate::jvm::is_jvm(manifest.language) {
@@ -525,7 +472,10 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
         Kind::Ffi if manifest.language == crate::lang::Lang::Go => {
             crate::harness_go::build(crate_dir, &manifest)
         }
-        Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
+        Kind::Ffi => bail!(
+            "no build for a {} unit of kind `ffi`: bridge again",
+            manifest.language.name()
+        ),
         Kind::MojoNode => crate::harness_mojo_node::build(crate_dir, &manifest),
     }
 }
@@ -742,19 +692,6 @@ const SHOWN_MISMATCHES: usize = 20;
 
 pub fn diff(opts: &DiffOptions) -> Result<DiffOutcome> {
     diff_after(opts, diff_exact(opts)?)
-}
-
-/// Diffs on a connected Android device, using the port built for the device's ABI.
-pub fn diff_android(
-    opts: &DiffOptions,
-    device: Option<&str>,
-    jni_libs: Option<&Path>,
-) -> Result<DiffOutcome> {
-    let manifest = Manifest::load(opts.crate_dir)?;
-    diff_after(
-        opts,
-        crate::android_device::diff(opts.crate_dir, &manifest, device, jni_libs)?,
-    )
 }
 
 fn diff_after(opts: &DiffOptions, exact: DiffOutcome) -> Result<DiffOutcome> {

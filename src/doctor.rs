@@ -187,19 +187,11 @@ pub fn run() -> Report {
         .unwrap_or_else(|_| PathBuf::from(NAME));
     let mut checks: Vec<Check> = std::thread::scope(|s| {
         let probes: Vec<_> = RUNTIMES.iter().map(|r| s.spawn(|| runtime(r))).collect();
-        let ndk = s.spawn(android_ndk);
-        let android_targets = s.spawn(android_targets);
         let mcp = s.spawn(|| mcp_self_test(&exe));
         let mut checks: Vec<Check> = probes
             .into_iter()
             .map(|p| p.join().expect("a runtime probe panicked"))
             .collect();
-        checks.push(ndk.join().expect("the NDK probe panicked"));
-        checks.push(
-            android_targets
-                .join()
-                .expect("the Android targets probe panicked"),
-        );
         checks.push(mcp.join().expect("the MCP self-test panicked"));
         checks
     });
@@ -481,73 +473,6 @@ fn runtime(r: &Runtime) -> Check {
         required: r.required,
         detail,
         fix: runtime_fix(r, status, Platform::HERE),
-    }
-}
-
-/// The Android NDK `build --profile android` links with.
-fn android_ndk() -> Check {
-    let (status, detail) = match crate::android::ndk_root(None) {
-        Ok(path) => (Status::Ok, path.display().to_string()),
-        Err(e) => (Status::Missing, format!("{e:#}")),
-    };
-    Check {
-        name: "Android NDK".into(),
-        status,
-        required: false,
-        detail,
-        fix: (status != Status::Ok).then(|| {
-            "sdkmanager \"ndk;28.0.13004108\"  (or set ANDROID_NDK_HOME to an installed NDK)"
-                .to_string()
-        }),
-    }
-}
-
-/// The Rust targets `build --profile android` needs.
-fn android_targets() -> Check {
-    let wanted: Vec<&str> = crate::android::DEFAULT_ABIS
-        .iter()
-        .map(|a| a.triple())
-        .collect();
-    let installed = crate::process::output(
-        Command::new("rustup").args(["target", "list", "--installed"]),
-        crate::process::QUICK,
-    )
-    .ok()
-    .filter(|o| o.success())
-    .map(|o| o.stdout_text());
-    let (status, detail, fix) = match installed {
-        None => (
-            Status::Missing,
-            "`rustup` not found or did not run".into(),
-            "install Rust with rustup (https://rustup.rs) to add Android targets".to_string(),
-        ),
-        Some(list) => {
-            let missing: Vec<&str> = wanted
-                .iter()
-                .copied()
-                .filter(|t| !list.lines().any(|l| l.trim() == *t))
-                .collect();
-            if missing.is_empty() {
-                (
-                    Status::Ok,
-                    format!("{} installed", wanted.join(", ")),
-                    String::new(),
-                )
-            } else {
-                (
-                    Status::Missing,
-                    format!("not installed: {}", missing.join(", ")),
-                    format!("rustup target add {}", missing.join(" ")),
-                )
-            }
-        }
-    };
-    Check {
-        name: "Android Rust targets".into(),
-        status,
-        required: false,
-        detail,
-        fix: (status != Status::Ok).then_some(fix),
     }
 }
 

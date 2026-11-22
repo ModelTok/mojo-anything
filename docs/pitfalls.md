@@ -245,32 +245,7 @@ check a small fixture's S-expression before trusting `node-types.json` child lis
 **Kotlin's JVM owner is not the file name.** A top-level function compiles to a static method on
 `<File>Kt` (`NativeLib.kt` → `NativeLibKt`); only `@JvmStatic` members of an `object` or
 `companion object` live on the enclosing class. Emit prototypes in that Java shape, or the
-generated JNI symbol and the reflection driver look for a class that does not exist.
-
-**The generated Java runtime needs API 26, not API 21.** `RustAnythingError` resolves exception
-constructors with plain reflection instead of `MethodHandle.invokeExact` (which Android only
-supports from API 26), but the runtime also uses `java.util.Optional` and `java.util.function`
-(API 24) and `ThreadLocal.withInitial` (API 26). `build --profile android` therefore rejects
-`--api` below 26: a lower library would load but fail in the wrapper before reaching Rust.
-Link with `-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384` for 64-bit ABIs, or Play
-rejects the library on 16 KB devices.
-
-**ART is not a desktop JVM, even when the bytecode is Java 8.** The generated driver uses
-`Paths.get`, not `Path.of`, and reads/writes files with `Files.readAllBytes`/`Files.write`, not
-Java 11's `Files.readString`/`writeString`: those methods throw `NoSuchMethodError` on Android even
-at API 30. The driver is dexed with `d8 --min-api 26` and started with `app_process`.
-
-**On-device recording needs Android SDK build-tools.** `d8` and a platform's `android.jar` come
-from the SDK, which can live somewhere other than `ANDROID_HOME` (the variable often points at an
-old SDK); the device scratch directory under `/data/local/tmp` is removed after every run.
-
-**NDK discovery must ignore half-installed NDKs.** `--ndk` wins, then `ANDROID_NDK_HOME` /
-`ANDROID_NDK_ROOT`, then the newest *complete* NDK under `ANDROID_HOME` / `ANDROID_SDK_ROOT`, then
-the usual `~/Android/Sdk`, `~/Library/Android/sdk` and `~/Documents/Android/Sdk`. Completeness
-means `toolchains/llvm/prebuilt/<host>/bin` exists: an interrupted `sdkmanager` download leaves a
-newer directory with only `source.properties`, which must not shadow a working NDK. The linker is
-the NDK's clang, so `cargo-ndk` is not needed, and cargo runs in the crate's directory so the
-caller's `.cargo/config.toml` cannot leak into the generated crate.
+generated wrappers and the reflection driver look for a class that does not exist.
 
 ## Repository
 
@@ -293,3 +268,14 @@ Ruby first on `PATH` (Homebrew's `/opt/homebrew/opt/ruby/bin`) before `cargo tes
 other tests were starting processes; a child forked during the write still held the file open for
 writing, so exec failed. Write a script that a test runs from a separate process (`cp` from a text
 file) and never rewrite one that already ran.
+
+## Removed
+
+Entries about code that is gone, one line each on why they no longer apply. Android support
+(`build`, `record` and `diff --profile android`) went with the Rust JNI crates in M5: Mojo does
+not target Android, and `--profile` takes only `host`.
+
+- **The generated Java runtime needs API 26, not API 21**: no library is built for Android.
+- **ART is not a desktop JVM**: the driver is no longer dexed or run with `app_process`.
+- **On-device recording needs Android SDK build-tools**: there is no on-device recording.
+- **NDK discovery must ignore half-installed NDKs**: nothing looks for an NDK.
