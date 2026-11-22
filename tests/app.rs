@@ -177,47 +177,6 @@ fn record_then_replay(repo: &Path, run: &str, buggy: &str) {
     std::fs::remove_dir_all(repo).unwrap();
 }
 
-const WORDCOUNT_PORT: &str = "pub fn count_words(text: &[u8]) -> usize {
-    text.split(|b| b.is_ascii_whitespace() || *b == 0x0b)
-        .filter(|w| !w.is_empty())
-        .count()
-}
-";
-
-const WORDCOUNT_GLUE: &str = "use std::io::Read;
-use std::process::ExitCode;
-
-use clap::ArgMatches;
-
-pub fn run(_command: &str, _matches: &ArgMatches) -> ExitCode {
-    let mut input = Vec::new();
-    if std::io::stdin().read_to_end(&mut input).is_err() {
-        return ExitCode::from(1);
-    }
-    println!(\"{}\", wordcount_rs::port::count_words(&input));
-    ExitCode::SUCCESS
-}
-";
-
-const WORDCOUNT_DECLINING_GLUE: &str = "use std::io::Read;
-use std::process::ExitCode;
-
-use clap::ArgMatches;
-
-pub fn run(_command: &str, _matches: &ArgMatches) -> ExitCode {
-    let mut input = Vec::new();
-    if std::io::stdin().read_to_end(&mut input).is_err() {
-        return ExitCode::from(1);
-    }
-    if input.starts_with(b\"#original\") {
-        let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
-        return crate::original::run_with_stdin(&argv[1..], &input);
-    }
-    println!(\"{}\", wordcount_rs::port::count_words(&input));
-    ExitCode::SUCCESS
-}
-";
-
 /// The front door is a Mojo binary in `mojo/app` that answers every recorded case through the
 /// original, each one a fallback.
 fn front_door_falls_back(repo: &Path) -> app::ReplayOutcome {
@@ -1144,74 +1103,91 @@ def div(a: Int, b: Int) raises -> Tuple[Int, Int]:
     )
 }
 
-const TEXTOPS_GLUE: &str = "use std::ffi::OsString;
-use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+/// Glue for every command of the CLI fixture, in Mojo.
+const TEXTOPS_GLUE_MOJO: &str = "from std.sys import stderr
+from std.time import perf_counter_ns
 
-use clap::ArgMatches;
-use textops_rs::port;
+from textops import port
 
-pub fn run(command: &str, matches: &ArgMatches) -> ExitCode {
-    let args: Vec<String> = matches
-        .get_many::<OsString>(\"args\")
-        .into_iter()
-        .flatten()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    match (command, args.as_slice()) {
-        (\"upper\", words) => {
-            println!(\"{}\", port::upper(&words.join(\" \")));
-            ExitCode::SUCCESS
-        }
-        (\"len\", [text]) => {
-            println!(\"{}\", port::count(text));
-            ExitCode::SUCCESS
-        }
-        (\"div\", [a, b]) => match (a.parse::<i64>(), b.parse::<i64>()) {
-            (Ok(a), Ok(b)) => match port::div(a, b) {
-                Some((q, r)) => {
-                    println!(\"{a} / {b} = {q} remainder {r}\");
-                    ExitCode::SUCCESS
-                }
-                None => {
-                    eprintln!(\"error: division by zero\");
-                    ExitCode::from(2)
-                }
-            },
-            _ => {
-                eprintln!(\"error: not a number\");
-                ExitCode::from(2)
-            }
-        },
-        (\"copy\", [from, to]) => {
-            let Ok(text) = std::fs::read_to_string(from) else {
-                eprintln!(\"error: cannot read {from}\");
-                return ExitCode::from(1);
-            };
-            if std::fs::write(to, port::upper(&text)).is_err() {
-                eprintln!(\"error: cannot write {to}\");
-                return ExitCode::from(1);
-            }
-            println!(\"copied {} {}\", port::count(&text), port::UNIT);
-            ExitCode::SUCCESS
-        }
-        (\"now\", _) => {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos());
-            println!(\"now: {nanos}\");
-            ExitCode::SUCCESS
-        }
-        _ => {
-            eprintln!(\"usage: tcli upper|len|div|words|copy|now\");
-            ExitCode::from(1)
-        }
-    }
-}
+
+def _usage() -> Int:
+    print(\"usage: tcli upper|len|div|words|copy|now\", file=stderr)
+    return 1
+
+
+def upper(args: List[String]) raises -> Int:
+    var words = String()
+    for i in range(1, len(args)):
+        if i > 1:
+            words += \" \"
+        words += args[i]
+    print(port.upper(words))
+    return 0
+
+
+def len_(args: List[String]) raises -> Int:
+    if len(args) != 2:
+        return _usage()
+    print(port.count(args[1]))
+    return 0
+
+
+def div(args: List[String]) raises -> Int:
+    if len(args) != 3:
+        return _usage()
+    try:
+        var a = Int(args[1])
+        var b = Int(args[2])
+        if b == 0:
+            print(\"error: division by zero\", file=stderr)
+            return 2
+        var qr = port.div(a, b)
+        print(a, \"/\", b, \"=\", qr[0], \"remainder\", qr[1])
+        return 0
+    except:
+        print(\"error: not a number\", file=stderr)
+        return 2
+
+
+def copy(args: List[String]) raises -> Int:
+    if len(args) != 3:
+        return _usage()
+    var text: String
+    try:
+        text = open(args[1], \"r\").read()
+    except:
+        print(\"error: cannot read\", args[1], file=stderr)
+        return 1
+    try:
+        var out = open(args[2], \"w\")
+        out.write(port.upper(text))
+        out.close()
+    except:
+        print(\"error: cannot write\", args[2], file=stderr)
+        return 1
+    print(\"copied\", port.count(text), port.UNIT)
+    return 0
+
+
+def now(args: List[String]) raises -> Int:
+    print(\"now:\", perf_counter_ns())
+    return 0
+
+
+def tcli(args: List[String]) raises -> Int:
+    return _usage()
 ";
 
-/// Record, front door, wire every command to Rust, lift, then replay the pure binary with the
-/// original moved away: nothing may still need it.
+/// The lift's checklist item called `name` passed.
+fn passed(outcome: &lift::LiftOutcome, name: &str) -> bool {
+    outcome
+        .checklist
+        .iter()
+        .any(|i| i.name == name && i.mark == lift::Mark::Pass)
+}
+
+/// Record, front door, wire every command to Mojo units, lift, then replay the pure binary with
+/// the original moved away: nothing may still need it.
 fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str) {
     app::record(&RecordOptions {
         repo,
@@ -1231,15 +1207,7 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
         effects: None,
     })
     .unwrap();
-    let door = front_door::front_door(&FrontDoorOptions {
-        repo,
-        library: false,
-        check: true,
-    })
-    .unwrap();
-    let replay = door.replay.unwrap();
-    assert_eq!(replay.passed, replay.total);
-    assert_eq!(replay.fallback.unwrap().cases, replay.total);
+    front_door_falls_back(repo);
 
     let blocked = lift::lift(&LiftOptions { repo }).unwrap();
     assert!(!blocked.lifted);
@@ -1252,22 +1220,11 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
         blocked.blockers
     );
 
-    write_unit(repo, "wordcount-rs", WORDCOUNT_PORT);
-    write_unit(repo, "textops-rs", &textops_port(semantics));
-    let wire = |unit: &str, commands: &[&str], check: bool| {
-        front_door::wire(&WireOptions {
-            repo,
-            unit,
-            commands: &commands.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
-            routes: &[],
-            skip_gate: true,
-            check,
-        })
-        .unwrap()
-    };
-    let words_glue = wire("wordcount", &["words"], false).glue;
-    std::fs::write(&words_glue, WORDCOUNT_DECLINING_GLUE).unwrap();
-    let partial = wire("textops", &["upper", "len"], true);
+    write_mojo_unit(repo, "wordcount-mojo", WORDCOUNT_PORT_MOJO);
+    write_mojo_unit(repo, "textops-mojo", &textops_port_mojo(semantics));
+    let words_glue = wire_mojo(repo, "wordcount-mojo", &["words"], false).glue;
+    std::fs::write(&words_glue, WORDCOUNT_DECLINING_GLUE_MOJO).unwrap();
+    let partial = wire_mojo(repo, "textops-mojo", &["upper", "len"], true);
     let fallback = partial.replay.unwrap().fallback.unwrap();
     assert!(fallback.cases > 0);
     let blocked = lift::lift(&LiftOptions { repo }).unwrap();
@@ -1288,8 +1245,8 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
         "{:?}",
         blocked.blockers
     );
-    std::fs::write(&words_glue, WORDCOUNT_GLUE).unwrap();
-    std::fs::write(&partial.glue, TEXTOPS_GLUE).unwrap();
+    std::fs::write(&words_glue, WORDCOUNT_GLUE_MOJO).unwrap();
+    std::fs::write(&partial.glue, TEXTOPS_GLUE_MOJO).unwrap();
     let blocked = lift::lift(&LiftOptions { repo }).unwrap();
     assert!(
         blocked
@@ -1300,58 +1257,64 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
         blocked.blockers
     );
 
-    let all = wire(
-        "textops",
+    let all = wire_mojo(
+        repo,
+        "textops-mojo",
         &["upper", "len", "div", "copy", "now", "tcli"],
         true,
     );
+    assert!(!all.glue_pending);
     let replay = all.replay.unwrap();
-    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
+    assert_eq!(
+        replay.passed,
+        replay.total,
+        "{}",
+        std::fs::read_to_string(&replay.report).unwrap()
+    );
     assert_eq!(replay.fallback.unwrap().cases, 0);
-    for dir in ["mojo/app", "rust/wordcount-rs", "rust/textops-rs"] {
-        sh(&repo.join(dir), "cargo", &["fmt"]);
-    }
 
     let lifted = lift::lift(&LiftOptions { repo }).unwrap();
-    assert!(lifted.lifted, "{:?}", lifted.blockers);
+    assert!(
+        lifted.lifted,
+        "{:?}\n{:?}",
+        lifted.blockers, lifted.checklist
+    );
     assert!(
         lifted.checklist.iter().all(|i| i.mark != lift::Mark::Fail),
         "{:?}",
         lifted.checklist
     );
-    assert!(
-        lifted
-            .checklist
-            .iter()
-            .any(|i| i.name == "mojo/app: cargo test" && i.mark == lift::Mark::Pass)
-    );
+    for item in [
+        "mojo/app: mojo build",
+        "mojo/app: mojo format",
+        "no original.",
+        "no fallback",
+        "replay",
+        "textops-mojo: mojo format",
+        "wordcount-mojo: ported",
+    ] {
+        assert!(passed(&lifted, item), "{item}: {:?}", lifted.checklist);
+    }
     let replay = lifted.replay.as_ref().unwrap();
     assert_eq!(replay.passed, replay.total);
 
     let app_dir = repo.join(front_door::APP_DIR);
-    assert!(!app_dir.join("src/original.rs").exists());
-    let main = std::fs::read_to_string(app_dir.join("src/main.rs")).unwrap();
+    assert!(!app_dir.join("original.mojo").exists());
+    let main = std::fs::read_to_string(app_dir.join("main.mojo")).unwrap();
     assert!(!main.contains("original"), "{main}");
-    let units = std::fs::read_to_string(app_dir.join("src/units/mod.rs")).unwrap();
+    let units = std::fs::read_to_string(app_dir.join("units.mojo")).unwrap();
     assert!(!units.contains("MOJO_ANYTHING_UNIT"), "{units}");
-    assert!(app_dir.join("tests/app_cases.rs").is_file());
-    for unit in ["wordcount-rs", "textops-rs"] {
-        let cargo =
-            std::fs::read_to_string(repo.join("rust").join(unit).join("Cargo.toml")).unwrap();
-        assert!(!cargo.contains("cdylib"), "{cargo}");
+    for glue in ["glue/textops.mojo", "glue/wordcount.mojo"] {
+        let text = std::fs::read_to_string(app_dir.join(glue)).unwrap();
+        assert!(!text.contains("original"), "{glue}: {text}");
     }
     assert!(front_door::State::load(repo).unwrap().lifted);
+    let binary = lifted.binary.as_ref().unwrap();
+    assert!(binary.starts_with(app_dir.join(".mojo-anything/build")));
 
     let hidden = repo.join(format!("{original}.hidden"));
     std::fs::rename(repo.join(original), &hidden).unwrap();
-    let pure = app::replay(&ReplayOptions {
-        case: None,
-        repo,
-        build: Some(&lifted.binary.as_ref().unwrap().to_string_lossy()),
-        timeout_secs: None,
-        port: None,
-    })
-    .unwrap();
+    let pure = replay_build(repo, &binary.to_string_lossy());
     assert_eq!(
         pure.passed,
         pure.total,
@@ -1368,7 +1331,7 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
     assert!(again.is_err());
     let rewire = front_door::wire(&WireOptions {
         repo,
-        unit: "wordcount",
+        unit: "wordcount-mojo",
         commands: &[],
         routes: &[],
         skip_gate: true,
@@ -1379,27 +1342,24 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn ts_cli_lifts_to_pure_rust() {
-    if !common::have("node") || !common::have("cargo") {
+fn ts_cli_lifts_to_pure_mojo() {
+    if !common::have("node") || !mojo() {
         return;
     }
     lift_end_to_end(&fixture("ts"), "node tcli.js", &CHARS, "tcli.js");
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn python_cli_lifts_to_pure_rust() {
-    if !common::have("python3") || !common::have("cargo") {
+fn python_cli_lifts_to_pure_mojo() {
+    if !common::have("python3") || !mojo() {
         return;
     }
     lift_end_to_end(&fixture("python"), "python3 tcli.py", &CHARS, "tcli.py");
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn c_cli_lifts_to_pure_rust() {
-    if !common::have("cc") || !common::have("cargo") {
+fn c_cli_lifts_to_pure_mojo() {
+    if !common::have("cc") || !mojo() {
         return;
     }
     let repo = fixture("c");
@@ -1413,9 +1373,8 @@ fn c_cli_lifts_to_pure_rust() {
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn go_cli_lifts_to_pure_rust() {
-    if !common::have("go") || !common::have("cargo") {
+fn go_cli_lifts_to_pure_mojo() {
+    if !common::have("go") || !mojo() {
         return;
     }
     let repo = fixture("go");
@@ -1429,27 +1388,24 @@ fn go_cli_lifts_to_pure_rust() {
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn php_cli_lifts_to_pure_rust() {
-    if !common::have("php") || !common::have("cargo") {
+fn php_cli_lifts_to_pure_mojo() {
+    if !common::have("php") || !mojo() {
         return;
     }
     lift_end_to_end(&fixture("php"), "php tcli.php", &CHARS, "tcli.php");
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn ruby_cli_lifts_to_pure_rust() {
-    if !common::have("ruby") || !common::have("cargo") {
+fn ruby_cli_lifts_to_pure_mojo() {
+    if !common::have("ruby") || !mojo() {
         return;
     }
     lift_end_to_end(&fixture("ruby"), "ruby tcli.rb", &CHARS, "tcli.rb");
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn java_cli_lifts_to_pure_rust() {
-    if !common::have("javac") || !common::have("java") || !common::have("cargo") {
+fn java_cli_lifts_to_pure_mojo() {
+    if !common::have("javac") || !common::have("java") || !mojo() {
         return;
     }
     let repo = fixture("java");
@@ -1463,9 +1419,8 @@ fn java_cli_lifts_to_pure_rust() {
 }
 
 #[test]
-#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
-fn csharp_cli_lifts_to_pure_rust() {
-    if !common::have("dotnet") || !common::have("cargo") {
+fn csharp_cli_lifts_to_pure_mojo() {
+    if !common::have("dotnet") || !mojo() {
         return;
     }
     let repo = fixture("csharp");
@@ -1478,20 +1433,248 @@ fn csharp_cli_lifts_to_pure_rust() {
     lift_end_to_end(&repo, "dotnet out/tcli.dll", &invariant, "out");
 }
 
+/// A hash of every file under `dir` (paths and bytes), leaving out the build and pixi folders,
+/// which a build rewrites.
+fn tree_hash(dir: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let name = entry.file_name();
+            // The replay report is rewritten by every replay, the lift's first one included.
+            if name == ".pixi" || name == ".mojo-anything" || name == "replay-report.md" {
+                continue;
+            }
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                walk(&path, root, out);
+            } else {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((rel, std::fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(dir, dir, &mut files);
+    files.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    files.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[test]
+fn failed_lift_leaves_repo_unchanged() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    let repo = record_python_examples();
+    front_door_falls_back(&repo);
+    write_mojo_unit(&repo, "wordcount-mojo", WORDCOUNT_PORT_MOJO);
+    // A port that builds and answers every case, but not as `mojo format` writes it: the
+    // unit's gate fails only on the lifted copy.
+    write_mojo_unit(
+        &repo,
+        "textops-mojo",
+        &(textops_port_mojo(&CHARS) + "\n\n\n"),
+    );
+    let glue = wire_mojo(&repo, "wordcount-mojo", &["words"], false).glue;
+    std::fs::write(&glue, WORDCOUNT_GLUE_MOJO).unwrap();
+    let glue = wire_mojo(
+        &repo,
+        "textops-mojo",
+        &["upper", "len", "div", "copy", "now", "tcli"],
+        false,
+    )
+    .glue;
+    std::fs::write(&glue, TEXTOPS_GLUE_MOJO).unwrap();
+    let mojo_dir = repo.join("mojo");
+    let before = tree_hash(&mojo_dir);
+    let outcome = lift::lift(&LiftOptions { repo: &repo }).unwrap();
+    assert!(!outcome.lifted);
+    assert!(
+        outcome
+            .blockers
+            .iter()
+            .any(|b| b.starts_with("textops-mojo: mojo format")),
+        "{:?}",
+        outcome.blockers
+    );
+    // Everything else passed on the copy, which is kept to look at.
+    assert!(passed(&outcome, "replay"), "{:?}", outcome.checklist);
+    let stage = outcome.stage.as_ref().unwrap();
+    assert!(!stage.join("mojo/app/original.mojo").exists());
+    assert_eq!(
+        tree_hash(&mojo_dir),
+        before,
+        "the failed lift changed mojo/"
+    );
+    assert!(repo.join("mojo/app/original.mojo").is_file());
+    assert!(!front_door::State::load(&repo).unwrap().lifted);
+    std::fs::remove_dir_all(stage).unwrap();
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+/// A CLI that upper-cases a file and reads a `.textopsrc` beside it, like a formatter reading
+/// its config.
+const CONFIG_TOOL: &str = "import os
+import sys
+
+prefix = \"\"
+if os.path.exists(\".textopsrc\"):
+    with open(\".textopsrc\") as f:
+        for line in f:
+            if line.startswith(\"prefix=\"):
+                prefix = line[len(\"prefix=\"):].rstrip(\"\\n\")
+with open(sys.argv[2]) as f:
+    print(prefix + f.read().strip().upper())
+";
+
+const CONFIG_NAIVE_GLUE: &str = "from textops import port
+
+
+def upper(args: List[String]) raises -> Int:
+    var text = open(args[1], \"r\").read()
+    print(port.upper(String(text.strip())))
+    return 0
+";
+
+const CONFIG_DECLINING_GLUE: &str = "from std.os.path import exists
+
+import original
+from textops import port
+
+
+def upper(args: List[String]) raises -> Int:
+    if exists(\".textopsrc\"):
+        return original.run(args)
+    var text = open(args[1], \"r\").read()
+    print(port.upper(String(text.strip())))
+    return 0
+";
+
+const CONFIG_GLUE: &str = "from std.os.path import exists
+
+from textops import port
+
+
+def upper(args: List[String]) raises -> Int:
+    var prefix = String()
+    if exists(\".textopsrc\"):
+        var config = open(\".textopsrc\", \"r\").read()
+        for line in config.splitlines():
+            if line.startswith(\"prefix=\"):
+                prefix = String(line[byte=7:])
+    var text = open(args[1], \"r\").read()
+    print(prefix + port.upper(String(text.strip())))
+    return 0
+";
+
+#[test]
+fn cli_with_config_file_falls_back() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let repo = std::env::temp_dir().join(format!(
+        "mojo-anything-app-config-{}-{n}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("textops.py"), CONFIG_TOOL).unwrap();
+    let inputs = repo.join("inputs.jsonl");
+    std::fs::write(
+        &inputs,
+        concat!(
+            r#"{"name": "plain", "args": ["upper", "in.txt"], "files": {"in.txt": "hello"}}"#,
+            "\n",
+            r#"{"name": "configured", "args": ["upper", "in.txt"], "files": {"in.txt": "hello", ".textopsrc": "prefix=>> "}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    app::record(&RecordOptions {
+        repo: &repo,
+        run: &words("python3 textops.py"),
+        inputs: Some(&inputs),
+        normalize: &[],
+        name: Some("textops"),
+        traps: false,
+        timeout_secs: None,
+        http: false,
+        server_args: &[],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    let dir = app::cases_dir(&repo);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("configured.stdout")).unwrap(),
+        ">> HELLO\n"
+    );
+    front_door_falls_back(&repo);
+    write_mojo_unit(&repo, "textops-mojo", &textops_port_mojo(&CHARS));
+    let glue = wire_mojo(&repo, "textops-mojo", &["upper"], false).glue;
+
+    // Glue that never looks at the config fails the configured case: it cannot pass because it
+    // was recorded in an empty folder.
+    std::fs::write(&glue, CONFIG_NAIVE_GLUE).unwrap();
+    let naive = wire_mojo(&repo, "textops-mojo", &[], true).replay.unwrap();
+    let failed: Vec<&str> = naive.failures.iter().map(|f| f.case.as_str()).collect();
+    assert_eq!(failed, ["configured"], "{:?}", naive.failures);
+
+    // Glue that hands the configured case back: it falls back and matches, and blocks the lift.
+    std::fs::write(&glue, CONFIG_DECLINING_GLUE).unwrap();
+    let declining = wire_mojo(&repo, "textops-mojo", &[], true).replay.unwrap();
+    assert_eq!(
+        declining.passed, declining.total,
+        "{:?}",
+        declining.failures
+    );
+    assert_eq!(declining.fallback.unwrap().names, ["configured"]);
+    let blocked = lift::lift(&LiftOptions { repo: &repo }).unwrap();
+    assert!(!blocked.lifted);
+    assert!(
+        blocked
+            .blockers
+            .iter()
+            .any(|b| b.contains("still fall back") && b.contains("configured")),
+        "{:?}",
+        blocked.blockers
+    );
+
+    // Glue that reads the config itself answers both, and the lift goes through.
+    std::fs::write(&glue, CONFIG_GLUE).unwrap();
+    let handled = wire_mojo(&repo, "textops-mojo", &[], true).replay.unwrap();
+    assert_eq!(handled.passed, handled.total, "{:?}", handled.failures);
+    assert_eq!(handled.fallback.unwrap().cases, 0);
+    let lifted = lift::lift(&LiftOptions { repo: &repo }).unwrap();
+    assert!(lifted.lifted, "{:?}", lifted.blockers);
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
 #[test]
 fn lift_strips_bridge_bindings_in_every_language() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let base = std::env::temp_dir().join(format!("mojo-anything-strip-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
-    // TS/JS, Go and Ruby units are Mojo ports: lifting them comes with the Mojo front door.
     let units = [
         ("mini", "packages/a/src/util.ts", "ts"),
         ("go", "strkit/", "go"),
         ("ruby", "lib/textkit/", "ruby"),
+        ("python-mojo", "src/mathkit/", "python"),
+        ("c", "src/text.c", "c"),
         ("java", "src/main/java/com/example/text/", "java"),
     ];
     for (fixture, unit, lang) in units {
-        let mojo = lang != "java";
         let dir = base.join(lang);
         mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
             root: &fixtures.join(fixture),
@@ -1506,9 +1689,45 @@ fn lift_strips_bridge_bindings_in_every_language() {
             as_json: Vec::new(),
         })
         .unwrap();
-        if mojo {
-            let err = lift::strip_unit(&dir).unwrap_err().to_string();
-            assert!(err.contains("Mojo front door"), "{lang}: {err}");
+        if lang != "java" {
+            let imported = front_door_mojo::port_modules(&dir);
+            let removed = lift::strip_unit(&dir).unwrap();
+            assert!(!removed.is_empty(), "{lang}");
+            for generated in [
+                "_native.mojo",
+                "python",
+                "dispatcher.mojo",
+                "exports.mojo",
+                "exports_shadow.mojo",
+                "include",
+                "node_shim.c",
+                "binding.gyp",
+                "index.cjs",
+                "go",
+                "ruby",
+            ] {
+                assert!(!dir.join(generated).exists(), "{lang}: {generated}");
+            }
+            assert!(dir.join("port.mojo").is_file(), "{lang}");
+            assert!(
+                dir.join(mojo_anything::bridge::MANIFEST).is_file(),
+                "{lang}"
+            );
+            // The helpers the port imports stay; the others go.
+            for module in &imported {
+                assert!(
+                    dir.join(format!("{module}.mojo")).is_file(),
+                    "{lang}: {module}"
+                );
+            }
+            for helper in ["json", "py_num", "c_structs"] {
+                if !imported.iter().any(|m| m == helper) {
+                    assert!(
+                        !dir.join(format!("{helper}.mojo")).exists(),
+                        "{lang}: {helper}"
+                    );
+                }
+            }
             continue;
         }
         let removed = lift::strip_unit(&dir).unwrap();

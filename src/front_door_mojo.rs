@@ -258,6 +258,43 @@ pub(crate) fn units_mojo(state: &State, lifted: bool) -> String {
     out
 }
 
+/// `main.mojo` of a lifted app: every command goes to its unit; there is no original left.
+pub(crate) fn lifted_main_mojo(state: &State) -> String {
+    format!(
+        "# `{name}`, lifted by mojo-anything: every command is answered by a unit.
+
+from std.sys import argv, exit, stderr
+
+import units
+
+comptime ROOT = {root}
+
+
+def _commands() -> List[String]:
+    \"\"\"The commands the app answers.\"\"\"
+    return {commands}
+
+
+def main() raises:
+    var raw = argv()
+    var args = List[String]()
+    for i in range(1, len(raw)):
+        args.append(String(raw[i]))
+    var command = String(ROOT)
+    if len(args) > 0 and args[0] in _commands():
+        command = args[0]
+    var code = units.dispatch(command, args)
+    if code:
+        exit(code.value())
+    print(String(ROOT, \": no unit answers `\", command, \"`\"), file=stderr)
+    exit(2)
+",
+        name = state.name.replace('\n', " "),
+        root = mojo_str(&state.name),
+        commands = mojo_list(&state.commands),
+    )
+}
+
 /// `mojo/app/pixi.toml`: the Mojo the front door builds with, the one mojo-anything pins, and
 /// EmberJson when a wired unit's port uses `json.mojo`.
 pub fn pixi_toml_app(name: &str, json: bool) -> String {
@@ -345,8 +382,14 @@ fn imported_module(line: &str) -> Option<(&str, &str, bool)> {
 
 /// The modules beside `port.mojo` that it imports, transitively (`port` itself not included).
 pub fn port_modules(unit_dir: &Path) -> Vec<String> {
+    local_modules(unit_dir, &["port"])
+}
+
+/// The modules beside `roots` (module names in `unit_dir`) that they import, transitively;
+/// `port` and the roots themselves are not included.
+pub fn local_modules(unit_dir: &Path, roots: &[&str]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    let mut queue = vec!["port".to_string()];
+    let mut queue: Vec<String> = roots.iter().map(|r| r.to_string()).collect();
     while let Some(module) = queue.pop() {
         let text =
             std::fs::read_to_string(unit_dir.join(format!("{module}.mojo"))).unwrap_or_default();
@@ -355,6 +398,7 @@ pub fn port_modules(unit_dir: &Path) -> Vec<String> {
                 continue;
             };
             if name != "port"
+                && !roots.contains(&name)
                 && !name.contains('.')
                 && !found.iter().any(|f| f == name)
                 && unit_dir.join(format!("{name}.mojo")).is_file()
@@ -504,7 +548,12 @@ pub(crate) fn missing_glue(glue: &str, commands: &[String]) -> String {
 /// Formats the front door's Mojo sources with `mojo format`, as `rustfmt` did for the Rust one.
 /// Best effort: without Mojo the generated text stays as written.
 pub(crate) fn mojo_format(app_dir: &Path, files: &[&str]) {
-    let Ok(mut cmd) = crate::mojo::command(app_dir) else {
+    mojo_format_in(app_dir, app_dir, files);
+}
+
+/// [`mojo_format`] with Mojo from the pixi project in `env_dir`.
+pub(crate) fn mojo_format_in(app_dir: &Path, env_dir: &Path, files: &[&str]) {
+    let Ok(mut cmd) = crate::mojo::command(env_dir) else {
         return;
     };
     cmd.current_dir(app_dir).arg("format").arg("--quiet");

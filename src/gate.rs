@@ -798,10 +798,16 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
 /// The checks for a Mojo port's own sources: format, tests, stubs and unexplained unsafe code.
 /// The build (warnings are errors) and the replay are the shared checks in [`gate`].
 pub fn mojo_checks(unit_dir: &Path) -> Vec<Check> {
+    mojo_checks_in(unit_dir, unit_dir)
+}
+
+/// [`mojo_checks`] with Mojo from the pixi project in `env_dir` (a staged copy of a unit has no
+/// environment of its own).
+pub fn mojo_checks_in(unit_dir: &Path, env_dir: &Path) -> Vec<Check> {
     let port = std::fs::read_to_string(unit_dir.join("port.mojo")).unwrap_or_default();
     let mut checks = vec![
-        mojo_format_check(unit_dir, &port),
-        mojo_test_check(unit_dir),
+        mojo_format_check(unit_dir, env_dir, &port),
+        mojo_test_check(unit_dir, env_dir),
     ];
     let stubs = mojo_stubs(&port);
     checks.push(Check {
@@ -843,7 +849,7 @@ pub fn mojo_checks(unit_dir: &Path) -> Vec<Check> {
 }
 
 /// `mojo format` has no check mode: format a copy and compare.
-fn mojo_format_check(unit_dir: &Path, port: &str) -> Check {
+fn mojo_format_check(unit_dir: &Path, env_dir: &Path, port: &str) -> Check {
     let fix = Some(format!(
         "pixi run --manifest-path {}/pixi.toml mojo format port.mojo",
         unit_dir.display()
@@ -854,7 +860,7 @@ fn mojo_format_check(unit_dir: &Path, port: &str) -> Check {
         .and_then(|()| std::fs::write(&copy, port))
         .map_err(anyhow::Error::from)
         .and_then(|()| {
-            let mut cmd = crate::mojo::command(unit_dir)?;
+            let mut cmd = crate::mojo::command(env_dir)?;
             cmd.arg("format").arg("--quiet").arg(&copy);
             crate::process::output(&mut cmd, crate::process::QUICK)
         });
@@ -889,7 +895,7 @@ fn mojo_format_check(unit_dir: &Path, port: &str) -> Check {
 }
 
 /// Runs every `test_*.mojo` in the unit with `mojo run` (Mojo 1.2 has no `mojo test`).
-fn mojo_test_check(unit_dir: &Path) -> Check {
+fn mojo_test_check(unit_dir: &Path, env_dir: &Path) -> Check {
     let mut tests: Vec<PathBuf> = std::fs::read_dir(unit_dir)
         .into_iter()
         .flatten()
@@ -912,7 +918,7 @@ fn mojo_test_check(unit_dir: &Path) -> Check {
         };
     }
     for test in &tests {
-        let result = crate::mojo::command(unit_dir).and_then(|mut cmd| {
+        let result = crate::mojo::command(env_dir).and_then(|mut cmd| {
             cmd.current_dir(unit_dir).arg("run").arg(test);
             crate::process::output(&mut cmd, crate::process::TESTS)
         });
