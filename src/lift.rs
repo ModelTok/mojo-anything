@@ -19,18 +19,10 @@ use crate::front_door::{self, APP_DIR, AppKind, MAIN_RS, STATE_FILE, State};
 use crate::front_door_http as http_door;
 use crate::gate::{self, Check};
 
-const BINDING_DEPS: [&str; 7] = [
-    "napi",
-    "napi-derive",
-    "napi-build",
-    "wasm-bindgen",
-    "magnus",
-    "rb-sys",
-    "jni",
-];
+const BINDING_DEPS: [&str; 5] = ["napi", "napi-derive", "napi-build", "wasm-bindgen", "jni"];
 const GENERATED_FILES: [&str; 3] = ["build.rs", "index.cjs", "index.d.ts"];
 const GENERATED_DIRS: [&str; 7] = ["python", "go", "ruby", "java", "include", "shadow", "pkg"];
-const GENERATED_MODULES: [&str; 6] = ["js", "wire", "pyconv", "rbconv", "utf16", "pynum"];
+const GENERATED_MODULES: [&str; 5] = ["js", "wire", "pyconv", "utf16", "pynum"];
 const ASSET_DIRS: [&str; 9] = [
     "assets",
     "templates",

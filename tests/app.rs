@@ -950,7 +950,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         let removed = lift::strip_unit(&dir).unwrap();
         assert!(!removed.is_empty(), "{lang}");
         let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        for binding in ["cdylib", "staticlib", "napi", "magnus", "jni", "build ="] {
+        for binding in ["cdylib", "staticlib", "napi", "jni", "build ="] {
             assert!(!cargo.contains(binding), "{lang}: {cargo}");
         }
         let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
@@ -971,7 +971,6 @@ fn lift_strips_bridge_bindings_in_every_language() {
             "src/wire.rs",
             "src/js.rs",
             "src/pyconv.rs",
-            "src/rbconv.rs",
         ] {
             assert!(!dir.join(generated).exists(), "{lang}: {generated}");
         }

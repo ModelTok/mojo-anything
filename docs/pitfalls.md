@@ -45,6 +45,13 @@ probe build rejected), and binding parameters carry a `p_` prefix; check a new n
 `List` takes any iterable, so `lookup(5)` looked up `"5"`. Converters check `isinstance` first
 and raise a TypeError.
 
+**A two-line `# SAFETY:` reason failed `gate`.** The unsafe check looked only at the line right
+above, so a reason continued on a second comment line was not seen. It now reads the whole
+comment block above; keep the reason in that block, touching the line it explains.
+
+**`mojo build` rejected raising a call result.** `raise _no_method(...)` failed with "aliasing
+values passed mutably to '__error__'". Bind the error first (`var e = f(...)`, then `raise e^`).
+
 ## Recording
 
 **A copied Mojo unit would not build.** `cp -r` of a unit took its `.pixi/` environment along,

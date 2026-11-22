@@ -478,11 +478,12 @@ fn runtime(r: &Runtime) -> Check {
     if r.name == "node" && status == Status::Ok && version.is_some_and(|v| v.0 < 24) {
         detail.push_str("; works, but `profile` needs Node 24");
     }
-    if r.name == "ruby" && status == Status::Outdated {
-        detail.push_str("; magnus/rb-sys extensions do not build on Ruby 2");
-        if cfg!(target_os = "macos") && which("ruby").is_some_and(|p| p.starts_with("/usr/bin")) {
-            detail.push_str(" (this is macOS's system Ruby)");
-        }
+    if r.name == "ruby"
+        && status == Status::Outdated
+        && cfg!(target_os = "macos")
+        && which("ruby").is_some_and(|p| p.starts_with("/usr/bin"))
+    {
+        detail.push_str("; this is macOS's system Ruby");
     }
     Check {
         name: r.name.to_string(),

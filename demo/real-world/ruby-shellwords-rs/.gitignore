@@ -1,4 +1,0 @@
-target/
-.mojo-anything/
-ruby/*.so
-ruby/*.bundle

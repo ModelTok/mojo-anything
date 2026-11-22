@@ -1,4 +1,4 @@
-//! The binary wire for Go and Java: values cross as compact bytes whose encoders and decoders
+//! The binary wire for TypeScript and Java: values cross as compact bytes whose encoders and decoders
 //! are generated per type on both sides, without JSON text or reflection.
 //!
 //! Layout, little endian: `I64` and `F64` as 8 bytes, `Bool` as 1 byte. `Str`, `List`, `Map`

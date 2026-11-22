@@ -252,3 +252,44 @@ fn go_scalar_unit_builds_without_json() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn rust_ffi_unit_says_rebridge() {
+    if !common::have("go") {
+        return;
+    }
+    let (_root, dir) = bridged("rebridge", "textkit.go");
+    // A unit folder left from the Rust era still holds a Cargo.toml.
+    std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"textkit-rs\"\n").unwrap();
+    let err = bridge::refresh(&dir).unwrap_err().to_string();
+    assert!(err.contains("bridge again"), "{err}");
+}
+
+#[test]
+fn go_batch_not_yet() {
+    if !common::have("go") {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mojo-anything-go-batch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for f in ["go.mod", "textkit.go"] {
+        std::fs::copy(fixture().join("textkit").join(f), root.join(f)).unwrap();
+    }
+    let err = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "textkit.go",
+        kind: None,
+        out: Some(root.join("port")),
+        name: Some("textkit-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: vec!["Echo:s".into()],
+        as_json: Vec::new(),
+        allocator: Default::default(),
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("not yet"), "{err}");
+}
