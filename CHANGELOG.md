@@ -30,6 +30,9 @@ yet.
 - Docs: every number with a unit names its measurement log under `docs/measurements/`
   (`scripts/check-doc-numbers.py`, run by `cargo test`); rust-anything's results stay only as
   labelled history.
+- The website (`website/`) is mojo-anything's, in English only: its docs pages are built from
+  the docs, its CLI reference is checked against `--help`, it shows no timing, and the flame logo
+  replaces the crab. Its deploy job is off until a target is named.
 
 ## rust-anything history (Rust ports, not Mojo)
 <!-- doc-numbers: history -->

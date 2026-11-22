@@ -1,7 +1,7 @@
 ---
-title: FAQ
-description: Does it rewrite my code automatically? Is Rust always faster? Will my floats match? Answers to common questions.
-source: README.md
+title: "FAQ"
+description: "Questions about mojo-anything, Mojo ports and what the checks prove."
+source: docs/faq.md
 ---
 
 # FAQ

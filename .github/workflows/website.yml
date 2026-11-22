@@ -45,9 +45,14 @@ jobs:
 
   # Deploys only from main, and only when the CLOUDFLARE_API_TOKEN secret exists.
   # Without the secret this job skips the deploy step and succeeds.
+  #
+  # Disabled: `void deploy` names the Worker after `website/package.json`'s `name`, which was
+  # rust-anything's (`rust-anything-website`), so this job deployed to a target tied to
+  # rust-anything. The user names mojo-anything's deploy target; until then nothing deploys.
+  # To enable it, set the target and remove `false &&` below.
   deploy:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

@@ -440,7 +440,7 @@ enum AppCmd {
     },
     /// Scaffold `<repo>/mojo/app`, the Mojo binary that owns the CLI's entry point: it routes the
     /// recorded commands and options, every command running the original until a unit is wired.
-    /// Builds it and replays the cases (100% passed, 100% fallback).
+    /// Builds it and replays the cases (every case passes, every case falling back).
     FrontDoor {
         /// Repository root.
         #[arg(default_value = ".")]

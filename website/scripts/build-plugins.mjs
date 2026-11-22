@@ -7,7 +7,7 @@ import { REPO_ROOT, WEBSITE_ROOT } from './md-include.mjs'
 import { docPages } from './pages.mjs'
 
 const require = createRequire(import.meta.url)
-const LOGO_FILE = join(REPO_ROOT, 'docs', 'assets', 'icon.svg')
+const LOGO_FILE = join(REPO_ROOT, 'docs', 'assets', 'logo-mojo.svg')
 const OG_LOGO = join(REPO_ROOT, 'website', 'public', 'icon-192.png')
 function isClientDir(ctx, options) {
   if (!options.dir) return false
@@ -24,7 +24,7 @@ export function faviconPlugin() {
     })
   }
   return {
-    name: 'rust-anything-favicon',
+    name: 'mojo-anything-favicon',
     configureServer: serve,
     configurePreviewServer: serve,
     writeBundle(options) {
@@ -34,7 +34,7 @@ export function faviconPlugin() {
   }
 }
 
-const LOCALE_CODES = ['en', 'tr', 'zh', 'zh-tw', 'de', 'fr', 'ru', 'uk', 'ja', 'ko', 'az', 'uz', 'kk', 'ky', 'tk', 'tt', 'ug', 'pt']
+const LOCALE_CODES = ['en']
 
 function searchEntries(locale = 'en') {
   const prefix = locale === 'en' ? '/docs/' : `/${locale}/docs/`
@@ -51,7 +51,7 @@ function searchEntries(locale = 'en') {
 
 export function searchIndexPlugin() {
   return {
-    name: 'rust-anything-search-index',
+    name: 'mojo-anything-search-index',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const m = /^\/search-index\.([a-z-]+)\.json$/.exec(req.url?.split('?')[0] ?? '')
@@ -111,7 +111,7 @@ export async function renderOg({ title, eyebrow }) {
       'div',
       { alignItems: 'center', gap: '24px' },
       h('img', { src: logo, width: 88, height: 88 }),
-      h('div', { fontSize: 36, fontWeight: 600, fontFamily: 'PlexCond' }, 'rust-anything'),
+      h('div', { fontSize: 36, fontWeight: 600, fontFamily: 'PlexCond' }, 'mojo-anything'),
     ),
     h(
       'div',
@@ -122,7 +122,7 @@ export async function renderOg({ title, eyebrow }) {
     h(
       'div',
       { fontSize: 28, fontWeight: 500, color: '#596168' },
-      'Rewrite your app in Rust, checked against the original at every step.',
+      'Rewrite your app in Mojo, checked against the original at every step.',
     ),
   )
   const svg = await satori(tree, { width: 1200, height: 630, fonts: fonts() })
@@ -131,11 +131,11 @@ export async function renderOg({ title, eyebrow }) {
 
 export function ogImagePlugin(groupOf) {
   return {
-    name: 'rust-anything-og-images',
+    name: 'mojo-anything-og-images',
     apply: 'build',
     async writeBundle(options) {
       if (!isClientDir(this, options)) return
-      const pages = [{ route: '/', title: 'Rewrite your whole app in Rust', eyebrow: '' }]
+      const pages = [{ route: '/', title: 'Rewrite your app in Mojo', eyebrow: '' }]
       for (const p of docPages()) {
         if (p.route.startsWith('/docs/')) pages.push({ route: p.route, title: p.title, eyebrow: groupOf(p.route) })
       }
@@ -151,7 +151,7 @@ export function ogImagePlugin(groupOf) {
 
 export function notFoundPlugin() {
   return {
-    name: 'rust-anything-404',
+    name: 'mojo-anything-404',
     apply: 'build',
     writeBundle(options) {
       if (!isClientDir(this, options)) return

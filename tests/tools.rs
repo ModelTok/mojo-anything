@@ -214,6 +214,67 @@ fn docs_tools_md_matches_the_tool_list() {
     );
 }
 
+/// The help text of `mojo-anything` and of every subcommand, walked the way
+/// `website/scripts/cli-help.mjs` walks it: `{ "version", "commands": [{ "command", "help" }] }`.
+fn cli_help() -> Value {
+    fn run(args: &[&str]) -> String {
+        let out = Command::new(CLI).args(args).output().unwrap();
+        assert!(out.status.success(), "mojo-anything {args:?} failed");
+        String::from_utf8(out.stdout).unwrap()
+    }
+    fn walk(path: &mut Vec<String>, commands: &mut Vec<Value>) {
+        let mut args: Vec<&str> = path.iter().map(String::as_str).collect();
+        args.push("--help");
+        let help = run(&args);
+        let subs: Vec<String> = help
+            .split("\nCommands:\n")
+            .nth(1)
+            .and_then(|s| s.split("\n\n").next())
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| {
+                let name = l.strip_prefix("  ")?.split_whitespace().next()?;
+                let ok = name.starts_with(|c: char| c.is_ascii_lowercase())
+                    && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                    && !l[2..].starts_with(' ');
+                (ok && name != "help").then(|| name.to_string())
+            })
+            .collect();
+        commands.push(serde_json::json!({ "command": path.join(" "), "help": help }));
+        for sub in subs {
+            path.push(sub);
+            walk(path, commands);
+            path.pop();
+        }
+    }
+    let version = run(&["--version"]);
+    let version = version
+        .trim()
+        .trim_start_matches("mojo-anything ")
+        .to_string();
+    let mut commands = Vec::new();
+    walk(&mut Vec::new(), &mut commands);
+    serde_json::json!({ "version": version, "commands": commands })
+}
+
+#[test]
+fn cli_help_json_is_current() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("website/content/cli-help.json");
+    let want = cli_help();
+    if std::env::var_os("UPDATE_CLI_HELP").is_some() {
+        std::fs::write(&path, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();
+        return;
+    }
+    let have: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default())
+        .unwrap_or(Value::Null);
+    assert!(
+        have == want,
+        "website/content/cli-help.json is out of date: run `UPDATE_CLI_HELP=1 cargo test --test tools cli_help` \
+         (or `npm run cli-help` in website/)"
+    );
+}
+
 /// Runs `scripts/check-doc-numbers.py` with `args`, returning (success, output).
 fn check_doc_numbers(args: &[&str]) -> (bool, String) {
     let script =
@@ -275,5 +336,80 @@ fn doc_number_check_needs_a_log_link_except_in_marked_history() {
     );
     let (ok, out) = check("# A\n\n## Old results\n<!-- doc-numbers: history -->\n\n5 ms\n");
     assert!(!ok && out.contains("does not name rust-anything"), "{out}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn website_numbers_need_a_log_and_no_timings() {
+    let root_buf =
+        std::env::temp_dir().join(format!("mojo-anything-site-numbers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_buf);
+    let root = root_buf.as_path();
+    for dir in [
+        "docs/measurements",
+        "website/pages/en/docs",
+        "website/components",
+    ] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    std::fs::write(root.join("docs/measurements/run.md"), "# run\n").unwrap();
+    std::fs::write(
+        root.join("docs/real.md"),
+        "# Real\n\n## Mojo\n\nIt matches 9/9 ([log](measurements/run.md)).\n\n\
+         ## rust-anything history\n<!-- doc-numbers: history -->\n\nRust: 3.2x faster, 12 ms.\n",
+    )
+    .unwrap();
+    let blob = "https://github.com/ModelTok/mojo-anything/blob/main/docs/measurements";
+    let check = |page: &str, tsx: &str| {
+        let _ = std::fs::remove_dir_all(root.join("website/pages/en/docs"));
+        std::fs::create_dir_all(root.join("website/pages/en/docs")).unwrap();
+        std::fs::write(root.join("website/pages/en/docs/a.md"), page).unwrap();
+        std::fs::write(root.join("website/components/Home.tsx"), tsx).unwrap();
+        check_doc_numbers(&["--root", root.to_str().unwrap(), "--website"])
+    };
+    let quiet = "export const X = () => <p className=\"w-[12px]\">Ported and checked.</p>\n";
+    let (ok, out) = check(
+        &format!("# A\n\nThe port matches 1,128/1,128 ([log]({blob}/run.md)).\n"),
+        quiet,
+    );
+    assert!(ok, "a count with a log passes: {out}");
+    let (ok, out) = check("# A\n\nThe port matches 1,128/1,128.\n", quiet);
+    assert!(!ok && out.contains("1,128/1,128"), "{out}");
+    let (ok, out) = check(
+        &format!("# A\n\nIt is 2.5x faster ([log]({blob}/run.md)).\n"),
+        quiet,
+    );
+    assert!(
+        !ok && out.contains("2.5x") && out.contains("timing"),
+        "no speed figure, even with a log: {out}"
+    );
+    let (ok, out) = check(
+        &format!("# A\n\nIt builds in 24 s ([log]({blob}/run.md)).\n"),
+        quiet,
+    );
+    assert!(!ok && out.contains("24 s"), "no compile time: {out}");
+    let (ok, out) = check(
+        &format!("# A\n\n336 lines of Mojo for 184 of TS (1.8x) ([log]({blob}/run.md)).\n"),
+        quiet,
+    );
+    assert!(ok, "a ratio of lines is a size, not a speed: {out}");
+    let (ok, out) = check("# A\n\n<!-- include: docs/real.md#mojo -->\n", quiet);
+    assert!(ok, "an included paragraph keeps its own log link: {out}");
+    let (ok, out) = check(
+        "# A\n\n<!-- include: docs/real.md#rust-anything-history -->\n",
+        quiet,
+    );
+    assert!(
+        !ok && out.contains("3.2x"),
+        "history numbers are not exempt on the website: {out}"
+    );
+    let (ok, out) = check(
+        "# A\n\nNo numbers.\n",
+        "export const S = [{ v: '3.5', unit: 'MB', k: 'idle memory' }, { k: '514/514 cases' }]\n",
+    );
+    assert!(
+        !ok && out.contains("514/514"),
+        "page code has no paragraph to link a log from: {out}"
+    );
     let _ = std::fs::remove_dir_all(root);
 }

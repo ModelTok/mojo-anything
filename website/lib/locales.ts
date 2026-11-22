@@ -1,23 +1,8 @@
-export const LOCALES = [
+// English only: translations stay removed until the English text settles. A locale added here
+// later needs its `pages/<code>/` folder and `lib/messages/<code>.json`.
+export const LOCALES: readonly { code: string; name: string; lang: string; rtl?: boolean }[] = [
   { code: 'en', name: 'English', lang: 'en' },
-  { code: 'tr', name: 'Türkçe', lang: 'tr' },
-  { code: 'uk', name: 'Українська', lang: 'uk' },
-  { code: 'zh', name: '简体中文', lang: 'zh-Hans' },
-  { code: 'zh-tw', name: '繁體中文', lang: 'zh-Hant' },
-  { code: 'de', name: 'Deutsch', lang: 'de' },
-  { code: 'fr', name: 'Français', lang: 'fr' },
-  { code: 'ru', name: 'Русский', lang: 'ru' },
-  { code: 'ja', name: '日本語', lang: 'ja' },
-  { code: 'ko', name: '한국어', lang: 'ko' },
-  { code: 'az', name: 'Azərbaycanca', lang: 'az' },
-  { code: 'uz', name: 'Oʻzbekcha', lang: 'uz' },
-  { code: 'kk', name: 'Қазақша', lang: 'kk' },
-  { code: 'ky', name: 'Кыргызча', lang: 'ky' },
-  { code: 'tk', name: 'Türkmençe', lang: 'tk' },
-  { code: 'tt', name: 'Татарча', lang: 'tt' },
-  { code: 'ug', name: 'ئۇيغۇرچە', lang: 'ug', rtl: true },
-  { code: 'pt', name: 'Português', lang: 'pt' },
-] as const
+]
 
 export type Locale = (typeof LOCALES)[number]['code']
 export const DEFAULT_LOCALE: Locale = 'en'

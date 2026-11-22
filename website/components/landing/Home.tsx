@@ -1,20 +1,19 @@
-import { REPO_URL } from '../../lib/site'
-import { messages, withLocale, fill, type Messages } from '../../lib/i18n'
+import { messages, withLocale, type Messages } from '../../lib/i18n'
 import Rich from '../Rich'
 import './landing.css'
 
 function RecordViz() {
   const rows = [
-    ['wordCount', '"a\\u00a0b"'],
-    ['parse', '"1 \u017f"'],
-    ['slugify', '"\u03a3\u038a\u03a3\u03a5\u03a6\u039f\u03a3"'],
+    ['ms', '"1 ſ"'],
+    ['ms', '"2 days"'],
     ['format', '-0'],
     ['round', '-2.5'],
+    ['parse', '"ΣΊΣΥΦΟΣ"'],
   ]
   return (
     <div className="w-full font-mono text-[11px] leading-[22px] text-muted">
-      {rows.map(([fn, args]) => (
-        <div key={fn} className="truncate">
+      {rows.map(([fn, args], i) => (
+        <div key={i} className="truncate">
           {'{'}<span className="text-brand-ink">"fn"</span>:"{fn}",<span className="text-brand-ink">"args"</span>:[{args}]{'}'}
         </div>
       ))}
@@ -36,7 +35,7 @@ function PortViz({ m }: { m: Messages['home'] }) {
         <path d="M0 10 H42 M34 3 L43 10 L34 17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <div className="rounded-md border border-brand/50 bg-brand-soft px-3 py-2 text-center text-brand-ink">
-        port.rs
+        port.mojo
         <div className="mt-0.5 text-[10px] text-muted">{m.vizSameApi}</div>
       </div>
     </div>
@@ -46,28 +45,25 @@ function PortViz({ m }: { m: Messages['home'] }) {
 function CheckViz({ m }: { m: Messages['home'] }) {
   return (
     <div className="text-center">
-      <div className="font-display text-4xl font-semibold tracking-tight">
-        3,414<span className="text-muted">/</span>3,414
-      </div>
-      <div className="mt-2 text-xs text-muted">{m.vizCheck}</div>
+      <div className="text-xs text-muted">{m.vizCheck}</div>
+      <div className="font-display text-3xl font-semibold tracking-tight">{m.vizMatch}</div>
       <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-good-soft px-2.5 py-0.5 text-xs font-medium text-good">{m.vizGate}</div>
     </div>
   )
 }
 
+// The bars show the shape of a lift (everything falls back, then less, then nothing), not a
+// measured run.
 function LiftViz({ m }: { m: Messages['home'] }) {
-  const steps = [99.8, 22.6, 0].map((v, i) => ({ label: m.vizLiftSteps[i], v }))
+  const widths = ['w-full', 'w-1/3', 'w-0']
   return (
     <div className="w-full space-y-2.5">
       <div className="text-[11px] text-muted">{m.vizLift}</div>
-      {steps.map((x) => (
-        <div key={x.label}>
-          <div className="mb-1 flex justify-between text-[11px] text-muted">
-            <span>{x.label}</span>
-            <span className="tabular-nums">{x.v}%</span>
-          </div>
+      {m.vizLiftSteps.map((label, i) => (
+        <div key={label}>
+          <div className="mb-1 text-[11px] text-muted">{label}</div>
           <div className="h-1.5 rounded-full bg-line">
-            <div className="h-1.5 rounded-full bg-brand" style={{ width: `${Math.max(x.v, 1.5)}%`, opacity: x.v ? 1 : 0.4 }} />
+            <div className={`h-1.5 rounded-full bg-brand ${widths[i]}`} />
           </div>
         </div>
       ))}
@@ -84,21 +80,10 @@ const LANGS = [
   { key: 'go', name: 'Go' },
   { key: 'ruby', name: 'Ruby' },
   { key: 'java', name: 'Java' },
+  { key: 'kotlin', name: 'Kotlin' },
   { key: 'php', name: 'PHP', wholeApp: true },
   { key: 'csharp', name: 'C#', wholeApp: true },
 ] as const
-
-const SPONSORS = [
-  { login: 'aliyilmazco', name: 'Ali Yilmaz' },
-  { login: 'ashley-hunter', name: 'Ashley Hunter' },
-  { login: 'fatihuzuntas', name: 'Fatih Uzuntaş' },
-]
-
-const BENCH = [
-  ['GET /posts', '11.1k / 10.8k', '27.3k / 23.9k', '19.7k / 20.4k', '115.0k / 110.7k'],
-  ['GET /posts/1', '11.0k / 11.3k', '27.7k / 25.4k', '21.9k / 22.6k', '119.9k / 99.0k'],
-  ['?_embed=comments', '8.7k / 6.6k', '22.5k / 21.8k', '13.8k / 11.0k', '98.3k / 100.6k'],
-]
 
 export default function Home({ hero, install, locale = 'en' }: { hero: React.ReactNode; install: React.ReactNode; locale?: string }) {
   const m = messages(locale).home
@@ -107,19 +92,6 @@ export default function Home({ hero, install, locale = 'en' }: { hero: React.Rea
   return (
     <div className="home">
       {hero}
-      <div className="wrap">
-        <div className="stats">
-          {m.stats.map((x) => (
-            <div key={x.k} className="stat">
-              <div className="v">
-                {x.v}
-                {x.unit && <small>{x.unit}</small>}
-              </div>
-              <div className="k">{x.k}</div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       <section className="section" aria-labelledby="install-title">
         <div className="wrap">
@@ -131,7 +103,7 @@ export default function Home({ hero, install, locale = 'en' }: { hero: React.Rea
           </div>
           <div className="install">{install}</div>
           <p className="note">
-            <Rich text={fill(m.installNote, { releases: `${REPO_URL}/releases` })} />
+            <Rich text={m.installNote} locale={locale} />
           </p>
         </div>
       </section>
@@ -171,40 +143,36 @@ export default function Home({ hero, install, locale = 'en' }: { hero: React.Rea
               {m.demoTitle}
             </h2>
             <p className="section-desc">
-              <Rich text={m.demoDesc} />
+              <Rich text={m.demoDesc} locale={locale} />
             </p>
           </div>
           <div className="panel">
             <div className="titlebar">
-              <span>~/x18n</span>
+              <span>~/ms</span>
             </div>
             <div className="split">
               <div>
                 <pre>
-                  <span className="c">{m.demoComments.profile}</span>
+                  <span className="c">{m.demoComments.bridge}</span>
                   {'\n'}
-                  <span className="p">$</span> rust-anything profile . -- node bench.mjs{'\n'}
-                  <span className="p">$</span> rust-anything bridge . src/fuzzy.ts --batch fuzzyScore:text{'\n'}
-                  <span className="c">{m.demoComments.write}</span>
+                  <span className="p">$</span> mojo-anything bridge . src/index.ts --kind node{'\n'}
+                  <span className="p">$</span> mojo-anything record mojo/index-mojo{'\n'}
+                  <span className="p">$</span> mojo-anything build mojo/index-mojo{'\n'}
+                  <span className="c">{m.demoComments.check}</span>
                   {'\n'}
-                  <span className="p">$</span> rust-anything record rust/fuzzy-rs{'\n'}
-                  <span className="p">$</span> rust-anything build rust/fuzzy-rs{'\n'}
-                  <span className="p">$</span> rust-anything diff rust/fuzzy-rs{'\n'}
-                  <span className="p">$</span> rust-anything bench rust/fuzzy-rs{'\n'}
-                  <span className="p">$</span> rust-anything gate rust/fuzzy-rs
+                  <span className="p">$</span> mojo-anything diff mojo/index-mojo{'\n'}
+                  <span className="p">$</span> mojo-anything gate mojo/index-mojo
                 </pre>
               </div>
               <div>
                 <pre>
-                  <span className="c">{m.demoComments.first}</span>
-                  {'\n'}
-                  {m.demoComments.matchLine}
-                  {'\n'}
-                  <span className="bad">- fuzzyScore("b😀", "a😀b😀c"): expected {'{"ok":1997}'}, got {'{"ok":1998}'}</span>
-                  {'\n\n'}
-                  <span className="c">{m.demoComments.why}</span>
-                  {'\n\n'}
-                  <span className="ok">{m.demoComments.fixed}</span>
+                  <span className="c">{m.demoComments.traps}</span>
+                  {m.demoComments.trapLines.map((l) => (
+                    <span key={l}>
+                      {'\n'}
+                      <span className="ok">✓</span> {l}
+                    </span>
+                  ))}
                 </pre>
               </div>
             </div>
@@ -218,67 +186,26 @@ export default function Home({ hero, install, locale = 'en' }: { hero: React.Rea
             <h2 id="ports-title" className="section-title">
               {m.portsTitle}
             </h2>
-            <p className="section-desc">{m.portsDesc}</p>
+            <p className="section-desc">
+              <Rich text={m.portsDesc} />
+            </p>
           </div>
 
           <div className="ports">
             {m.ports.map((p) => (
               <a key={p.href} href={L(p.href)} className="port-card">
                 <div className="port-kind">{p.kind}</div>
-                <div className="big">{p.big}</div>
+                <div className="big">{p.title}</div>
                 <p>
                   <Rich text={p.text} />
                 </p>
-                <dl>
-                  {p.rows.map((r) => (
-                    <Row key={r.k} k={r.k} v={r.v} slow={'slow' in r && !!r.slow} />
-                  ))}
-                </dl>
               </a>
             ))}
-          </div>
-
-          <div className="panel bench-panel">
-            <div className="titlebar">
-              <span>{m.benchTitle}</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="bench">
-                <thead>
-                  <tr>
-                    {m.benchHead.map((h) => (
-                      <th key={h}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {BENCH.map((r) => (
-                    <tr key={r[0]}>
-                      <td>{r[0]}</td>
-                      <td>{r[1]}</td>
-                      <td className="rust">{r[2]}</td>
-                      <td>{r[3]}</td>
-                      <td className="rust">{r[4]}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td>{m.benchPostRow}</td>
-                    <td></td>
-                    <td></td>
-                    <td>2,973 / 2,467</td>
-                    <td className="rust">5,821 / 5,976</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="panel-note">
-              <Rich text={m.benchNote} locale={locale} />
-            </p>
           </div>
         </div>
       </section>
 
-      <section className="section" aria-labelledby="langs-title">
+      <section className="section last" aria-labelledby="langs-title">
         <div className="wrap">
           <div className="section-head">
             <h2 id="langs-title" className="section-title">
@@ -289,54 +216,18 @@ export default function Home({ hero, install, locale = 'en' }: { hero: React.Rea
           <ul className="langs">
             {LANGS.map((l) => (
               <li key={l.key}>
-                <a href={L(`/docs/languages/${l.key}`)} className="lang">
+                <a href={L('/docs/languages/overview')} className="lang">
                   <span className="name">{l.name}</span>
                   <span className={`badge${'wholeApp' in l ? ' preview' : ''}`}>{'wholeApp' in l ? m.wholeApps : m.verified}</span>
-                  <span className="meta">{m.langMeta[l.key]}</span>
+                  <span className="meta">
+                    <Rich text={m.langMeta[l.key]} />
+                  </span>
                 </a>
               </li>
             ))}
           </ul>
         </div>
       </section>
-
-      <section className="section last" aria-labelledby="sponsors-title">
-        <div className="wrap">
-          <div className="section-head">
-            <h2 id="sponsors-title" className="section-title">
-              {m.sponsorsTitle}
-            </h2>
-            <p className="section-desc">{m.sponsorsDesc}</p>
-          </div>
-          <div className="sponsors">
-            <a href="https://coderabbit.ai" className="sponsor-company">
-              <img src="https://github.com/coderabbitai.png?size=120" width={48} height={48} alt="" loading="lazy" />
-              <span>
-                <span className="who">CodeRabbit</span>
-                <span className="role">{m.companySponsor}</span>
-              </span>
-            </a>
-            {SPONSORS.map((p) => (
-              <a key={p.login} href={`https://github.com/${p.login}`} className="sponsor-person">
-                <img src={`https://github.com/${p.login}.png?size=100`} width={40} height={40} alt="" loading="lazy" />
-                {p.name}
-              </a>
-            ))}
-            <a className="btn btn-quiet" href="https://github.com/sponsors/erkamyaman">
-              {m.becomeSponsor}
-            </a>
-          </div>
-        </div>
-      </section>
     </div>
-  )
-}
-
-function Row({ k, v, slow }: { k: string; v: string; slow: boolean }) {
-  return (
-    <>
-      <dt className={slow ? 'slow' : undefined}>{k}</dt>
-      <dd className={slow ? 'slow' : undefined}>{v}</dd>
-    </>
   )
 }

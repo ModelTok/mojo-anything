@@ -5,11 +5,19 @@ import { CheckIcon, CopyIcon } from '../site/icons'
 
 export default function InstallBox({ ui, agent }: { ui: Messages['ui']; agent: [string, string] }) {
   const OPTIONS = [
-    { key: 'cargo', label: 'cargo', lines: ['cargo install rust-anything', 'rust-anything setup'] },
-    { key: 'npm', label: 'npm', lines: ['npm install -g rust-anything', 'rust-anything setup'] },
+    {
+      key: 'clone',
+      label: ui.fromClone,
+      lines: [
+        'git clone https://github.com/ModelTok/mojo-anything',
+        'cd mojo-anything && cargo build --release',
+        'mojo-anything setup   # with target/release on your PATH',
+      ],
+    },
+    { key: 'npm', label: ui.npmOnceReleased, lines: ['npm install -g mojo-anything', 'mojo-anything setup'] },
     { key: 'agent', label: 'agent', lines: agent },
   ]
-  const [tab, setTab] = useState('cargo')
+  const [tab, setTab] = useState('clone')
   const [copied, setCopied] = useState(false)
   const current = OPTIONS.find((o) => o.key === tab) ?? OPTIONS[0]
   const copy = () => {

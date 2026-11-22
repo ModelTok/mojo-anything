@@ -10,57 +10,58 @@ type Lang = {
   color: string
   code: string[]
   bridge: string
-  proof?: { what: string; total: number }
+  // The real code ported to Mojo in this language (docs/real-world-languages.md), if any.
+  proof?: string
+  wholeApp?: boolean
 }
 
 const LANGS: Lang[] = [
   {
-    name: 'TypeScript',
+    name: 'TypeScript/JS',
     file: 'src/words.ts',
     color: '#3178c6',
     code: ['export function wordCount(text: string): number {', '  return text.split(/\\s+/).filter(Boolean).length', '}'],
-    bridge: 'napi-rs',
-    proof: { what: 'Fuse.js', total: 3414 },
-  },
-  {
-    name: 'JavaScript',
-    file: 'lib/words.js',
-    color: '#f7df1e',
-    code: ['function wordCount(text) {', '  return text.split(/\\s+/).filter(Boolean).length', '}', '', 'module.exports = { wordCount }'],
-    bridge: 'napi-rs',
-    proof: { what: 'json-server', total: 514 },
+    bridge: 'mojo-node or mojo-wasm',
+    proof: 'vercel/ms',
   },
   {
     name: 'Python',
     file: 'words.py',
     color: '#ffd43b',
     code: ['def word_count(text: str) -> int:', '    return len(text.split())'],
-    bridge: 'PyO3',
-    proof: { what: 'CPython colorsys', total: 2400 },
+    bridge: 'mojo-py',
+    proof: "CPython's colorsys",
   },
   {
     name: 'Go',
     file: 'words.go',
     color: '#00add8',
     code: ['func WordCount(text string) int {', '    return len(strings.Fields(text))', '}'],
-    bridge: 'cgo',
-    proof: { what: 'Go path', total: 2642 },
+    bridge: 'ffi (cgo)',
+    proof: "Go's path",
   },
   {
     name: 'Ruby',
     file: 'words.rb',
     color: '#cc342d',
     code: ['def word_count(text)', '  text.split.size', 'end'],
-    bridge: 'magnus',
-    proof: { what: 'shellwords', total: 1617 },
+    bridge: 'ffi (Fiddle)',
+    proof: "Ruby's shellwords",
   },
   {
     name: 'Java',
     file: 'Words.java',
     color: '#f89820',
     code: ['static int wordCount(String text) {', '  String t = text.strip();', '  return t.isEmpty() ? 0 : t.split("\\\\s+").length;', '}'],
-    bridge: 'JNI',
-    proof: { what: 'JDK facade', total: 4492 },
+    bridge: 'mojo-jvm',
+    proof: 'JDK behaviour behind a facade',
+  },
+  {
+    name: 'Kotlin',
+    file: 'Words.kt',
+    color: '#7f52ff',
+    code: ['fun wordCount(text: String): Int =', '    text.split(Regex("\\\\s+")).count { it.isNotEmpty() }'],
+    bridge: 'mojo-jvm',
   },
   {
     name: 'C',
@@ -75,8 +76,8 @@ const LANGS: Lang[] = [
       '  return n;',
       '}',
     ],
-    bridge: 'extern "C"',
-    proof: { what: 'glibc facade', total: 1859 },
+    bridge: 'c-abi',
+    proof: "ffmpeg's rational.c",
   },
   {
     name: 'PHP',
@@ -84,6 +85,7 @@ const LANGS: Lang[] = [
     color: '#777bb4',
     code: ['function word_count(string $t): int {', "  return count(preg_split('/\\s+/', trim($t), -1,", '    PREG_SPLIT_NO_EMPTY));', '}'],
     bridge: 'whole app',
+    wholeApp: true,
   },
   {
     name: 'C#',
@@ -91,13 +93,14 @@ const LANGS: Lang[] = [
     color: '#9b4f96',
     code: ['static int WordCount(string t) =>', '  t.Split((char[]?)null,', '    StringSplitOptions.RemoveEmptyEntries).Length;'],
     bridge: 'whole app',
+    wholeApp: true,
   },
 ]
 
-const RUST = ['pub fn word_count(text: &str) -> usize {', '    text.split_whitespace().count()', '}']
+const MOJO = ['def word_count(text: String) -> Int:', '    return len(text.split())']
 
 const TOKENS =
-  /("[^"]*"|'[^']*')|\b(export|function|module|return|def|func|end|static|int|const|char|for|if|else|pub|fn|usize|number|string|str|String)\b/g
+  /("[^"]*"|'[^']*')|\b(export|function|module|return|def|func|fun|end|static|int|const|char|for|if|else|number|string|str|String|Int)\b/g
 
 function Code({ line }: { line: string }) {
   const parts: React.ReactNode[] = []
@@ -117,27 +120,6 @@ function Code({ line }: { line: string }) {
   return <>{parts}</>
 }
 
-function useCount(target: number, run: number, delay: number) {
-  const [n, setN] = useState(target)
-  useEffect(() => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setN(target)
-      return
-    }
-    setN(0)
-    let raf = 0
-    const start = performance.now() + delay
-    const tick = (t: number) => {
-      const k = Math.min(1, Math.max(0, (t - start) / 1300))
-      setN(Math.round(target * (1 - Math.pow(1 - k, 3))))
-      if (k < 1) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target, run, delay])
-  return n
-}
-
 const W = 200
 const H = 240
 const MID = H / 2
@@ -151,7 +133,6 @@ export default function Hero({ t, locale = 'en' }: { t: Messages['hero']; locale
   const [run, setRun] = useState(0)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
   const lang = LANGS[i]
-  const count = useCount(lang.proof?.total ?? 0, run, 900)
 
   useEffect(() => {
     if (!auto || matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -175,6 +156,12 @@ export default function Hero({ t, locale = 'en' }: { t: Messages['hero']; locale
     pick(n)
     tabs.current[n]?.focus()
   }
+
+  const verdict = lang.proof
+    ? fill(t.verified, { what: lang.proof })
+    : lang.wholeApp
+      ? fill(t.wholeApp, { lang: lang.name })
+      : fill(t.fixtureOnly, { lang: lang.name, bridge: lang.bridge })
 
   return (
     <section className="ox-hero" aria-labelledby="hero-title">
@@ -244,18 +231,18 @@ export default function Hero({ t, locale = 'en' }: { t: Messages['hero']; locale
                 ))}
               </svg>
               <div className="core">
-                <img src="/crab-hero.png" width={150} height={150} alt="" />
+                <img src="/favicon.svg" width={150} height={150} alt="" />
               </div>
             </div>
 
             <div className="pane rs">
               <div className="pane-head">
-                <span className="dot" style={{ background: '#e0763f' }} />
-                src/port.rs
+                <span className="dot" style={{ background: '#ff6a13' }} />
+                port.mojo
                 <span className="via">{t.bridge}: {lang.bridge}</span>
               </div>
               <pre className="scan">
-                {RUST.map((l, n) => (
+                {MOJO.map((l, n) => (
                   <span key={n} className="ln rs-ln" style={{ animationDelay: `${520 + n * 120}ms` }}>
                     <Code line={l} />
                   </span>
@@ -265,22 +252,12 @@ export default function Hero({ t, locale = 'en' }: { t: Messages['hero']; locale
           </div>
 
           <div className="verdict" aria-live="polite">
-            {lang.proof ? (
-              <>
-                <span className="tick" aria-hidden>
-                  ✓
-                </span>
-                <span>
-                  {fill(t.verified, {
-                    lang: lang.name,
-                    what: lang.proof.what,
-                    count: `${count.toLocaleString('en-US')} / ${lang.proof.total.toLocaleString('en-US')}`,
-                  })}
-                </span>
-              </>
-            ) : (
-              <span>{fill(t.wholeApp, { lang: lang.name })}</span>
+            {lang.proof && (
+              <span className="tick" aria-hidden>
+                ✓
+              </span>
             )}
+            <span>{verdict}</span>
           </div>
         </div>
       </div>
