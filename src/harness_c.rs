@@ -151,6 +151,11 @@ fn signatures_cpp(manifest: &Manifest) -> Value {
     Value::Object(map)
 }
 
+/// The C and C++ compilers' flag that keeps `a * b + c` two roundings, as the Mojo side is built
+/// ([`crate::harness_mojo_c::C_ABI_FLAGS`]). A recording is only as representative as its
+/// flags: g++ fuses at `-O2 -march=native` or with `-mfma` unless told otherwise.
+pub const NO_CONTRACTION: &str = "-ffp-contract=off";
+
 /// Compiles the project's C sources (without `main` and tests) into one shared library; for a
 /// C++ unit, its C++ sources and the shim (regenerated from the manifest) with `c++`.
 fn build_original(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
@@ -165,8 +170,16 @@ fn build_original(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
             crate::codegen_cpp::shim_cpp(manifest).map_err(anyhow::Error::msg)?,
         )?;
         let mut cmd = Command::new(cxx_compiler()?);
-        cmd.args(["-std=c++17", "-shared", "-fPIC", "-O1", "-w", "-o"])
-            .arg(&out);
+        cmd.args([
+            "-std=c++17",
+            "-shared",
+            "-fPIC",
+            "-O1",
+            "-w",
+            NO_CONTRACTION,
+            "-o",
+        ])
+        .arg(&out);
         cmd.args(include_args(&include_dirs, "CXXFLAGS"));
         cmd.args(&sources).arg(&shim).arg("-lm");
         run(&mut cmd, "c++ (original sources and cpp/shim.cpp)")?;
@@ -174,7 +187,8 @@ fn build_original(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
     }
     let (sources, include_dirs) = original_sources(manifest)?;
     let mut cmd = Command::new(compiler());
-    cmd.args(["-shared", "-fPIC", "-O1", "-w", "-o"]).arg(&out);
+    cmd.args(["-shared", "-fPIC", "-O1", "-w", NO_CONTRACTION, "-o"])
+        .arg(&out);
     cmd.args(include_args(&include_dirs, "CFLAGS"));
     cmd.args(&sources).arg("-lm");
     run(&mut cmd, "cc (original sources)")?;
@@ -345,7 +359,9 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
     let (sources, include_dirs) = original_sources(manifest)?;
     let bin = work.join("bench");
     let mut cmd = Command::new(compiler());
-    cmd.args(["-O2", "-w", "-o"]).arg(&bin).arg(&source);
+    cmd.args(["-O2", "-w", NO_CONTRACTION, "-o"])
+        .arg(&bin)
+        .arg(&source);
     for f in crate::codegen_c::shadow_flags(manifest).split_whitespace() {
         cmd.arg(f);
     }

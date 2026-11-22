@@ -486,9 +486,9 @@ pub fn port_mojo_cpp(m: &Manifest) -> Result<String, String> {
          # recording has (`std::domain_error: negative input`, or `my::bad (std::runtime_error):\n\
          # ...` for a type derived from a standard one); C++ callers get that standard exception\n\
          # (for a derived type, its base) with the same `what()`. Integers wrap as C++'s do only where\n\
-         # the port says so, so use the same widths as the C++ code. Mojo fuses `a * b + c`\n\
-         # into one multiply-add where C++ compilers for x86-64 round twice: round a product\n\
-         # on its own (a `@no_inline` multiply) where results must match bit for bit.\n\n\
+         # the port says so, so use the same widths as the C++ code. `build` turns off\n\
+         # floating-point contraction (`--fp-mode contract=off`) and `record` compiles the\n\
+         # original with `-ffp-contract=off`, so `a * b + c` rounds twice on both sides.\n\n\
          from std.os import abort\n{body}",
         m.unit
     ))

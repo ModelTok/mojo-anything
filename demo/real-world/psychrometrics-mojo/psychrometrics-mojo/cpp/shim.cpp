@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 #include <exception>
+#include <new>
+#include <stdexcept>
 #include <typeinfo>
 
 #include <cxxabi.h>
@@ -23,7 +25,35 @@ double PsyTdbFnHW(double H, double dW);
 
 namespace {
 
-// What the error slot receives: `<type>: <what()>`, or `unknown exception`.
+// The standard exception `e` is or derives from, of those the wrapper can throw again.
+const char *mojo_anything_base(const std::exception &e) noexcept
+{
+    if (dynamic_cast<const std::invalid_argument *>(&e))
+        return "std::invalid_argument";
+    if (dynamic_cast<const std::domain_error *>(&e))
+        return "std::domain_error";
+    if (dynamic_cast<const std::length_error *>(&e))
+        return "std::length_error";
+    if (dynamic_cast<const std::out_of_range *>(&e))
+        return "std::out_of_range";
+    if (dynamic_cast<const std::logic_error *>(&e))
+        return "std::logic_error";
+    if (dynamic_cast<const std::range_error *>(&e))
+        return "std::range_error";
+    if (dynamic_cast<const std::overflow_error *>(&e))
+        return "std::overflow_error";
+    if (dynamic_cast<const std::underflow_error *>(&e))
+        return "std::underflow_error";
+    if (dynamic_cast<const std::runtime_error *>(&e))
+        return "std::runtime_error";
+    if (dynamic_cast<const std::bad_alloc *>(&e))
+        return "std::bad_alloc";
+    return "std::exception";
+}
+
+// What the error slot receives: `<type>: <what()>` for a standard type the wrapper throws
+// again, `<type> (<base>): <what()>` for any other type, which C++ callers of the wrapper get
+// as `<base>`, or `unknown exception` for what is not a `std::exception`.
 char *mojo_anything_error_text() noexcept
 {
     std::string text = "unknown exception";
@@ -32,8 +62,10 @@ char *mojo_anything_error_text() noexcept
     } catch (const std::exception &e) {
         int status = 0;
         char *name = abi::__cxa_demangle(typeid(e).name(), nullptr, nullptr, &status);
-        text = std::string(status == 0 && name ? name : typeid(e).name()) + ": " + e.what();
+        std::string type = status == 0 && name ? name : typeid(e).name();
         std::free(name);
+        std::string base = mojo_anything_base(e);
+        text = (type == base ? type : type + " (" + base + ")") + ": " + e.what();
     } catch (...) {
     }
     char *out = static_cast<char *>(std::malloc(text.size() + 1));

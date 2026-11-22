@@ -73,12 +73,16 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   `_str` uses the checked one.
 - `--Werror` rejects a value assigned and then overwritten before use (`var s = String()`
   followed by assignments on every path): declare it as `var s: String`.
-- Contraction: Mojo fuses `a * b + c` on `Float64` into one multiply-add (`vfmadd` on x86-64)
-  even at its default settings, where g++ and clang for x86-64 round the product and the sum
-  apart. Seen in the EnergyPlus psychrometrics port (2026-11-22): 1,391 of 9,658 cases one or
-  more units in the last place off, five `vfmadd` in the library's code. A product passed through
-  a `@no_inline` `def _mul(a: Float64, b: Float64) -> Float64: return a * b` is rounded on its
-  own, and the same port then matched every case with no `vfmadd` left.
+- Contraction: `mojo build` contracts `a * b + c` on `Float64` into one multiply-add (`vfmadd`
+  on x86-64) by default, `--fp-mode contract=fast`; `--fp-mode contract=off` turns it off
+  (`mojo build --help`). Seen in the EnergyPlus psychrometrics port (2026-11-22): at the default,
+  1,391 of 9,658 cases one or more units in the last place off against g++ 13.3 `-O1` for x86-64,
+  five `vfmadd` in the library's code; built with `contract=off`, the statements as the C++
+  writes them match all 9,658 with no `vfmadd`. C ABI units (C and C++) are built with
+  `--fp-mode contract=off`, and `record` compiles the original with `-ffp-contract=off`, so both
+  sides round each product and each sum. A recording is only as representative as its flags:
+  g++ fuses at `-O2 -march=native` or with `-mfma` unless told not to, so a unit whose real build
+  uses such flags is recorded with them only if they reach `CFLAGS`/`CXXFLAGS`, after ours.
 - C++ through a C ABI: Mojo has no C++ ABI, so a C++ port exports `extern "C"` symbols and a
   generated C++ file (`cpp/wrapper.cpp`) gives C++ callers the original signatures. Strings
   and vectors cross as a pointer and a length; results the port `malloc`s are freed by the

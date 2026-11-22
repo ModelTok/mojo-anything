@@ -782,3 +782,24 @@ fn cpp_string_not_utf8_is_recorded_and_refused_by_the_port() {
     assert_eq!(ported, format!("6\ninvalid_argument: {what}\n"));
     std::fs::remove_dir_all(&repo).unwrap();
 }
+
+#[test]
+fn cpp_product_and_sum_match_without_hand_rounding() {
+    if !ready() {
+        return;
+    }
+    let (repo, dir) = mixed("contract");
+    let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
+    // Rounded twice, 0.1 * 10 - 1 is 0; fused into one multiply-add it is 2^-54.
+    assert!(
+        cases.contains(r#""args": [0.1, 10, -1], "ok": 0.0"#),
+        "{cases}"
+    );
+    let d = diff(&dir);
+    let wrong: Vec<String> = mismatched(&d)
+        .into_iter()
+        .filter(|f| f == "mixed::fused")
+        .collect();
+    assert!(wrong.is_empty(), "{:?}", d.mismatches);
+    std::fs::remove_dir_all(&repo).unwrap();
+}

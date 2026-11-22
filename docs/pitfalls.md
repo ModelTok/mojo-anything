@@ -127,9 +127,13 @@ the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as
 
 **A Mojo port fused what C++ rounded twice.** The EnergyPlus psychrometrics port, written as
 the C++ statements read, missed 1,391 of 9,658 cases by one to 730 units in the last place:
-Mojo turned `1.00484e3 * TDB + w * (...)` into multiply-adds, and g++ for x86-64 does not. Route
-products that feed a sum through a `@no_inline` multiply when the original is compiled without
-contraction, and look for `vfmadd` in the library's disassembly.
+`mojo build` contracts `1.00484e3 * TDB + w * (...)` into multiply-adds by default
+(`--fp-mode contract=fast`), and g++ 13.3 at `-O1` for x86-64 does not. The first fix routed
+products through a hand-placed `@no_inline` multiply; the compilers' own flags do it everywhere:
+C ABI units now build with `--fp-mode contract=off` and `record` compiles the original with
+`-ffp-contract=off`. A recording is only as representative as its flags: g++ fuses too at
+`-O2 -march=native` or with `-mfma`, so record with the flags the real build uses, and look for
+`vfmadd` in both libraries' disassembly when floats differ in the last place.
 
 ## Recording
 

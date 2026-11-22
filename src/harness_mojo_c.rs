@@ -33,11 +33,22 @@ pub fn library_path(unit_dir: &Path, manifest: &Manifest, shadow: bool) -> PathB
         .join(library_name(manifest, shadow))
 }
 
+/// How a C ABI unit's library is built: Mojo contracts `a * b + c` into one multiply-add by
+/// default (`--fp-mode contract=fast`), and the original is recorded with `-ffp-contract=off`
+/// ([`crate::harness_c::NO_CONTRACTION`]), so both round each product and each sum.
+pub const C_ABI_FLAGS: [&str; 2] = ["--fp-mode", "contract=off"];
+
 /// Builds `source` in `unit_dir` into the shared library `target` (warnings are errors).
 pub fn build_one(unit_dir: &Path, source: &str, target: &Path) -> Result<()> {
+    build_with(unit_dir, source, target, &[])
+}
+
+/// [`build_one`] with extra `mojo build` flags.
+fn build_with(unit_dir: &Path, source: &str, target: &Path, flags: &[&str]) -> Result<()> {
     let mut cmd = crate::mojo::command(unit_dir)?;
     cmd.current_dir(unit_dir)
         .args(["build", "--Werror", source])
+        .args(flags)
         .args(["--emit", "shared-lib", "-o"])
         .arg(target);
     let out = crate::process::output(&mut cmd, crate::process::BUILD)?;
@@ -56,15 +67,16 @@ pub fn build(unit_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
     let unit_dir = std::path::absolute(unit_dir)?;
     std::fs::create_dir_all(unit_dir.join(BUILD_DIR))?;
     let lib = library_path(&unit_dir, manifest, false);
-    build_one(&unit_dir, EXPORTS, &lib)?;
+    build_with(&unit_dir, EXPORTS, &lib, &C_ABI_FLAGS)?;
     // A C++ unit has no shadow build: its bench calls both libraries through the shim's names.
     if manifest.language == crate::lang::Lang::Cpp {
         return Ok(lib);
     }
-    build_one(
+    build_with(
         &unit_dir,
         EXPORTS_SHADOW,
         &library_path(&unit_dir, manifest, true),
+        &C_ABI_FLAGS,
     )?;
     Ok(lib)
 }
