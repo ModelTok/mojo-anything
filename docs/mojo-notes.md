@@ -166,6 +166,38 @@ Confirmed by spikes before M6 Task 6 and by `tests/library.rs` (2026-11-22).
   `text.shout(...)`. Modules inside the package import each other by their full name
   (`from pkg.units.text.helper import twice`).
 
+## Sockets and HTTP (server front door)
+
+Confirmed by the server-route spike (M6 Task 7, `docs/superpowers/specs/2026-11-21-mojo-server-route.md`,
+2026-11-22): a proxy built with `mojo build --Werror` that passed 42/42 recorded cases.
+
+- Sockets through `external_call`: `socket(Int32(2), Int32(1), Int32(0))` (AF_INET,
+  SOCK_STREAM), `setsockopt(fd, level, option, int_ptr, Int32(4))` (`SOL_SOCKET` 1 /
+  `SO_REUSEADDR` 2; `IPPROTO_TCP` 6 / `TCP_NODELAY` 1), `bind(fd, addr, Int32(16))` and
+  `connect(fd, addr, Int32(16))` with a 16-byte `sockaddr_in` built by hand (family 2 in byte 0,
+  the port big-endian in bytes 2 and 3, the address in bytes 4 to 7), `listen(fd, Int32(512))`,
+  `accept(fd, Optional[Pointer](None), Optional[Pointer](None))`, `getsockname(fd, addr, len_ptr)`,
+  `recv(fd, buf, n, Int32(0))` and `send(fd, buf, n, Int32(0x4000))` (`MSG_NOSIGNAL`: a closed peer
+  is an error, not SIGPIPE), both returning `Int`.
+- `poll(fds, Int(2), Int32(ms))` with `struct pollfd` as two `Int32` per entry: the fd, then
+  `events` in the low and `revents` in the high 16 bits (`POLLIN` 1).
+- `external_call["open", ...]` fails to build ("existing function with conflicting signature":
+  the stdlib declares `open` itself); glibc's `open64(path, Int32(0))` works.
+- `prctl(Int32(1), Int(15))` (`PR_SET_PDEATHSIG`, SIGTERM) in the forked child: the original gets
+  SIGTERM when the front door ends. Linux only.
+- `waitpid(pid, status, Int32(1))` (`WNOHANG`) tells whether a child exited without blocking;
+  `usleep(UInt32(us))`.
+- `from std.os import getenv, setenv, unsetenv`: `setenv(name, value)` and `unsetenv(name)`
+  return `Bool`. Setting them in the parent before `fork` gives the child its environment.
+- Bytes: `List[UInt8](capacity=n)`, `list.resize(n, 0)`; `String(from_utf8_lossy=Span(list))`
+  (bad bytes become U+FFFD), `String(from_utf8=Span(list))` raises on bad bytes,
+  `String(unsafe_from_utf8=Span(list))`; `list.unsafe_ptr()` builds; `s.split("\r\n")`,
+  `s.split(" ", 2)` (at most 3 parts), `s.strip()`, `s.lower()`, `s.replace(a, b)`, `"x" in s`.
+- `@fieldwise_init struct Header(Copyable, Movable)` with `String` fields; `Optional.take()`
+  moves the value out; `a or b` on two `Optional[String]` is true when either holds a value.
+- `std.python`: `Python.import_module("builtins").exec(code, Python.dict())` runs Python source
+  from a Mojo binary; a Python server started that way cannot call back into Mojo functions.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.
