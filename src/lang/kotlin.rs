@@ -14,6 +14,7 @@ use anyhow::Result;
 use tree_sitter::Node;
 
 use super::syntax::{self, named_children, text};
+use crate::jvm::Holder;
 use crate::risks::{Risk, regex_needs_fancy};
 use crate::ts::deps::CrateMatch;
 use crate::ts::discover::{FileKind, Package, SourceFile, Workspace};
@@ -538,6 +539,7 @@ fn collect(
     owner: &str,
     path: &str,
     default_static: bool,
+    holder: Option<Holder>,
     out: &mut Vec<ExportedFn>,
 ) {
     let children = named_children(container);
@@ -690,9 +692,23 @@ fn collect(
                 signature.join(", ")
             )),
             blocker,
+            jvm_holder: holder.clone(),
             ..Default::default()
         });
     }
+}
+
+/// A companion object's name: `Companion` unless it is named (`companion object Factory`).
+fn companion_name(companion: Node<'_>, source: &str) -> String {
+    named_children(companion)
+        .into_iter()
+        .find(|n| {
+            matches!(
+                n.kind(),
+                "identifier" | "type_identifier" | "simple_identifier"
+            )
+        })
+        .map_or_else(|| "Companion".to_string(), |n| text(n, source).to_string())
 }
 
 /// `@file:JvmName("Utils")`, which renames the class a file's top-level functions live on.
@@ -753,7 +769,15 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
         match child.kind() {
             "function_declaration" => {
                 // Top-level function: JVM owner is `<File>Kt`, or `@file:JvmName`.
-                collect(child, source, &owner(&top_class), path, true, &mut out);
+                collect(
+                    child,
+                    source,
+                    &owner(&top_class),
+                    path,
+                    true,
+                    None,
+                    &mut out,
+                );
             }
             "object_declaration" => {
                 let Some(name) = child.child_by_field_name("name") else {
@@ -765,6 +789,7 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                     &owner(text(name, source)),
                     path,
                     false,
+                    Some(Holder::Object),
                     &mut out,
                 );
             }
@@ -786,11 +811,21 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                                         &owner(text(nested, source)),
                                         path,
                                         false,
+                                        Some(Holder::Object),
                                         &mut out,
                                     );
                                 }
                             } else if decl.kind() == "companion_object" {
-                                collect(decl, source, &class_owner, path, false, &mut out);
+                                let holder = Holder::Companion(companion_name(decl, source));
+                                collect(
+                                    decl,
+                                    source,
+                                    &class_owner,
+                                    path,
+                                    false,
+                                    Some(holder),
+                                    &mut out,
+                                );
                             }
                         }
                     }
@@ -906,6 +941,31 @@ mod tests {
         let fns = exports("src/main/kotlin/com/example/Math.kt", src);
         assert_eq!(fns.len(), 1, "{fns:?}");
         assert_eq!(receiver(&fns[0]).0, "com.example.Math");
+        assert_eq!(
+            fns[0].jvm_holder,
+            Some(Holder::Companion("Companion".into()))
+        );
+    }
+
+    #[test]
+    fn exports_keep_the_object_kotlin_callers_go_through() {
+        let src = "package com.example
+
+class Units {
+  companion object Factory {
+                       @JvmStatic fun make(s: String): String = s
+  }
+}
+                   object Nums {
+  @JvmStatic fun gcd(a: Long, b: Long): Long = a
+}
+                   fun top(s: String): String = s
+";
+        let fns = exports("src/main/kotlin/com/example/Units.kt", src);
+        let holder = |n: &str| fns.iter().find(|f| f.name == n).unwrap().jvm_holder.clone();
+        assert_eq!(holder("make"), Some(Holder::Companion("Factory".into())));
+        assert_eq!(holder("gcd"), Some(Holder::Object));
+        assert_eq!(holder("top"), None);
     }
 
     #[test]

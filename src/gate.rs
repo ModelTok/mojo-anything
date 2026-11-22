@@ -802,15 +802,16 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
     }
 }
 
-/// A `mojo-jvm` unit's wrappers against the original classes: every export must keep the
-/// original's declaration and JVM descriptor, or callers compiled against the original break.
+/// A `mojo-jvm` unit's wrappers against the original classes: a wrapper replaces the whole
+/// class, so every public member of the original (and of its public nested classes) must keep
+/// its declaration and JVM descriptor, or callers compiled against the original break.
 fn java_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
     match crate::harness_mojo_jvm::api_check(unit_dir, manifest) {
-        Ok(api) if api.different.is_empty() => Check {
+        Ok(api) if api.different.is_empty() && api.dropped.is_empty() => Check {
             name: "java api",
             passed: true,
             detail: format!(
-                "the wrappers keep the original signatures: {}",
+                "the wrappers keep every public member of the original classes: {}",
                 api.same.join(", ")
             ),
             fix: None,
@@ -818,8 +819,22 @@ fn java_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
         Ok(api) => Check {
             name: "java api",
             passed: false,
-            detail: api.different.join("\n"),
-            fix: None,
+            detail: api
+                .different
+                .iter()
+                .chain(&api.dropped)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n"),
+            // A dropped member is not fixed by `refresh`: the wrapper never had it.
+            fix: (!api.dropped.is_empty()).then(|| {
+                format!(
+                    "the wrappers in {}/java replace the whole class, so callers lose every member \
+                     they do not have: port each dropped member to Mojo (bridged as an export of \
+                     the unit) or move it out of the class into one the unit does not replace",
+                    unit_dir.display()
+                )
+            }),
         },
         Err(e) => Check {
             name: "java api",

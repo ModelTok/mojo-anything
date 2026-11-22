@@ -60,6 +60,65 @@ fn replay(root: &Path) -> anyhow::Result<DiffOutcome> {
     )?)?)
 }
 
+/// An exception's message is part of what the original did: a port that throws the same
+/// exception class with another message does not match.
+#[test]
+fn java_diff_compares_exception_messages() {
+    if !common::have("java") || !common::have("javac") {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!(
+        "mojo-anything-java-messages-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let result = replay_messages(&root);
+    std::fs::remove_dir_all(root).unwrap();
+
+    let diff = result.unwrap();
+    assert_eq!((diff.passed, diff.failed), (1, 2), "{diff:?}");
+    assert_eq!(diff.mismatches[0]["args"][0], "x", "{diff:?}");
+    assert_eq!(diff.mismatches[1]["args"][0], "z", "{diff:?}");
+}
+
+fn replay_messages(root: &Path) -> anyhow::Result<DiffOutcome> {
+    std::fs::write(root.join("MojoAnythingDriver.java"), DRIVER_JAVA)?;
+    std::fs::write(root.join("MojoAnythingJson.java"), JSON_JAVA)?;
+    std::fs::write(
+        root.join("Port.java"),
+        "public class Port { public static int parse(String s) { throw new NumberFormatException(\"other\"); } }",
+    )?;
+    std::fs::write(root.join("targets.json"), r#"{"parse":["Port","parse"]}"#)?;
+    // The message differs; the message and class agree; the class differs.
+    std::fs::write(
+        root.join("cases.jsonl"),
+        r#"{"fn":"parse","args":["x"],"error":"For input string: \"x\"","error_type":"NumberFormatException"}
+{"fn":"parse","args":["y"],"error":"other","error_type":"NumberFormatException"}
+{"fn":"parse","args":["z"],"error":"other","error_type":"IllegalArgumentException"}
+"#,
+    )?;
+    run(Command::new("javac").current_dir(root).args([
+        "-d",
+        ".",
+        "MojoAnythingDriver.java",
+        "MojoAnythingJson.java",
+        "Port.java",
+    ]))?;
+    run(Command::new("java").current_dir(root).args([
+        "-cp",
+        ".",
+        "mojoanything.MojoAnythingDriver",
+        "diff",
+        "targets.json",
+        "cases.jsonl",
+        "diff.json",
+    ]))?;
+    Ok(serde_json::from_slice(&std::fs::read(
+        root.join("diff.json"),
+    )?)?)
+}
+
 fn run(cmd: &mut Command) -> anyhow::Result<()> {
     let output = cmd.output()?;
     anyhow::ensure!(

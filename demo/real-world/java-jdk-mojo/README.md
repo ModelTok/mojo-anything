@@ -36,7 +36,10 @@ OpenJDK 25.0.5.1, Mojo 1.2.0, x86-64 Linux (WSL2, Ubuntu 24.04), 2026-11-22. The
   `4.9E-324` and `1.0E23`, binade edges, and values whose exact expansion ends in a 5). The port
   matches 4,782/4,782, and 4,492/4,492 on `cases.rust-era.jsonl`, the JDK 21 recording the Rust
   port passed. Every case recorded on both JDKs gives the same result; the 290 new cases come from
-  the recorder's newer string and radix traps and the 28 values above.
+  the recorder's newer string and radix traps and the 28 values above. Since 2026-11-22 `diff`
+  compares a thrown exception's message as well as its class: run again that way, the counts are
+  unchanged (all 286 throwing cases, and the 226 of the JDK 21 recording, give the JDK's message).
+  The wider check below was run before that and compared classes only.
 - A wider check, not kept here (446,916 cases): 200,000 random bit patterns, 150,000 values in
   common ranges, every power of two and the first 3,999 subnormals through `formatDouble`;
   every BMP character through `parseRadix` at radix 36; and every code point, 128 at a time,

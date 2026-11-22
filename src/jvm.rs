@@ -82,6 +82,19 @@ pub fn is_jvm(language: crate::lang::Lang) -> bool {
     )
 }
 
+/// The Kotlin declaration a `@JvmStatic` function belongs to besides its static method. Kotlin
+/// callers reach a companion object's members through the companion (`getstatic
+/// Units.Companion`, then `invokevirtual Units$Companion.parse`), so a wrapper that replaces the
+/// class keeps the field and the nested class; an `object` keeps its `INSTANCE`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Holder {
+    /// A `companion object`, by its name (`Companion` unless it is named).
+    Companion(String),
+    /// An `object` declaration.
+    Object,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

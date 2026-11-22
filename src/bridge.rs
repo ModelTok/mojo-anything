@@ -1541,7 +1541,18 @@ fn bridge_mojo_jvm(m: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
         ));
     }
     for j in kept {
-        notes.push(format!("`{}` stays in {language}: {}.", j.name, j.reason));
+        // A wrapper replaces the whole class it is named after, so a member it leaves out is
+        // gone for callers, not kept in the original.
+        if m.exports.iter().any(|f| f.file == j.file) {
+            notes.push(format!(
+                "`{}` is not ported ({}), but the wrappers in java/ replace the classes of {}: \
+                 `gate`'s `java api` check fails until it is ported or moved to a class the unit \
+                 does not replace.",
+                j.name, j.reason, j.file
+            ));
+        } else {
+            notes.push(format!("`{}` stays in {language}: {}.", j.name, j.reason));
+        }
     }
     Ok(Outcome {
         crate_dir: crate_dir.to_path_buf(),

@@ -549,8 +549,12 @@ public final class MojoAnythingDriver {
         if (got.containsKey("panic") || error.contains("Rust panic:") || error.startsWith("not ported: ")) {
             return false;
         }
+        // The exception class and its message are both behaviour: `For input string: "x"` is what
+        // a caller of the original can show or test for.
         if (expected.containsKey("error")) {
-            return got.containsKey("error") && String.valueOf(expected.get("error_type")).equals(String.valueOf(got.get("error_type")));
+            return got.containsKey("error")
+                && String.valueOf(expected.get("error_type")).equals(String.valueOf(got.get("error_type")))
+                && String.valueOf(expected.get("error")).equals(error);
         }
         return expected.containsKey("ok") && got.containsKey("ok")
             && MojoAnythingJson.write(expected.get("ok")).equals(MojoAnythingJson.write(got.get("ok")));

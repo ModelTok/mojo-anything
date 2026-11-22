@@ -55,6 +55,10 @@ pub struct ExportedFn {
     /// The declaration as written (C: `int word_count(const char *text)`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prototype: Option<String>,
+    /// Kotlin: the `companion object` or `object` the function is declared in, which its
+    /// wrapper class must keep for Kotlin callers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jvm_holder: Option<crate::jvm::Holder>,
 }
 
 /// An exported class: its constructor and public instance methods, or why it must stay in TS.

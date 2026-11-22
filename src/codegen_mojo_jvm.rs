@@ -12,6 +12,7 @@ use crate::bridge::Manifest;
 use crate::codegen::PortApi;
 use crate::codegen_ffi::java_native_class;
 use crate::codegen_java::{boxed, imports_of};
+use crate::jvm::Holder;
 use crate::lang::java::receiver;
 
 /// `mojoanything/<Lib>Native.java`: the Mojo library through `java.lang.foreign`.
@@ -150,13 +151,25 @@ public final class @CLASS@ {
 }
 "#;
 
+/// One generated wrapper class: its static methods, and for a Kotlin `companion object` or
+/// `object` the members Kotlin callers go through.
+struct Wrapper {
+    class: String,
+    methods: Vec<String>,
+    holder: Option<Holder>,
+    members: Vec<String>,
+}
+
 /// The wrapper classes over [`native_class_ffm`]: `(path, source)` for each class of the unit,
-/// with the original package, class name and static-method signatures.
+/// with the original package, class name and static-method signatures. A wrapper replaces the
+/// whole class, so a Kotlin companion object's field and nested class (or an `object`'s
+/// `INSTANCE`) are kept too: Kotlin callers link to them.
 pub fn wrappers_ffm(m: &Manifest, _api: &PortApi) -> Vec<(String, String)> {
     let native = java_native_class(m);
-    let mut classes: Vec<(String, Vec<String>)> = Vec::new();
+    let mut classes: Vec<Wrapper> = Vec::new();
     for f in &m.exports {
         let (class, name) = receiver(f);
+        let simple = class.rsplit('.').next().unwrap_or(&class).to_string();
         let ret = f.native_return.as_deref().unwrap_or("void");
         let params: Vec<String> = f
             .params
@@ -169,9 +182,9 @@ pub fn wrappers_ffm(m: &Manifest, _api: &PortApi) -> Vec<(String, String)> {
                 )
             })
             .collect();
-        let args: Vec<&str> = f.params.iter().map(|p| p.name.as_str()).collect();
+        let names: Vec<&str> = f.params.iter().map(|p| p.name.as_str()).collect();
         // An explicit array: a lone `String[]` argument must not spread into varargs.
-        let args = format!("new Object[] {{{}}}", args.join(", "));
+        let args = format!("new Object[] {{{}}}", names.join(", "));
         let ty = format!("T_{}", f.name);
         let (field, body) = if ret == "void" {
             (
@@ -201,16 +214,55 @@ pub fn wrappers_ffm(m: &Manifest, _api: &PortApi) -> Vec<(String, String)> {
             f.line,
             params.join(", ")
         );
-        match classes.iter_mut().find(|(c, _)| *c == class) {
-            Some((_, methods)) => methods.push(method),
-            None => classes.push((class, vec![method])),
-        }
+        // A companion member calls the static method of the same name.
+        let member = format!(
+            "        public {ret} {name}({}) {{\n            {}{simple}.{name}({});\n        }}\n",
+            params.join(", "),
+            if ret == "void" { "" } else { "return " },
+            names.join(", ")
+        );
+        let i = match classes.iter().position(|w| w.class == class) {
+            Some(i) => i,
+            None => {
+                classes.push(Wrapper {
+                    class: class.clone(),
+                    methods: Vec::new(),
+                    holder: f.jvm_holder.clone(),
+                    members: Vec::new(),
+                });
+                classes.len() - 1
+            }
+        };
+        classes[i].methods.push(method);
+        classes[i].members.push(member);
     }
     let imports = imports_of(m);
     classes
         .into_iter()
-        .map(|(class, methods)| {
-            let (package, simple) = class.rsplit_once('.').unwrap_or(("", class.as_str()));
+        .map(|w| {
+            let class = w.class.as_str();
+            let (package, simple) = class.rsplit_once('.').unwrap_or(("", class));
+            let mut methods = w.methods;
+            match &w.holder {
+                Some(Holder::Companion(name)) => methods.insert(
+                    0,
+                    format!(
+                        "    /** Kotlin callers read the companion object `{name}` from this field. */\n    \
+                         public static final {name} {name} = new {name}();\n\n    \
+                         /** The companion object: each member calls the static method of the same name. */\n    \
+                         public static final class {name} {{\n        private {name}() {{}}\n\n{}    }}\n",
+                        w.members.join("\n")
+                    ),
+                ),
+                Some(Holder::Object) => methods.insert(
+                    0,
+                    format!(
+                        "    /** The `object` instance, as Kotlin declares it. */\n    \
+                         public static final {simple} INSTANCE = new {simple}();\n"
+                    ),
+                ),
+                None => {}
+            }
             let path = if package.is_empty() {
                 format!("java/{simple}.java")
             } else {
@@ -361,5 +413,32 @@ mod tests {
             nums.contains("public static long gcd(long a, long b) {"),
             "{nums}"
         );
+        assert!(!nums.contains("INSTANCE"), "{nums}");
+    }
+
+    #[test]
+    fn wrapper_keeps_kotlin_companion_and_object() {
+        let mut m = fixture_manifest();
+        for f in &mut m.exports {
+            f.jvm_holder = Some(if receiver(f).0.ends_with(".Nums") {
+                Holder::Object
+            } else {
+                Holder::Companion("Factory".into())
+            });
+        }
+        let files = wrappers_ffm(&m, &PortApi::default());
+        let (strings, nums) = (&files[0].1, &files[1].1);
+        for text in [
+            "    public static final Factory Factory = new Factory();\n",
+            "    public static final class Factory {\n        private Factory() {}\n",
+            "        public int parsePort(String text) {\n            return Strings.parsePort(text);\n",
+        ] {
+            assert!(strings.contains(text), "{text}\n{strings}");
+        }
+        assert!(
+            nums.contains("    public static final Nums INSTANCE = new Nums();\n"),
+            "{nums}"
+        );
+        assert!(!nums.contains("class Factory"), "{nums}");
     }
 }

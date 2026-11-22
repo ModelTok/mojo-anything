@@ -1111,6 +1111,221 @@ fn kotlin_top_level_and_companion_replay() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `tests/fixtures/kotlin-owners`' unit bridged to Mojo in a fresh folder.
+fn kotlin_owners_bridged(tag: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin-owners");
+    let dir = std::env::temp_dir().join(format!(
+        "mojo-anything-kotlin-owners-{tag}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "src/main/kotlin/com/example/owners/Text.kt",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("owners-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    dir
+}
+
+/// Runs `cmd` and returns its stdout, failing the test with its output when it fails.
+fn stdout_of(cmd: &mut Command) -> String {
+    let out = cmd.output().unwrap();
+    assert!(
+        out.status.success(),
+        "{cmd:?}\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// Every `.java` file under `dir`.
+fn java_sources(dir: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "java") {
+                sources.push(p);
+            }
+        }
+    }
+    sources
+}
+
+/// A Kotlin caller compiled against the original classes prints the same against the wrappers.
+/// Kotlin calls a companion object's `@JvmStatic` member through the companion
+/// (`getstatic Units.Companion`, then `invokevirtual Units$Companion.parse`), so a wrapper with
+/// the static method alone fails at link time with `NoSuchFieldError`.
+#[test]
+fn kotlin_caller_links_against_the_wrappers() {
+    if !common::have_java() || !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = kotlin_owners_bridged("caller");
+    std::fs::copy(
+        fixtures.join("kotlin-mojo-port/owners.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
+    let lib = harness::build(&dir).unwrap();
+    let check = dir.join("check");
+    std::fs::create_dir_all(&check).unwrap();
+    let original = check.join("original.jar");
+    stdout_of(
+        Command::new("kotlinc")
+            .arg(fixtures.join("kotlin-owners/src/main/kotlin/com/example/owners/Text.kt"))
+            .arg("-d")
+            .arg(&original),
+    );
+    std::fs::write(
+        check.join("Caller.kt"),
+        r#"import com.example.owners.Units
+import com.example.owners.slug
+
+fun main() {
+    println(slug("a b c"))
+    println(Units.parse(" 42 "))
+    println(Units.Companion.parse("-7"))
+    try {
+        Units.parse("x")
+    } catch (e: NumberFormatException) {
+        println("NumberFormatException: ${e.message}")
+    }
+}
+"#,
+    )
+    .unwrap();
+    let caller = check.join("caller.jar");
+    stdout_of(
+        Command::new("kotlinc")
+            .arg("-cp")
+            .arg(&original)
+            .arg(check.join("Caller.kt"))
+            .arg("-include-runtime")
+            .arg("-d")
+            .arg(&caller),
+    );
+    let wrappers = check.join("wrappers");
+    stdout_of(
+        Command::new("javac")
+            .args(["-encoding", "UTF-8", "-nowarn", "-d"])
+            .arg(&wrappers)
+            .args(java_sources(&dir.join("java"))),
+    );
+    let run = |classes: &Path| {
+        stdout_of(
+            Command::new("java")
+                .args([
+                    "-XX:-UsePerfData",
+                    "--enable-native-access=ALL-UNNAMED",
+                    "-Dfile.encoding=UTF-8",
+                    "-cp",
+                ])
+                .arg(std::env::join_paths([caller.as_path(), classes]).unwrap())
+                .arg("CallerKt")
+                .env("MOJO_ANYTHING_LIB", &lib),
+        )
+    };
+    let expected = run(&original);
+    assert!(expected.contains("\n42\n-7\n"), "{expected}");
+    assert_eq!(run(&wrappers), expected);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `java api` compares the owner class's fields and nested classes too: a wrapper without the
+/// `Companion` field that Kotlin callers read fails it.
+#[test]
+fn kotlin_java_api_checks_the_companion() {
+    if !common::have_java() || !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let dir = kotlin_owners_bridged("gate");
+    let path = dir.join("java/com/example/owners/Units.java");
+    let units = std::fs::read_to_string(&path).unwrap();
+    let field = "    public static final Companion Companion = new Companion();\n";
+    assert!(units.contains(field), "{units}");
+    let api = |dir: &Path| {
+        let gate = mojo_anything::gate::gate(dir, &[]).unwrap();
+        gate.checks
+            .into_iter()
+            .find(|c| c.name == "java api")
+            .unwrap()
+    };
+    let passing = api(&dir);
+    assert!(passing.passed, "{passing:?}");
+    assert!(
+        passing.detail.contains("Units.Companion"),
+        "{}",
+        passing.detail
+    );
+    std::fs::write(&path, units.replace(field, "")).unwrap();
+    let failing = api(&dir);
+    assert!(!failing.passed, "{failing:?}");
+    assert!(
+        failing.detail.contains("Units.Companion"),
+        "{}",
+        failing.detail
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The wrapper replaces the whole class, so `java api` fails naming every public member of the
+/// original that it does not keep: a constant and a generic method the bridge leaves out.
+#[test]
+fn java_api_names_members_the_wrapper_drops() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java-members");
+    let dir =
+        std::env::temp_dir().join(format!("mojo-anything-java-members-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "src/main/java/com/example/members/",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("members-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.exports, ["twice"]);
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(!api.passed, "{api:?}");
+    assert!(api.detail.contains("Limits.MAX"), "{}", api.detail);
+    assert!(api.detail.contains("Limits.id"), "{}", api.detail);
+    assert!(!api.detail.contains("Limits.twice"), "{}", api.detail);
+    let fix = api.fix.as_deref().unwrap_or_default();
+    assert!(fix.contains("port"), "{fix}");
+    assert!(fix.contains("move"), "{fix}");
+    // The bridge says so too: the class is replaced, `id` does not stay in Java.
+    let notes = outcome.notes.join("\n");
+    assert!(notes.contains("`id`"), "{notes}");
+    assert!(notes.contains("java api"), "{notes}");
+    assert!(!notes.contains("stays in Java"), "{notes}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn diff_compares_own_proto_named_properties_in_arguments_and_results() {
     if !common::have("node") {

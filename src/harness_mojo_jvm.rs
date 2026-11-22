@@ -44,17 +44,26 @@ pub fn build(unit_dir: &Path, m: &Manifest) -> Result<PathBuf> {
     Ok(lib)
 }
 
-/// A public method as `javap` prints it: the declaration (generic types included, without the
-/// modifiers that do not change how a caller binds to it) and the JVM descriptor.
+/// A public member (method, constructor or field) as `javap` prints it: the declaration
+/// (generic types included, without the modifiers that do not change how a caller binds to it)
+/// and the JVM descriptor.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct JvmMethod {
+pub struct JvmMember {
     pub declaration: String,
     pub descriptor: String,
 }
 
-/// The methods in `javap -public -s` output, by `(class, method name)`.
-pub fn parse_javap(text: &str) -> BTreeMap<(String, String), Vec<JvmMethod>> {
-    let mut out: BTreeMap<(String, String), Vec<JvmMethod>> = BTreeMap::new();
+/// The name constructors are listed under.
+const CONSTRUCTOR: &str = "<init>";
+
+/// The parameter type of the synthetic constructors Kotlin gives companion objects and default
+/// arguments: no Kotlin or Java source can call one, so a wrapper need not keep it.
+const KOTLIN_MARKER: &str = "Lkotlin/jvm/internal/DefaultConstructorMarker;";
+
+/// The members in `javap -public -s` output, by `(class, member name)`; constructors are
+/// listed as `<init>`.
+pub fn parse_javap(text: &str) -> BTreeMap<(String, String), Vec<JvmMember>> {
+    let mut out: BTreeMap<(String, String), Vec<JvmMember>> = BTreeMap::new();
     let mut class = String::new();
     let lines: Vec<&str> = text.lines().collect();
     for (i, line) in lines.iter().enumerate() {
@@ -68,12 +77,9 @@ pub fn parse_javap(text: &str) -> BTreeMap<(String, String), Vec<JvmMethod>> {
             continue;
         }
         let decl = line.trim();
-        if decl.starts_with("descriptor:") {
+        if decl.is_empty() || decl.starts_with("descriptor:") {
             continue;
         }
-        let Some(open) = decl.find('(') else {
-            continue;
-        };
         let Some(descriptor) = lines
             .get(i + 1)
             .and_then(|l| l.trim().strip_prefix("descriptor:"))
@@ -83,12 +89,15 @@ pub fn parse_javap(text: &str) -> BTreeMap<(String, String), Vec<JvmMethod>> {
         let decl = decl.trim_end_matches(';');
         // Checked exceptions are left out: the wrappers declare none.
         let decl = decl.split(" throws ").next().unwrap_or(decl);
-        let Some(name) = decl
-            .get(..open)
-            .and_then(|head| head.split_whitespace().last())
-        else {
+        // A method or constructor ends its name at `(`; a field's name is its last word.
+        let head = decl
+            .find('(')
+            .and_then(|open| decl.get(..open))
+            .unwrap_or(decl);
+        let Some(name) = head.split_whitespace().last() else {
             continue;
         };
+        let name = if name == class { CONSTRUCTOR } else { name };
         let declaration = decl
             .split_whitespace()
             .filter(|w| !matches!(*w, "final" | "synchronized" | "native" | "strictfp"))
@@ -96,10 +105,55 @@ pub fn parse_javap(text: &str) -> BTreeMap<(String, String), Vec<JvmMethod>> {
             .join(" ");
         out.entry((class.clone(), name.to_string()))
             .or_default()
-            .push(JvmMethod {
+            .push(JvmMember {
                 declaration,
                 descriptor: descriptor.trim().to_string(),
             });
+    }
+    out
+}
+
+/// The public member classes of `outers` in the `InnerClasses` attributes of `javap -v` output,
+/// e.g. `public static final #15= #20 of #2; // Companion=class a/b/Units$Companion of class a/b/Units`.
+pub fn parse_inner_classes(text: &str, outers: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if line.starts_with("InnerClasses:") {
+            inside = true;
+            continue;
+        }
+        if !line.starts_with(' ') {
+            inside = false;
+        }
+        if !inside {
+            continue;
+        }
+        let Some((flags, comment)) = line.split_once("//") else {
+            continue;
+        };
+        if !flags.split_whitespace().any(|w| w == "public") {
+            continue;
+        }
+        // Anonymous and local classes have no `Name=` and no `of`.
+        let Some((_, named)) = comment.split_once('=') else {
+            continue;
+        };
+        let Some((inner, outer)) = named.split_once(" of ") else {
+            continue;
+        };
+        let kind = |t: &str| {
+            let t = t.trim();
+            t.strip_prefix("class ")
+                .or_else(|| t.strip_prefix("interface "))
+                .map(|n| n.trim().replace('/', "."))
+        };
+        if let (Some(inner), Some(outer)) = (kind(inner), kind(outer))
+            && outers.contains(&outer)
+            && !out.contains(&inner)
+        {
+            out.push(inner);
+        }
     }
     out
 }
@@ -114,9 +168,10 @@ fn classpath(unit_dir: &Path, m: &Manifest, against: Against) -> Result<Vec<Path
     }
 }
 
-fn javap(classpath: &[PathBuf], classes: &[String]) -> Result<String> {
+fn javap(flags: &[&str], classpath: &[PathBuf], classes: &[String]) -> Result<String> {
     let mut cmd = Command::new("javap");
-    cmd.args(["-public", "-s", "-cp"])
+    cmd.args(flags)
+        .arg("-cp")
         .arg(std::env::join_paths(classpath).context("building Java classpath")?)
         .args(classes);
     let out = crate::process::output(&mut cmd, crate::process::QUICK).context("running javap")?;
@@ -126,18 +181,53 @@ fn javap(classpath: &[PathBuf], classes: &[String]) -> Result<String> {
     Ok(out.stdout_text())
 }
 
-/// What the `java api` gate check found: each export whose wrapper a caller compiled against
-/// the original binds to unchanged, and each one it does not.
+/// The public nested classes of `classes`, and theirs in turn (`Units$Companion` for `Units`).
+fn nested_public(classpath: &[PathBuf], classes: &[String]) -> Result<Vec<String>> {
+    let mut found: Vec<String> = Vec::new();
+    let mut frontier = classes.to_vec();
+    while !frontier.is_empty() {
+        let text = javap(&["-v"], classpath, &frontier)?;
+        let mut next = Vec::new();
+        for inner in parse_inner_classes(&text, &frontier) {
+            if !found.contains(&inner) && !classes.contains(&inner) {
+                found.push(inner.clone());
+                next.push(inner);
+            }
+        }
+        frontier = next;
+    }
+    Ok(found)
+}
+
+/// What the `java api` gate check found: the public members of the original classes that the
+/// wrappers keep, those they keep with another signature, and those they drop.
 #[derive(Debug, Default)]
 pub struct ApiCheck {
     pub same: Vec<String>,
     pub different: Vec<String>,
+    pub dropped: Vec<String>,
 }
 
-/// Compiles the original classes and the wrappers and compares every export's declaration and
-/// descriptor: a caller compiled against the original links to the wrapper only when both are
-/// the same (a return type narrowed from `long` to `int` still compiles at a call site, but the
-/// caller's `(JJ)J` call no longer resolves).
+/// `Units` for `com.example.owners.Units`, `Units.Companion` for its nested `Units$Companion`.
+fn shown_class(class: &str) -> String {
+    class.rsplit('.').next().unwrap_or(class).replace('$', ".")
+}
+
+fn label(class: &str, name: &str) -> String {
+    if name == CONSTRUCTOR {
+        format!("{} constructor", shown_class(class))
+    } else {
+        format!("{}.{name}", shown_class(class))
+    }
+}
+
+/// Compiles the original classes and the wrappers and compares every public member of each
+/// class the unit replaces, and of its public nested classes: declaration and descriptor. A
+/// wrapper takes the original's fully qualified name, so a caller compiled against the original
+/// links to it only when every member it uses is there with the same descriptor (a return type
+/// narrowed from `long` to `int` still compiles at a call site, but the caller's `(JJ)J` call no
+/// longer resolves), constants, constructors, fields such as Kotlin's `Companion` and members
+/// the bridge did not port included.
 pub fn api_check(unit_dir: &Path, m: &Manifest) -> Result<ApiCheck> {
     let mut owners: Vec<String> = m
         .exports
@@ -146,37 +236,74 @@ pub fn api_check(unit_dir: &Path, m: &Manifest) -> Result<ApiCheck> {
         .collect();
     owners.sort();
     owners.dedup();
-    let original = parse_javap(&javap(
-        &classpath(unit_dir, m, Against::Original)?,
-        &owners,
-    )?);
-    let port = parse_javap(&javap(&classpath(unit_dir, m, Against::Port)?, &owners)?);
+    let exported: Vec<(String, String)> =
+        m.exports.iter().map(crate::lang::java::receiver).collect();
+    let original_cp = classpath(unit_dir, m, Against::Original)?;
+    let port_cp = classpath(unit_dir, m, Against::Port)?;
+    let original_nested = nested_public(&original_cp, &owners)?;
+    let port_nested = nested_public(&port_cp, &owners)?;
     let mut check = ApiCheck::default();
-    let show = |methods: &[JvmMethod]| {
-        methods
+    let mut classes = owners.clone();
+    for nested in &original_nested {
+        if port_nested.contains(nested) {
+            classes.push(nested.clone());
+        } else {
+            check.dropped.push(format!(
+                "{}: the wrapper drops this public nested class",
+                shown_class(nested)
+            ));
+        }
+    }
+    let original = parse_javap(&javap(&["-public", "-s"], &original_cp, &classes)?);
+    let port = parse_javap(&javap(&["-public", "-s"], &port_cp, &classes)?);
+    let show = |members: &[JvmMember]| {
+        members
             .iter()
             .map(|j| format!("`{}` {}", j.declaration, j.descriptor))
             .collect::<Vec<_>>()
             .join(", ")
     };
-    for f in &m.exports {
-        let (class, name) = crate::lang::java::receiver(f);
-        let simple = class.rsplit('.').next().unwrap_or(&class);
-        let key = (class.clone(), name.clone());
-        let label = format!("{simple}.{name}");
-        match (original.get(&key), port.get(&key)) {
-            (Some(o), Some(p)) if o == p => check.same.push(label),
-            (Some(o), Some(p)) => check.different.push(format!(
-                "{label}: the wrapper has {}, the original {}",
-                show(p),
-                show(o)
-            )),
-            (Some(_), None) => check
-                .different
-                .push(format!("{label}: no such public method in the wrapper")),
-            (None, _) => check
-                .different
-                .push(format!("{label}: no such public method in the original")),
+    for (key, members) in &original {
+        let (class, name) = key;
+        let label = label(class, name);
+        let wrapped = port.get(key).map_or(&[][..], Vec::as_slice);
+        let is_export = exported.contains(key);
+        for o in members {
+            if o.descriptor.contains(KOTLIN_MARKER) {
+                continue;
+            }
+            match wrapped.iter().find(|p| p.descriptor == o.descriptor) {
+                Some(p) if p.declaration == o.declaration => {
+                    if !check.same.contains(&label) {
+                        check.same.push(label.clone());
+                    }
+                }
+                Some(p) => check.different.push(format!(
+                    "{label}: the wrapper has {}, the original {}",
+                    show(std::slice::from_ref(p)),
+                    show(std::slice::from_ref(o))
+                )),
+                None if is_export && wrapped.is_empty() => check
+                    .different
+                    .push(format!("{label}: no such public method in the wrapper")),
+                None if is_export => check.different.push(format!(
+                    "{label}: the wrapper has {}, the original {}",
+                    show(wrapped),
+                    show(std::slice::from_ref(o))
+                )),
+                None => check.dropped.push(format!(
+                    "{label}: the wrapper drops {}",
+                    show(std::slice::from_ref(o))
+                )),
+            }
+        }
+    }
+    for (class, name) in &exported {
+        if !original.contains_key(&(class.clone(), name.clone())) {
+            check.different.push(format!(
+                "{}: no such public method in the original",
+                label(class, name)
+            ));
         }
     }
     Ok(check)
@@ -200,7 +327,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn javap_methods_by_class_and_name() {
+    fn javap_members_by_class_and_name() {
         let text = "Compiled from \"Strings.kt\"\n\
                     public final class com.example.text.StringsKt {\n  \
                     public static final java.lang.String slugify(java.lang.String, int);\n    \
@@ -210,14 +337,16 @@ mod tests {
                     public final class com.example.text.Nums {\n  \
                     public static final com.example.text.Nums INSTANCE;\n    \
                     descriptor: Lcom/example/text/Nums;\n  \
+                    public com.example.text.Nums();\n    \
+                    descriptor: ()V\n\n  \
                     public static final long gcd(long, long);\n    \
                     descriptor: (JJ)J\n}\n";
-        let methods = parse_javap(text);
-        assert_eq!(methods.len(), 3, "{methods:?}");
-        let get = |c: &str, n: &str| methods[&(c.to_string(), n.to_string())][0].clone();
+        let members = parse_javap(text);
+        assert_eq!(members.len(), 5, "{members:?}");
+        let get = |c: &str, n: &str| members[&(c.to_string(), n.to_string())][0].clone();
         assert_eq!(
             get("com.example.text.StringsKt", "slugify"),
-            JvmMethod {
+            JvmMember {
                 declaration: "public static java.lang.String slugify(java.lang.String, int)".into(),
                 descriptor: "(Ljava/lang/String;I)Ljava/lang/String;".into(),
             }
@@ -227,5 +356,29 @@ mod tests {
             "public static java.util.List<java.lang.String> words(java.lang.String)"
         );
         assert_eq!(get("com.example.text.Nums", "gcd").descriptor, "(JJ)J");
+        assert_eq!(
+            get("com.example.text.Nums", "INSTANCE"),
+            JvmMember {
+                declaration: "public static com.example.text.Nums INSTANCE".into(),
+                descriptor: "Lcom/example/text/Nums;".into(),
+            }
+        );
+        assert_eq!(get("com.example.text.Nums", CONSTRUCTOR).descriptor, "()V");
+    }
+
+    #[test]
+    fn inner_classes_are_the_public_named_members_of_the_class() {
+        let text = "  #2 = Class #4 // com/example/owners/Units\n\
+                    InnerClasses:\n  \
+                    public static final #15= #20 of #2;     // Companion=class com/example/owners/Units$Companion of class com/example/owners/Units\n  \
+                    private static final #16= #21 of #2;    // Hidden=class com/example/owners/Units$Hidden of class com/example/owners/Units\n  \
+                    public static #22= #23 of #24;          // Entry=interface java/util/Map$Entry of interface java/util/Map\n  \
+                    #25;                                    // class com/example/owners/Units$1\n\
+                    SourceFile: \"Text.kt\"\n";
+        let outers = ["com.example.owners.Units".to_string()];
+        assert_eq!(
+            parse_inner_classes(text, &outers),
+            ["com.example.owners.Units$Companion"]
+        );
     }
 }

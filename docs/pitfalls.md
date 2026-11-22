@@ -38,6 +38,15 @@ U+10200, on planes 2, 4, ... 16 only; emoji (plane 1) passed, and so did every r
 Java codec escaped every surrogate. Send whole pairs to EmberJson as UTF-8, escape only lone
 halves, and check string ports on every code point, not on the recorded traps alone.
 
+**A replaced class lost the members callers link to.** A Java wrapper takes the original class's
+fully qualified name, so it replaces the whole class: Kotlin callers of a companion object's
+`@JvmStatic` member read `Units.Companion` and call `Units$Companion.parse`, and failed with
+`NoSuchFieldError` against a wrapper that had only the static method, while `gate` compared the
+exports alone and passed; constants and members the bridge left out vanished the same way. A
+replaced class must keep every public member a caller can link to: `java api` compares all of
+them (fields, constructors and public nested classes too), and a test runs a caller compiled
+against the original on the wrappers.
+
 **A bridge found no functions in a module that exports a list.** `export { a, b as c }` was not
 read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that way.
 
