@@ -49,7 +49,9 @@ pub fn build(unit_dir: &Path, m: &Manifest) -> Result<PathBuf> {
     let lib = crate::harness_mojo_c::library_path(&unit_dir, m, false);
     crate::harness_mojo_c::build_one(&unit_dir, crate::codegen_ffi::DISPATCHER, &lib)?;
     let file_name = lib.file_name().context("library path has no file name")?;
-    std::fs::copy(&lib, unit_dir.join(file_name))
+    // Copied to a new file and renamed over the old one: a running Node process keeps the
+    // library it mapped instead of seeing it rewritten under it.
+    crate::harness::install(&lib, &unit_dir.join(file_name))
         .with_context(|| format!("copying {} next to the addon", lib.display()))?;
     let addon = addon_path(&unit_dir, m);
     let mut cc = Command::new("cc");

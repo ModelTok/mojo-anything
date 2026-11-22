@@ -698,3 +698,96 @@ try { batch.run() } catch (e) { console.log(e.constructor.name, e.message) }
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(out, "Error LabelBatch was freed");
 }
+
+#[test]
+fn node_void_and_absent_results_are_undefined() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-undefined",
+        &[
+            ("package.json", r#"{"name":"absent","version":"0.1.0"}"#),
+            (
+                "src/absent.ts",
+                "export function touch(x: number): void {}\n\
+                 export function find(x: number): number | undefined {\n  \
+                 return x > 0 ? x : undefined\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/absent.ts",
+        "def touch(x: Float64) raises:\n    pass\n\n\n\
+         def find(x: Float64) raises -> Optional[Float64]:\n    \
+         if x > 0:\n        return x\n    return None\n",
+    );
+    let script = r#"
+const { touch, find } = require(process.argv[1])
+console.log(JSON.stringify([touch(1) === undefined, find(-1) === undefined, find(2)]))
+"#;
+    assert_eq!(run_node(&dir, script), "[true,true,2]");
+}
+
+#[test]
+fn node_rest_parameters_take_every_argument() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-rest",
+        &[
+            ("package.json", r#"{"name":"rest","version":"0.1.0"}"#),
+            (
+                "src/rest.ts",
+                "export function sum(base: number, ...xs: number[]): number {\n  \
+                 return xs.reduce((a, b) => a + b, base)\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/rest.ts",
+        "def sum(base: Float64, xs: List[Float64]) raises -> Float64:\n    \
+         var total = base\n    for x in xs:\n        total += x\n    return total\n",
+    );
+    let script = r#"
+const { sum } = require(process.argv[1])
+console.log(JSON.stringify([sum(1), sum(1, 2), sum(1, 2, 3, 4)]))
+"#;
+    assert_eq!(run_node(&dir, script), "[1,3,10]");
+}
+
+#[test]
+fn node_rebuild_replaces_the_library_instead_of_rewriting_it() {
+    use std::os::unix::fs::MetadataExt;
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-rebuild",
+        &[
+            ("package.json", r#"{"name":"twice","version":"0.1.0"}"#),
+            (
+                "src/twice.ts",
+                "export function twice(x: number): number { return x * 2 }\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_unit(
+        &root,
+        "src/twice.ts",
+        "def twice(x: Float64) raises -> Float64:\n    return x * 2.0\n",
+    );
+    let lib = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "so" || x == "dylib"))
+        .unwrap();
+    let before = std::fs::metadata(&lib).unwrap().ino();
+    harness::build(&dir).unwrap();
+    // A running Node process maps the old file; a new inode leaves that mapping intact.
+    assert_ne!(std::fs::metadata(&lib).unwrap().ino(), before);
+}

@@ -1186,6 +1186,20 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         );
     }
 
+    let mut classes = classes.clone();
+    let mut js_only = js_only.clone();
+    if kind == Kind::MojoNode {
+        // The Node bridge has no Mojo classes yet: a class stays in TS, where `record`, `gate`
+        // and the shadow leave it to the original instead of expecting it from the port.
+        for c in classes.drain(..) {
+            js_only.push(JsOnly {
+                name: c.name,
+                file: c.file,
+                line: c.line,
+                reason: "class: not ported to Mojo yet".into(),
+            });
+        }
+    }
     let manifest = Manifest {
         schema: SCHEMA.into(),
         root: root.clone(),

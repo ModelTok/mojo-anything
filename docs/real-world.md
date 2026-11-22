@@ -701,12 +701,13 @@ front door is not lifted: ESLint stays installed and answers those runs.
 
 | Fixture | Exercises | Result |
 | --- | --- | --- |
-| `tests/fixtures/async` | async functions on both bridges | 900/900, both gates pass |
-| `tests/fixtures/classes` | classes: state, constructor errors, `Map` order, `split('')` on emoji | 600/600 scenarios, both gates pass |
+| `tests/fixtures/async` | async functions on both bridges | Rust era: 900/900, both gates pass |
+| `tests/fixtures/classes` | classes: state, constructor errors, `Map` order, `split('')` on emoji | Rust era: 600/600 scenarios, both gates pass; on the Mojo bridge the classes stay in TS |
 | `tests/fixtures/aliases` | tsconfig `paths` with `extends`, comments, trailing commas | analyze and record follow them |
 | `tests/fixtures/monorepo` | a package importing a sibling with no build output | record resolves it to source |
 
-Found in the tool, and fixed: napi turned `None` into `null` (JS gives `undefined`); scenarios
+Found in the tool, and fixed: napi turned `None` into `null` (JS gives `undefined`), and the
+Mojo dispatcher did the same until M4's review (it now writes the `$undefined` marker for TS); scenarios
 too short and too random to catch a stateful bug (now up to 12 calls, reusing earlier strings);
 generated `let out = ()` and immediately-called closures that clippy rejects.
 

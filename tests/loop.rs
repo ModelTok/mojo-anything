@@ -404,57 +404,34 @@ fn classes_are_bridged_recorded_and_replayed() {
         as_json: Vec::new(),
     })
     .unwrap();
-    // Classes are not ported to Mojo yet (they stay in TS), but the manifest keeps them, so
-    // record and diff still cover them.
+    // Classes are not ported to Mojo yet: they stay in TS, so `gate`, `diff` and the shadow do
+    // not expect them from the generated `index.cjs`, which exports no class.
     assert!(
-        outcome.notes.iter().any(|n| n.contains("Class `LruCache`")),
+        outcome
+            .notes
+            .iter()
+            .any(|n| n.contains("`LruCache` stays in") && n.contains("not ported to Mojo yet")),
         "{:?}",
         outcome.notes
     );
     let manifest = Manifest::load(&dir).unwrap();
-    let classes: Vec<&str> = manifest.classes.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(classes, ["TextStats", "LruCache"]);
+    assert!(manifest.classes.is_empty(), "{:?}", manifest.classes);
+    for name in ["TextStats", "LruCache"] {
+        assert!(
+            manifest
+                .js_only
+                .iter()
+                .any(|j| j.name == name && j.reason.contains("not ported to Mojo yet")),
+            "{name}: {:?}",
+            manifest.js_only
+        );
+    }
     assert!(
         manifest
             .js_only
             .iter()
             .any(|j| j.name == "Blocked" && j.reason.contains("extends"))
     );
-
-    // Record scenarios (the TS uses parameter properties: Node needs to transform it).
-    let recorded = harness::record(&RecordOptions {
-        crate_dir: &dir,
-        count: 150,
-        inputs: None,
-        module: None,
-        resolve_from: None,
-        node_args: &[],
-    })
-    .unwrap();
-    assert_eq!(recorded.cases, 300);
-    // A JS stand-in with an LRU bug: `get` does not refresh recency.
-    std::fs::write(
-        dir.join("index.cjs"),
-        "class TextStats { constructor(s = '\\n') { this.s = s; this.w = 0; this.l = 0; this.long = '' }\n\
-         add(t) { const p = t.split(this.s); this.l += p.length; for (const x of p) for (const w of x.split(/\\s+/).filter(Boolean)) { this.w++; if (w.length > this.long.length) this.long = w } return this.w }\n\
-         stats() { return { words: this.w, lines: this.l } } longestWord() { return this.long } reset() { this.w = 0; this.l = 0; this.long = '' } }\n\
-         class LruCache { constructor(c) { if (!(c >= 1)) throw new RangeError('x'); this.c = c; this.m = new Map() }\n\
-         get(k) { return this.m.get(k) }\n\
-         set(k, v) { this.m.delete(k); this.m.set(k, v); const e = []; while (this.m.size > this.c) { const o = this.m.keys().next().value; this.m.delete(o); e.push(o) } return e }\n\
-         keys() { return [...this.m.keys()] } }\n\
-         module.exports = { TextStats, LruCache }\n",
-    )
-    .unwrap();
-    let diff = harness::diff(&DiffOptions {
-        crate_dir: &dir,
-        module: None,
-        ignore_key_order: false,
-        float_tolerance: None,
-        node_args: &[],
-    })
-    .unwrap();
-    assert!(diff.failed > 0, "the recency bug must show up");
-    assert!(diff.mismatches.iter().all(|m| m["fn"] == "LruCache"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

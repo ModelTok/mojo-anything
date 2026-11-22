@@ -5,10 +5,10 @@
 # it draws a random number. While `record`, `diff`, `fuzz` and `gate` run, the clock is fixed at
 # `MOJO_ANYTHING_NOW_MS` (time zone UTC) and the numbers come from mulberry32 seeded with
 # `MOJO_ANYTHING_SEED`, restarted at every case (the drivers change `MOJO_ANYTHING_CASE` between
-# cases). Without those variables (in production) the real clock and a clock seed are used.
+# cases). Without those variables (in production) the real clock and `arc4random()` are used.
 #
-# Mojo has no global variables, so the generator keeps its state in the environment variable
-# `MOJO_ANYTHING_PIN_STATE` (`<case>:<state>`).
+# Mojo has no global variables, so while pinned the generator keeps its state in the
+# environment variable `MOJO_ANYTHING_PIN_STATE` (`<case>:<state>`); in production it keeps none.
 
 from std.ffi import external_call
 from std.os import getenv, setenv
@@ -47,9 +47,13 @@ def now_secs() -> Float64:
 def next_u32() -> UInt32:
     """The next 32 random bits: mulberry32, as the drivers run it."""
     var seed = _var("MOJO_ANYTHING_SEED")
+    if not seed:
+        # Not recording (production): the system's generator, with no state to keep.
+        # SAFETY: `arc4random()` takes no arguments and returns 32 random bits.
+        return external_call["arc4random", UInt32]()
     var this_case = getenv("MOJO_ANYTHING_CASE")
     var saved = getenv(_STATE)
-    var state: UInt32
+    var state = UInt32(seed.value())
     var split = -1
     var b = saved.as_bytes()
     for i in range(len(b)):
@@ -60,11 +64,7 @@ def next_u32() -> UInt32:
         try:
             state = UInt32(Int(String(saved[byte = split + 1 : len(b)])))
         except:
-            state = UInt32(seed.value()) if seed else UInt32(_real_secs())
-    elif seed:
-        state = UInt32(seed.value())
-    else:
-        state = UInt32(_real_secs() & 0xFFFFFFFF)
+            pass
     state = state + 0x6D2B79F5
     var t = (state ^ (state >> 15)) * (state | 1)
     t = t ^ (t + (t ^ (t >> 7)) * (t | 61))

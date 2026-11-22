@@ -258,6 +258,21 @@ fn int_bounds(ty: &str) -> Option<(bool, &'static str, &'static str)> {
 struct Converters {
     text: String,
     done: std::collections::BTreeSet<String>,
+    /// What a missing value is written as: JS's `undefined` marker for TS, `null` elsewhere.
+    absent: &'static str,
+}
+
+impl Converters {
+    fn for_language(language: Lang) -> Self {
+        Self {
+            absent: if language == Lang::Ts {
+                "_undefined()"
+            } else {
+                "JsonValue()"
+            },
+            ..Self::default()
+        }
+    }
 }
 
 /// Emits `_from_json_<T>` (JSON value to `ty`) and what it needs; returns its name.
@@ -332,7 +347,10 @@ fn to_json(out: &mut Converters, ty: &str) -> Result<String, String> {
                 )
             } else if let Some(t) = inner(ty, "Optional") {
                 let value = to_json(out, t)?;
-                format!("if not v:\n        return JsonValue()\n    return {value}(v.value())")
+                format!(
+                    "if not v:\n        return {}\n    return {value}(v.value())",
+                    out.absent
+                )
             } else {
                 return Err(format!("`{ty}` cannot cross the JSON dispatcher"));
             }
@@ -347,6 +365,12 @@ fn to_json(out: &mut Converters, ty: &str) -> Result<String, String> {
 }
 
 const DISPATCHER_HELPERS: &str = r#"
+
+def _undefined() raises -> JsonValue:
+    # JS's `undefined`, as the TS codec carries it.
+    var o = Object()
+    o["$undefined"] = JsonValue(True)
+    return JsonValue(o^)
 
 def _bytes_text(p: Optional[Pointer[Int8, ImmutAnyOrigin]]) -> String:
     # SAFETY: the caller passes NULL or a NUL-terminated string valid for the call. The bytes
@@ -489,7 +513,7 @@ fn batch_calls(
 /// wrong (unknown name, argument count, a value the port's type cannot hold). Mojo has no
 /// unwinding panics: a port that aborts ends the process.
 pub fn dispatcher_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
-    let mut conv = Converters::default();
+    let mut conv = Converters::for_language(m.language);
     let mut calls = String::new();
     let mut arms = String::new();
     for f in &api.functions {
@@ -521,7 +545,7 @@ pub fn dispatcher_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
         let call_args: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
         let call = format!("port.{}({})", f.rust_name, call_args.join(", "));
         let result = if f.ret == "None" {
-            format!("{call}\n        return _ok(JsonValue())")
+            format!("{call}\n        return _ok({})", conv.absent)
         } else {
             let to = to_json(&mut conv, &f.ret).map_err(at)?;
             format!("var out = {to}({call})\n        return _ok(out)")

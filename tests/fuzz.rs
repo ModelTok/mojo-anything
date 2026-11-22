@@ -196,6 +196,28 @@ def roll(sides: Float64) raises -> Float64:
     let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
     assert!(gate.passed, "{:?}", gate.checks);
 
+    // In production (no pinned variables) the port draws without touching the environment.
+    let out = Command::new("node")
+        .args([
+            "-e",
+            "const { roll } = require(process.argv[1]); const a = [];\n\
+             for (let i = 0; i < 50; i++) a.push(roll(6));\n\
+             console.log(JSON.stringify([process.env.MOJO_ANYTHING_PIN_STATE ?? null, \
+             a.every(x => x >= 0 && x <= 10), new Set(a).size > 1]))",
+        ])
+        .arg(dir.join("index.cjs"))
+        .env_remove(mojo_anything::pin::NOW_MS)
+        .env_remove(mojo_anything::pin::SEED)
+        .env_remove(mojo_anything::pin::CASE)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "[null,true,true]",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
     mojo_anything::pin::set(&dir, false).unwrap();
     assert!(!dir.join(mojo_anything::pin::FILE).exists());
     std::fs::remove_dir_all(&repo).unwrap();
