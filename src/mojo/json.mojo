@@ -84,7 +84,7 @@ def parse_json(text: String, refuse_big_ints: Bool = False) raises -> Value:
 
 def json_float(x: Float64) -> Value:
     """`x` as a JSON value: a `$num` marker for NaN, the infinities and -0.0."""
-    var marker = String()
+    var marker: String
     if isnan(x):
         marker = "NaN"
     elif isinf(x):
@@ -119,6 +119,72 @@ def as_float(v: Value) raises -> Float64:
             if s == "-0":
                 return -0.0
     raise Error("json: expected a number, got " + to_json(v))
+
+
+def _kind(v: Value) -> String:
+    if v.is_null():
+        return "null"
+    if v.is_bool():
+        return "a bool"
+    if v.is_int() or v.is_uint() or v.is_float():
+        return "a number"
+    if v.is_string():
+        return "a string"
+    if v.is_array():
+        return "an array"
+    return "an object"
+
+
+def json_int(v: Value, lo: Int64, hi: Int64) raises -> Int64:
+    """The integer `v` holds, raising unless it lies in `lo`..`hi`."""
+    var x: Int64
+    if v.is_int():
+        x = v.int()
+    elif v.is_uint() and v.uint() <= UInt64(Int64.MAX):
+        x = Int64(v.uint())
+    elif v.is_uint():
+        raise Error("the integer " + String(v.uint()) + " is out of range")
+    else:
+        raise Error("expected an integer, got " + _kind(v))
+    if x < lo or x > hi:
+        raise Error("the integer " + String(x) + " is out of range")
+    return x
+
+
+def json_uint(v: Value, hi: UInt64) raises -> UInt64:
+    """The unsigned integer `v` holds, raising unless it lies in 0..`hi`."""
+    var x: UInt64
+    if v.is_uint():
+        x = v.uint()
+    elif v.is_int() and v.int() >= 0:
+        x = UInt64(v.int())
+    elif v.is_int():
+        raise Error("the integer " + String(v.int()) + " is out of range")
+    else:
+        raise Error("expected an integer, got " + _kind(v))
+    if x > hi:
+        raise Error("the integer " + String(x) + " is out of range")
+    return x
+
+
+def json_string(v: Value) raises -> String:
+    """The string `v` holds."""
+    if not v.is_string():
+        raise Error("expected a string, got " + _kind(v))
+    return v.string()
+
+
+def json_bool(v: Value) raises -> Bool:
+    """The bool `v` holds."""
+    if not v.is_bool():
+        raise Error("expected a bool, got " + _kind(v))
+    return v.bool()
+
+
+def json_array(v: Value) raises:
+    """Raises unless `v` is an array."""
+    if not v.is_array():
+        raise Error("expected an array, got " + _kind(v))
 
 
 def _marked(v: Value) -> Value:
