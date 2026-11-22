@@ -574,7 +574,9 @@ pub fn exports_mojo_cpp(m: &Manifest, api: &crate::codegen::PortApi) -> Result<S
                     args.push(format!("_str({a}, {a}_len)"));
                 }
                 CppType::Vec(e) => {
-                    if !lists.contains(e) {
+                    // Helpers are named by their Mojo type, which several C spellings share
+                    // (`long` and `int64_t`): one helper per name.
+                    if !lists.iter().any(|l| helper_tag(l) == helper_tag(e)) {
                         lists.push(e.clone());
                     }
                     let t = mojo_scalar(e).unwrap_or("Int32");
@@ -609,7 +611,7 @@ pub fn exports_mojo_cpp(m: &Manifest, api: &crate::codegen::PortApi) -> Result<S
                 )
             }
             Some(CppType::Vec(e)) => {
-                if !owned_lists.contains(e) {
+                if !owned_lists.iter().any(|l| helper_tag(l) == helper_tag(e)) {
                     owned_lists.push(e.clone());
                 }
                 (

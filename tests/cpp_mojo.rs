@@ -456,3 +456,122 @@ fn cpp_gate_and_bench() {
     assert!(gate.checks.iter().any(|c| c.name == "cpp api" && c.passed));
     std::fs::remove_dir_all(&repo).unwrap();
 }
+
+const MIXED_PORT: &str = r#"
+def sum_long(xs: List[Int64]) -> Int64:
+    var sum: Int64 = 0
+    for i in range(len(xs)):
+        sum += xs[i]
+    return sum
+
+
+def sum_int64(xs: List[Int64]) -> Int64:
+    var sum: Int64 = 0
+    for i in range(len(xs)):
+        sum += xs[i]
+    return sum
+
+
+def twice_long(xs: List[Int64]) -> List[Int64]:
+    var out = List[Int64]()
+    for i in range(len(xs)):
+        out.append(2 * xs[i])
+    return out^
+
+
+def twice_int64(xs: List[Int64]) -> List[Int64]:
+    var out = List[Int64]()
+    for i in range(len(xs)):
+        out.append(2 * xs[i])
+    return out^
+
+
+def check(x: Int32) raises -> Int32:
+    if x < 0:
+        raise Error("mixed::bad_input (std::invalid_argument): negative input")
+    return x
+
+
+def even(x: Int32) raises -> Int32:
+    if x % 2 != 0:
+        raise Error("mixed::odd (std::exception): odd number")
+    return x
+
+
+def fused(a: Float64, b: Float64, c: Float64) -> Float64:
+    return a * b + c
+
+
+def length(s: String) -> UInt:
+    return UInt(s.byte_length())
+"#;
+
+const MIXED_INPUTS: &str = r#"{"fn": "mixed::sum_long", "args": [[1, -2, 3]]}
+{"fn": "mixed::sum_int64", "args": [[9007199254740993, 1]]}
+{"fn": "mixed::twice_long", "args": [[1, -2]]}
+{"fn": "mixed::twice_int64", "args": [[]]}
+{"fn": "mixed::check", "args": [5]}
+{"fn": "mixed::check", "args": [-1]}
+{"fn": "mixed::even", "args": [4]}
+{"fn": "mixed::even", "args": [3]}
+{"fn": "mixed::fused", "args": [0.1, 10, -1]}
+{"fn": "mixed::fused", "args": [1.0000001, 1.0000001, -1.0000002]}
+{"fn": "mixed::length", "args": ["héllo"]}
+{"fn": "mixed::length", "args": [{"$bytes": [255]}]}
+"#;
+
+/// `tests/fixtures/cpp-mixed` bridged, recorded and ported.
+fn mixed(tag: &str) -> (PathBuf, PathBuf) {
+    let repo =
+        std::env::temp_dir().join(format!("mojo-anything-cppmix-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&repo);
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cpp-mixed");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    for f in ["CMakeLists.txt", "src/mixed.hpp", "src/mixed.cpp"] {
+        std::fs::copy(fixture.join(f), repo.join(f)).unwrap();
+    }
+    std::fs::write(repo.join("inputs.jsonl"), MIXED_INPUTS).unwrap();
+    let dir = bridged(&repo, "src/mixed.cpp").crate_dir;
+    record(&dir, &repo);
+    ported(&dir, MIXED_PORT);
+    (repo, dir)
+}
+
+/// The functions of a diff's mismatches.
+fn mismatched(d: &harness::DiffOutcome) -> Vec<String> {
+    d.mismatches
+        .iter()
+        .map(|c| c["fn"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn cpp_one_mojo_type_two_spellings_builds_and_round_trips() {
+    if !ready() {
+        return;
+    }
+    let (repo, dir) = mixed("spellings");
+    let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
+    assert_eq!(exports.matches("def _list_int64(").count(), 1, "{exports}");
+    assert_eq!(
+        exports.matches("def _owned_list_int64(").count(),
+        1,
+        "{exports}"
+    );
+    let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
+    for expected in [
+        r#""args": [[1, -2, 3]], "ok": 2"#,
+        r#""args": [[9007199254740993, 1]], "ok": 9007199254740994"#,
+        r#""args": [[1, -2]], "ok": [2, -4]"#,
+        r#""fn": "mixed::twice_int64", "args": [[]], "ok": []"#,
+    ] {
+        assert!(cases.contains(expected), "{expected} in {cases}");
+    }
+    let d = diff(&dir);
+    let wrong: Vec<String> = mismatched(&d)
+        .into_iter()
+        .filter(|f| f.contains("long") || f.contains("int64"))
+        .collect();
+    assert!(wrong.is_empty(), "{:?}", d.mismatches);
+    std::fs::remove_dir_all(&repo).unwrap();
+}
