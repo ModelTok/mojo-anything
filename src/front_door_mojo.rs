@@ -449,7 +449,11 @@ fn stage_packages(app_dir: &Path, state: &State) -> Result<PathBuf> {
         std::fs::remove_dir_all(&root).with_context(|| format!("clearing {}", root.display()))?;
     }
     std::fs::create_dir_all(&root)?;
-    for unit in state.units.iter().filter(|u| !u.commands.is_empty()) {
+    for unit in state
+        .units
+        .iter()
+        .filter(|u| !u.commands.is_empty() || !u.routes.is_empty())
+    {
         let dir = app_dir.join(&unit.path);
         ensure!(
             dir.join("port.mojo").is_file(),
@@ -481,6 +485,28 @@ fn stage_packages(app_dir: &Path, state: &State) -> Result<PathBuf> {
     Ok(root)
 }
 
+/// The end of a glue file's header: `.` or the port's public functions, one comment line each.
+pub(crate) fn port_listing(api: &PortApi) -> String {
+    if api.functions.is_empty() {
+        return ".\n".to_string();
+    }
+    let mut out = ", offering:\n".to_string();
+    for f in &api.functions {
+        let params: Vec<String> = f
+            .params
+            .iter()
+            .map(|(name, ty)| format!("{name}: {ty}"))
+            .collect();
+        let ret = if f.ret.is_empty() || f.ret == "()" {
+            String::new()
+        } else {
+            format!(" -> {}", f.ret)
+        };
+        out += &format!("#   port.{}({}){ret}\n", f.rust_name, params.join(", "));
+    }
+    out
+}
+
 /// One stub function of a glue file: hands `command` back to the original.
 fn glue_stub_fn(command: &str) -> String {
     format!(
@@ -505,24 +531,7 @@ pub(crate) fn glue_mojo(unit: &WiredUnit, api: &PortApi) -> String {
          # The port is `from {package} import port`",
         unit.name
     );
-    if api.functions.is_empty() {
-        out += ".\n";
-    } else {
-        out += ", offering:\n";
-        for f in &api.functions {
-            let params: Vec<String> = f
-                .params
-                .iter()
-                .map(|(name, ty)| format!("{name}: {ty}"))
-                .collect();
-            let ret = if f.ret.is_empty() || f.ret == "()" {
-                String::new()
-            } else {
-                format!(" -> {}", f.ret)
-            };
-            out += &format!("#   port.{}({}){ret}\n", f.rust_name, params.join(", "));
-        }
-    }
+    out += &port_listing(api);
     out += "\nimport original\n";
     for command in &unit.commands {
         out += &glue_stub_fn(command);

@@ -252,7 +252,7 @@ Runs the original's code or commands.
 
 Tool `app_front_door` · CLI `mojo-anything app front-door`
 
-Scaffold <repo>/mojo/app, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original with the same argv, stdin bytes, env and exit status (each fallback counted). For a server: an axum app that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: 100% passed at 100% fallback. Needs app_record first; never overwrites mojo/app.
+Scaffold <repo>/mojo/app, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original with the same argv, stdin bytes, env and exit status (each fallback counted). For a server: a Mojo server (libc sockets, TCP_NODELAY) that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: 100% passed at 100% fallback. Needs app_record first; never overwrites mojo/app.
 
 Runs the original's code or commands.
 
@@ -266,16 +266,16 @@ Runs the original's code or commands.
 
 Tool `app_wire` · CLI `mojo-anything app wire`
 
-After a unit passes gate, hand its commands to its port. A CLI takes a Mojo unit (a folder under mojo/ with port.mojo): writes a glue stub mojo/app/glue/<unit>.mojo, one `def <command>(args: List[String]) raises -> Int` per command (yours to write: parse args, call `port` from `from <unit> import port`, print what the original prints; `original.run(args)` or `original.run_with_stdin(args, input)` hands a case back), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. A library takes a Mojo unit `bridge` made: it is re-exported from mojo/app/__init__.mojo and its shadow drop-in is written for the original package. Servers still take a unit crate bridged to Rust. Run it again after writing the glue: 100% passed and a lower fallback rate.
+After a unit passes gate, hand its commands to its port. A CLI takes a Mojo unit (a folder under mojo/ with port.mojo): writes a glue stub mojo/app/glue/<unit>.mojo, one `def <command>(args: List[String]) raises -> Int` per command (yours to write: parse args, call `port` from `from <unit> import port`, print what the original prints; `original.run(args)` or `original.run_with_stdin(args, input)` hands a case back), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. A library takes a Mojo unit `bridge` made: it is re-exported from mojo/app/__init__.mojo and its shadow drop-in is written for the original package. A server takes a Mojo unit too: one `def <route_fn>(req: http.Request, params: Dict[String, String]) raises -> http.Response` per route in mojo/app/glue/<unit>.mojo (`original.proxy(req)` hands a request back). Run it again after writing the glue: 100% passed and a lower fallback rate.
 
 Runs the original's code or commands.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `repo` | string | yes | Repository root. |
-| `unit` | string | yes | The unit: its folder, its name under mojo/ (rust/ for a server), or the unit id it was bridged from. |
+| `unit` | string | yes | The unit: its folder, its name under mojo/, or the unit id it was bridged from. |
 | `commands` | string[] |  | Commands the unit answers; kept from the last wire when omitted. |
-| `routes` | string[] |  | Servers: routes the unit answers, axum syntax: "GET /users/{id}", "/path" for any method, "*" for everything else; kept from the last wire when omitted. |
+| `routes` | string[] |  | Servers: routes the unit answers: "GET /users/{id}", "/files/{*rest}", "/path" for any method, "*" for everything else; kept from the last wire when omitted. |
 | `skip_gate` | boolean |  | Do not run gate on the unit first. |
 | `check` | boolean |  | Build and replay (default true). |
 
@@ -283,7 +283,7 @@ Runs the original's code or commands.
 
 Tool `app_lift` · CLI `mojo-anything app lift`
 
-Make mojo/app a pure app. Refuses (and lists every blocker) unless replay passes with fallback rate 0 and every unit passes gate. Then, on a copy of mojo/ first: removes the fallback and kill switches and strips each unit's bridge, keeping its port. A CLI becomes a pure Mojo binary: original.mojo goes, every unit passes its Mojo checks, the app passes mojo format and mojo build --Werror, no glue calls original., and the pure binary replays with 0 fallback. A library becomes a pure Mojo package: every unit passes its Mojo checks, __init__.mojo passes mojo format, and mojo precompile builds it. A server stays a Rust app (fmt/clippy/tests, a trycmd test, DECISIONS.md targets). Copies back only when nothing fails; never touches the original.
+Make mojo/app a pure app. Refuses (and lists every blocker) unless replay passes with fallback rate 0 and every unit passes gate. Then, on a copy of mojo/ first: removes the fallback and kill switches and strips each unit's bridge, keeping its port. A CLI or a server becomes a pure Mojo binary: original.mojo goes, every unit passes its Mojo checks, the app passes mojo format and mojo build --Werror, no glue calls original., and the pure binary replays with 0 fallback. A library becomes a pure Mojo package: every unit passes its Mojo checks, __init__.mojo passes mojo format, and mojo precompile builds it. Copies back only when nothing fails; never touches the original.
 
 May overwrite files, runs the original's code or commands.
 

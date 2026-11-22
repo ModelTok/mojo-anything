@@ -1730,42 +1730,11 @@ fn lift_strips_bridge_bindings_in_every_language() {
             }
             continue;
         }
-        let removed = lift::strip_unit(&dir).unwrap();
-        assert!(!removed.is_empty(), "{lang}");
-        let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        for binding in ["cdylib", "staticlib", "napi", "jni", "build ="] {
-            assert!(!cargo.contains(binding), "{lang}: {cargo}");
-        }
-        let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-        assert_eq!(lib, "pub mod port;\n", "{lang}");
-        for generated in [
-            "build.rs",
-            "index.cjs",
-            "python",
-            "go",
-            "ruby",
-            "java",
-            "include",
-            "src/wire.rs",
-            "src/js.rs",
-            "src/pyconv.rs",
-        ] {
-            assert!(!dir.join(generated).exists(), "{lang}: {generated}");
-        }
+        // Java is still bridged to Rust (until M5), and no front door wires a Rust unit, so the
+        // lift refuses to strip one and leaves it as it was.
+        let err = format!("{:#}", lift::strip_unit(&dir).unwrap_err());
+        assert!(err.contains("no port.mojo"), "{lang}: {err}");
         assert!(dir.join("src/port.rs").is_file());
-        if common::have("cargo") {
-            let out = Command::new("cargo")
-                .args(["check", "--quiet", "--manifest-path"])
-                .arg(dir.join("Cargo.toml"))
-                .env("CARGO_TARGET_DIR", base.join("target"))
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "{lang}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
     }
     std::fs::remove_dir_all(&base).unwrap();
 }

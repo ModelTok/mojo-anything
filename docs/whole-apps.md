@@ -184,13 +184,10 @@ port):
 ```sh
 mojo-anything app record . --http -- node server.js
 mojo-anything app replay .
-mojo-anything app front-door .                                    # axum: every route proxied
-mojo-anything app wire . api --route 'GET /users/{id}' --route '*'
+mojo-anything app front-door .                                    # Mojo: every route proxied
+mojo-anything app wire . api-mojo --route 'GET /users/{id}' --route '*'
 mojo-anything app lift .
 ```
-
-The server front door is still the Rust one from before the move to Mojo (an axum server in
-`mojo/app`, wiring Rust crates); the Mojo server comes later in Milestone 6.
 
 - Requests come from `curl` lines in the app's docs (`curl -X POST -d ... http://localhost:8080/x`),
   `--inputs` (`{"name", "method", "path", "headers", "body"}`) and traps: path segments and query
@@ -206,10 +203,24 @@ The server front door is still the Rust one from before the move to Mojo (an axu
 - Cases are `mojo/app-cases/http/<case>.toml` (the request, the status and the headers that
   matter) and `<case>.body` (the response body, with `[..]` where two runs differed). Date, server
   and other per-response headers are left out; delete any header line you do not care about.
-- The front door is an axum server that starts the original on a port of its own and proxies
-  every route no unit answers. `wire --route` takes axum routes: `METHOD /path/{param}`, `/path`
-  for any method, `*` for everything else; the glue gets the route, its parameters and the
-  request. `lift` removes the proxy; HTTP cases then run in CI with `app replay`.
+- The front door is a Mojo server in `mojo/app` (a pixi project: `main.mojo` accepts
+  connections, `http.mojo` reads and writes HTTP/1.1 on the C library's sockets with
+  `TCP_NODELAY`, keep-alive and chunked bodies, `original.mojo` starts the original on a free port
+  of its own and proxies to it, `units.mojo` routes), built with `mojo build --Werror` into
+  `mojo/app/.mojo-anything/build`. It answers one request at a time; an idle keep-alive
+  connection is closed as soon as another client waits. The original gets SIGTERM when the front
+  door ends (Linux). Why sockets and not Python's `http.server`:
+  [the route decision](superpowers/specs/2026-11-21-mojo-server-route.md).
+- `wire --route` takes a Mojo unit (`mojo/<name>` with `port.mojo`) and routes `METHOD
+  /path/{param}`, `/files/{*rest}`, `/path` for any method, `*` for everything else. Each route
+  gets a function in `mojo/app/glue/<unit>.mojo`, named after it (`GET /users/{id}` is
+  `get_users_id`, `*` is `fallback`): `def get_users_id(req: http.Request, params: Dict[String,
+  String]) raises -> http.Response`, with the parameters percent-decoded; answer with
+  `http.text(status, body)` or `http.Response(status, content_type, body)`, or hand the request
+  back with `original.proxy(req)`. Static paths are matched before paths with parameters, and
+  `*` last. `MOJO_ANYTHING_UNIT_<NAME>=original` sends a unit's routes back to the original.
+- `lift` removes `original.mojo` and the proxy (a route no unit answers is a 404) on a copy, as
+  for a CLI; HTTP cases then run in CI with `app replay --build`.
 
 ### Libraries
 

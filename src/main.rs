@@ -483,14 +483,13 @@ enum AppCmd {
     Wire {
         /// Repository root.
         repo: PathBuf,
-        /// The unit: its folder, its name under `mojo/` (or `rust/` for a server), or the unit
-        /// id it was bridged from.
+        /// The unit: its folder, its name under `mojo/`, or the unit id it was bridged from.
         unit: String,
         /// A command the unit answers. Repeatable; kept from the last wire when omitted.
         #[arg(long = "command")]
         commands: Vec<String>,
-        /// Servers: a route the unit answers, axum syntax (`GET /users/{id}`, `/path` for any
-        /// method, `*` for everything else). Repeatable; kept from the last wire when omitted.
+        /// Servers: a route the unit answers (`GET /users/{id}`, `/files/{*rest}`, `/path` for
+        /// any method, `*` for everything else). Repeatable; kept from the last wire when omitted.
         #[arg(long = "route")]
         routes: Vec<String>,
         /// Do not run gate on the unit first (it just passed).

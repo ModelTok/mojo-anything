@@ -1,7 +1,7 @@
-//! HTTP servers end to end, on the same small server written in each of the six languages:
-//! record and replay (a changed error message is caught), then the axum front door, wiring
-//! every route to a Rust unit, the lift, and a replay of the pure binary with the original gone.
-//! A language is skipped when its runtime is missing.
+//! HTTP servers end to end, on the same small server written in each of the eight languages:
+//! record and replay (a changed error message is caught), then the Mojo front door proxying
+//! every route, wiring every route to a Mojo unit, the lift, and a replay of the pure binary with
+//! the original gone. A language is skipped when its runtime (or Mojo) is missing.
 
 mod common;
 
@@ -10,6 +10,7 @@ use std::process::Command;
 
 use mojo_anything::app::{self, RecordOptions, ReplayOptions};
 use mojo_anything::front_door::{self, FrontDoorOptions, WireOptions};
+use mojo_anything::front_door_mojo;
 use mojo_anything::lift::{self, LiftOptions};
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -189,8 +190,24 @@ fn http_fresh_files_and_arguments_reach_every_start() {
     let body = std::fs::read_to_string(out.dir.join("a2.body")).unwrap();
     let config = app::Config::load(&repo).unwrap().unwrap();
     let replayed = replay(&repo, None);
+    // The Mojo front door gets the same arguments and fresh files on every start, and its
+    // original runs where the front door runs, not in the repository.
+    let door = common::have_mojo().then(|| {
+        front_door::front_door(&FrontDoorOptions {
+            repo: &repo,
+            library: false,
+            check: true,
+        })
+        .unwrap()
+        .replay
+        .unwrap()
+    });
     let untouched = std::fs::read_to_string(repo.join("data/count.txt")).unwrap();
     std::fs::remove_dir_all(&repo).unwrap();
+    if let Some(door) = door {
+        assert_eq!(door.passed, 2, "{:?}", door.failures);
+        assert_eq!(door.fallback.unwrap().cases, 2);
+    }
     assert!(out.noisy.is_empty(), "{:?}", out.noise);
     assert_eq!(body, "1");
     assert_eq!(untouched, "0");
@@ -252,9 +269,18 @@ fn http_rerecord_uses_the_existing_fixed_port() {
     };
     let first = record(Some(port));
     let second = record(None);
+    // The Mojo front door starts the original on a port of its own, so it refuses a server
+    // recorded on a fixed one, and says what to change.
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo: &repo,
+        library: false,
+        check: false,
+    });
     std::fs::remove_dir_all(repo).unwrap();
     assert!(first.unwrap().cases > 0);
     assert!(second.unwrap().cases > 0);
+    let err = format!("{:#}", door.unwrap_err());
+    assert!(err.contains("a port of its own"), "{err}");
 }
 
 /// The command that runs the server; `buggy` builds a copy whose division-by-zero message changed.
@@ -301,84 +327,126 @@ fn prepare(lang: &Lang, repo: &Path, buggy: bool) -> String {
     }
 }
 
-const API_PORT: &str = "pub fn upper(text: &str) -> String {
-    text.to_uppercase()
-}
+const API_PORT_MOJO: &str = "# The Mojo port of the server's text and arithmetic.
 
-pub fn div(a: i64, b: i64) -> Option<(i64, i64)> {
-    (b != 0).then(|| (a / b, a % b))
-}
+
+def upper(text: String) -> String:
+    return text.upper()
+
+
+def div(a: Int, b: Int) -> Tuple[Int, Int]:
+    return (a // b, a % b)
 ";
 
-const API_GLUE: &str = "use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+/// Glue for every route of the server fixture, in Mojo.
+const API_GLUE_MOJO: &str = "from std.time import perf_counter_ns
 
-use api_rs::port;
-use axum::body::Body;
-use axum::extract::Request;
-use axum::http::{StatusCode, header};
-use axum::response::Response;
+import http
+from api import port
 
-const TEXT: &str = \"text/plain; charset=utf-8\";
 
-fn reply(status: StatusCode, content_type: &str, body: String) -> Response {
-    Response::builder()
-        .status(status)
-        .header(header::CONTENT_TYPE, content_type)
-        .body(Body::from(body))
-        .unwrap_or_default()
+def get_hello(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    return http.Response(200, \"application/json\", '{\"message\":\"hello\"}')
+
+
+def post_upper(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    return http.text(200, port.upper(req.text()))
+
+
+def get_div_a_b(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    var a: Int
+    var b: Int
+    try:
+        a = Int(params.get(\"a\", String()))
+        b = Int(params.get(\"b\", String()))
+    except:
+        return http.text(400, \"error: not a number\\n\")
+    if b == 0:
+        return http.text(400, \"error: division by zero\\n\")
+    var qr = port.div(a, b)
+    return http.text(
+        200, String(a, \" / \", b, \" = \", qr[0], \" remainder \", qr[1], \"\\n\")
+    )
+
+
+def get_now(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    return http.text(200, String(\"now: \", perf_counter_ns(), \"\\n\"))
+
+
+def fallback(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    return http.text(404, \"not found\\n\")
+";
+
+/// Glue that answers `GET /hello` only.
+const HELLO_GLUE_MOJO: &str = "import http
+
+
+def get_hello(
+    req: http.Request, params: Dict[String, String]
+) raises -> http.Response:
+    return http.Response(200, \"application/json\", '{\"message\":\"hello\"}')
+";
+
+fn write_api_unit(repo: &Path) {
+    let unit = repo.join("mojo/api-mojo");
+    std::fs::create_dir_all(&unit).unwrap();
+    std::fs::write(unit.join("port.mojo"), API_PORT_MOJO).unwrap();
+    std::fs::write(
+        unit.join("pixi.toml"),
+        front_door_mojo::pixi_toml_app("api-mojo", false),
+    )
+    .unwrap();
 }
 
-pub async fn handle(route: &str, params: HashMap<String, String>, req: Request) -> Response {
-    match route {
-        \"GET /hello\" => reply(
-            StatusCode::OK,
-            \"application/json\",
-            \"{\\\"message\\\":\\\"hello\\\"}\".to_string(),
-        ),
-        \"POST /upper\" => {
-            let body = axum::body::to_bytes(req.into_body(), usize::MAX)
-                .await
-                .unwrap_or_default();
-            reply(
-                StatusCode::OK,
-                TEXT,
-                port::upper(&String::from_utf8_lossy(&body)),
-            )
-        }
-        \"GET /div/{a}/{b}\" => {
-            let a = params.get(\"a\").and_then(|a| a.parse::<i64>().ok());
-            let b = params.get(\"b\").and_then(|b| b.parse::<i64>().ok());
-            match (a, b) {
-                (Some(a), Some(b)) => match port::div(a, b) {
-                    Some((q, r)) => reply(
-                        StatusCode::OK,
-                        TEXT,
-                        format!(\"{a} / {b} = {q} remainder {r}\\n\"),
-                    ),
-                    None => reply(
-                        StatusCode::BAD_REQUEST,
-                        TEXT,
-                        \"error: division by zero\\n\".to_string(),
-                    ),
-                },
-                _ => reply(
-                    StatusCode::BAD_REQUEST,
-                    TEXT,
-                    \"error: not a number\\n\".to_string(),
-                ),
-            }
-        }
-        \"GET /now\" => {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos());
-            reply(StatusCode::OK, TEXT, format!(\"now: {nanos}\\n\"))
-        }
-        _ => reply(StatusCode::NOT_FOUND, TEXT, \"not found\\n\".to_string()),
+fn wire(repo: &Path, routes: &[&str], check: bool) -> front_door::WireOutcome {
+    front_door::wire(&WireOptions {
+        repo,
+        unit: "api-mojo",
+        commands: &[],
+        routes: &routes.iter().map(|r| r.to_string()).collect::<Vec<_>>(),
+        skip_gate: true,
+        check,
+    })
+    .unwrap()
+}
+
+fn front_door_proxies_everything(repo: &Path) -> front_door::FrontDoorOutcome {
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo,
+        library: false,
+        check: true,
+    })
+    .unwrap();
+    let app = repo.join(front_door::APP_DIR);
+    for file in [
+        "main.mojo",
+        "original.mojo",
+        "units.mojo",
+        "http.mojo",
+        "pixi.toml",
+    ] {
+        assert!(app.join(file).is_file(), "{file}");
     }
+    assert!(!app.join("Cargo.toml").exists());
+    let replayed = door.replay.as_ref().unwrap();
+    assert_eq!(replayed.passed, replayed.total, "{:?}", replayed.failures);
+    assert_eq!(
+        replayed.fallback.as_ref().unwrap().cases,
+        replayed.total,
+        "every route is proxied"
+    );
+    door
 }
-";
 
 fn check_language(lang: &Lang) {
     let (program, arg) = lang.runtime;
@@ -424,51 +492,28 @@ fn check_language(lang: &Lang) {
     }
     std::fs::remove_dir_all(&repo).unwrap();
 
-    if !common::have("cargo") {
+    if !common::have_mojo() {
         return;
     }
     let repo = fixture(lang.name, "lift");
     let run = prepare(lang, &repo, false);
     record(&repo, &run, false);
-    let door = front_door::front_door(&FrontDoorOptions {
-        repo: &repo,
-        library: false,
-        check: true,
-    })
-    .unwrap();
+    let door = front_door_proxies_everything(&repo);
     assert!(
         door.routes.contains(&"GET /div/7/2".to_string()),
         "{door:?}"
     );
-    let replayed = door.replay.unwrap();
-    assert_eq!(replayed.passed, replayed.total, "{:?}", replayed.failures);
-    assert_eq!(replayed.fallback.unwrap().cases, replayed.total);
 
-    let unit = repo.join("rust/api-rs");
-    std::fs::create_dir_all(unit.join("src")).unwrap();
-    std::fs::write(
-        unit.join("Cargo.toml"),
-        "[package]\nname = \"api-rs\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n",
-    )
-    .unwrap();
-    std::fs::write(unit.join("src/lib.rs"), "pub mod port;\n").unwrap();
-    std::fs::write(unit.join("src/port.rs"), API_PORT).unwrap();
-    let wire = |routes: &[&str], check: bool| {
-        front_door::wire(&WireOptions {
-            repo: &repo,
-            unit: "api",
-            commands: &[],
-            routes: &routes.iter().map(|r| r.to_string()).collect::<Vec<_>>(),
-            skip_gate: true,
-            check,
-        })
-        .unwrap()
-    };
+    write_api_unit(&repo);
     let routes = ["GET /hello", "POST /upper", "GET /div/{a}/{b}", "GET /now"];
-    let stub = wire(&routes, false);
+    let stub = wire(&repo, &routes, false);
     assert!(stub.glue_pending);
-    std::fs::write(&stub.glue, API_GLUE).unwrap();
-    let partial = wire(&[], true).replay.unwrap();
+    assert_eq!(
+        stub.glue,
+        repo.join(front_door::APP_DIR).join("glue/api.mojo")
+    );
+    std::fs::write(&stub.glue, API_GLUE_MOJO).unwrap();
+    let partial = wire(&repo, &[], true).replay.unwrap();
     assert_eq!(partial.passed, partial.total, "{:?}", partial.failures);
     let fallback = partial.fallback.unwrap();
     assert_eq!(fallback.names, ["example-006-get-missing"], "{fallback:?}");
@@ -484,14 +529,16 @@ fn check_language(lang: &Lang) {
 
     let mut all = routes.to_vec();
     all.push("*");
-    let full = wire(&all, true).replay.unwrap();
+    let full = wire(&repo, &all, true).replay.unwrap();
     assert_eq!(full.passed, full.total, "{:?}", full.failures);
     assert_eq!(full.fallback.unwrap().cases, 0);
-    sh(&repo.join(front_door::APP_DIR), "cargo", &["fmt"]);
-    sh(&unit, "cargo", &["fmt"]);
 
     let lifted = lift::lift(&LiftOptions { repo: &repo }).unwrap();
-    assert!(lifted.lifted, "{:?}", lifted.blockers);
+    assert!(
+        lifted.lifted,
+        "{:?}\n{:?}",
+        lifted.blockers, lifted.checklist
+    );
     assert!(
         lifted.checklist.iter().all(|i| i.mark != lift::Mark::Fail),
         "{:?}",
@@ -503,12 +550,7 @@ fn check_language(lang: &Lang) {
             .iter()
             .any(|i| i.name == "replay in CI" && i.mark == lift::Mark::Warn)
     );
-    let app_dir = repo.join(front_door::APP_DIR);
-    assert!(!app_dir.join("src/original.rs").exists());
-    let cargo = std::fs::read_to_string(app_dir.join("Cargo.toml")).unwrap();
-    assert!(!cargo.contains("reqwest"), "{cargo}");
-    let units = std::fs::read_to_string(app_dir.join("src/units/mod.rs")).unwrap();
-    assert!(!units.contains("original"), "{units}");
+    assert_lifted_without_proxy(&repo);
 
     let hidden = repo.join(format!("{}.hidden", lang.original));
     std::fs::rename(repo.join(lang.original), &hidden).unwrap();
@@ -520,6 +562,91 @@ fn check_language(lang: &Lang) {
     assert!(pure.fallback.is_none());
     std::fs::rename(&hidden, repo.join(lang.original)).unwrap();
     std::fs::remove_dir_all(&repo).unwrap();
+}
+
+/// The lifted server has no original to start and no proxy to it.
+fn assert_lifted_without_proxy(repo: &Path) {
+    let app_dir = repo.join(front_door::APP_DIR);
+    assert!(!app_dir.join("original.mojo").exists());
+    assert!(!app_dir.join("Cargo.toml").exists());
+    for file in ["main.mojo", "units.mojo", "glue/api.mojo"] {
+        let text = std::fs::read_to_string(app_dir.join(file)).unwrap();
+        assert!(!text.contains("original"), "{file}: {text}");
+        assert!(!text.contains("forward("), "{file}: {text}");
+    }
+}
+
+#[test]
+fn http_wire_route_in_mojo() {
+    if !common::have("python3") || !common::have_mojo() {
+        return;
+    }
+    let repo = fixture("python", "wire-one");
+    record(&repo, "python3 server.py", false);
+    let door = front_door_proxies_everything(&repo);
+    let total = door.replay.unwrap().total;
+    write_api_unit(&repo);
+    let stub = wire(&repo, &["GET /hello"], true);
+    // The stub hands the route back to the original: nothing changes yet.
+    assert!(stub.glue_pending);
+    let before = stub.replay.unwrap();
+    assert_eq!(before.passed, total, "{:?}", before.failures);
+    assert_eq!(before.fallback.unwrap().cases, total);
+    std::fs::write(&stub.glue, HELLO_GLUE_MOJO).unwrap();
+    let after = wire(&repo, &[], true).replay.unwrap();
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert_eq!(after.passed, total, "{:?}", after.failures);
+    let fallback = after.fallback.unwrap();
+    assert_eq!(fallback.cases, total - 1, "{fallback:?}");
+    assert!(
+        !fallback.names.iter().any(|n| n.contains("hello")),
+        "{fallback:?}"
+    );
+}
+
+#[test]
+fn http_lift_has_no_proxy() {
+    if !common::have("python3") || !common::have_mojo() {
+        return;
+    }
+    let repo = fixture("python", "lift-no-proxy");
+    record(&repo, "python3 server.py", false);
+    front_door_proxies_everything(&repo);
+    write_api_unit(&repo);
+    let stub = wire(
+        &repo,
+        &[
+            "GET /hello",
+            "POST /upper",
+            "GET /div/{a}/{b}",
+            "GET /now",
+            "*",
+        ],
+        false,
+    );
+    std::fs::write(&stub.glue, API_GLUE_MOJO).unwrap();
+    let lifted = lift::lift(&LiftOptions { repo: &repo }).unwrap();
+    assert!(
+        lifted.lifted,
+        "{:?}\n{:?}",
+        lifted.blockers, lifted.checklist
+    );
+    assert_lifted_without_proxy(&repo);
+    let state =
+        std::fs::read_to_string(repo.join(front_door::APP_DIR).join(front_door::STATE_FILE))
+            .unwrap();
+    std::fs::rename(repo.join("server.py"), repo.join("server.py.hidden")).unwrap();
+    let pure = replay(
+        &repo,
+        Some(&lifted.binary.as_ref().unwrap().to_string_lossy()),
+    );
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert!(state.contains("\"lifted\": true"), "{state}");
+    assert_eq!(pure.passed, pure.total, "{:?}", pure.failures);
+    assert!(
+        pure.fallback.is_none(),
+        "the lifted server logs no fallback"
+    );
 }
 
 #[test]

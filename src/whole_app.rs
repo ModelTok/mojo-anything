@@ -721,7 +721,8 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
         ),
         match shape {
             "server" => {
-                "Yes: an axum front door (`app front-door`) takes the server over first".into()
+                "Yes: a Mojo server front door (`app front-door`) takes the server over first"
+                    .into()
             }
             "cli" => {
                 "Yes: a clap front door (`app front-door`) takes every command over first".into()
