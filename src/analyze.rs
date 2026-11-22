@@ -38,6 +38,8 @@ pub enum Status {
 #[serde(rename_all = "kebab-case")]
 pub enum Bridge {
     NapiRs,
+    /// A Mojo port reached from Node through a Node-API C shim.
+    MojoNode,
     WasmBindgen,
     /// Keep in the source language (named for JS, the first language; applies to all).
     KeepInJs,
@@ -59,6 +61,7 @@ impl Bridge {
     pub fn label(self) -> &'static str {
         match self {
             Self::NapiRs => "napi-rs",
+            Self::MojoNode => "Mojo (Node-API)",
             Self::WasmBindgen => "wasm-bindgen",
             Self::KeepInJs => "keep",
             Self::MojoPy => "Mojo (Python extension)",
@@ -74,7 +77,7 @@ impl Bridge {
     /// The bridge a language uses for code that can move.
     pub fn for_lang(lang: Lang) -> Self {
         match lang {
-            Lang::Ts => Self::NapiRs,
+            Lang::Ts => Self::MojoNode,
             Lang::Python => Self::MojoPy,
             Lang::C => Self::CAbi,
             Lang::Go => Self::Cgo,
@@ -760,14 +763,14 @@ fn score(u: usize, ctx: &Ctx) -> UnitReport {
     } else if ctx.lang != Lang::Ts {
         Bridge::for_lang(ctx.lang)
     } else if ctx.node_reach[u] || ctx.node_packages.contains(&unit.package) {
-        Bridge::NapiRs
+        Bridge::MojoNode
     } else {
         Bridge::WasmBindgen
     };
     if bridge == Bridge::WasmBindgen {
         notes.push(
             "Portable code: wasm-bindgen keeps it running in browsers and Node. It needs the \
-             wasm32-unknown-unknown target and wasm-bindgen; `bridge --kind napi` runs with what \
+             wasm32-unknown-unknown target and wasm-bindgen; `bridge --kind node` runs with what \
              Node already has."
                 .into(),
         );
@@ -1155,6 +1158,22 @@ fn topological(deps_of: &[Vec<usize>]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ts_bridges_to_mojo_node() {
+        assert_eq!(Bridge::for_lang(Lang::Ts), Bridge::MojoNode);
+        assert_eq!(Bridge::MojoNode.label(), "Mojo (Node-API)");
+        let report =
+            analyze(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini")).unwrap();
+        assert!(
+            report
+                .units
+                .iter()
+                .any(|u| u.bridge.label() == "Mojo (Node-API)"),
+            "{:?}",
+            report.units.iter().map(|u| u.bridge).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn python_bridges_to_mojo_py() {

@@ -657,7 +657,7 @@ fn bind_class(out: &mut String, kind: Kind, c: &PortClass) {
             }
             out.push_str("}\n");
         }
-        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi | Kind::MojoNode => {
             let _ = writeln!(
                 out,
                 "\nfn {snake}_new_inner({ctor_params}) -> Result<port::{name}, String> {{\n{}}}",
@@ -771,7 +771,7 @@ fn bind(out: &mut String, kind: Kind, f: &PortFn) {
             }
             out.push_str("}\n");
         }
-        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => {
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi | Kind::MojoNode => {
             // `?` needs a function boundary: the body lives in a private helper.
             let inner = format!("{}_inner", f.rust_name.trim_start_matches("r#"));
             let _ = writeln!(
@@ -854,7 +854,7 @@ pub fn index_cjs(m: &Manifest, api: &PortApi) -> String {
             "// Loads the native module built by `mojo-anything build`.\nconst native = require('./{}.node')\n",
             m.lib_name()
         ),
-        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi => format!(
+        Kind::Wasm | Kind::MojoPy | Kind::CAbi | Kind::Ffi | Kind::MojoNode => format!(
             "// Loads the wasm-bindgen (nodejs target) output built by `mojo-anything build`.\nconst native = require('./pkg/{}.js')\n",
             m.lib_name()
         ),
@@ -1189,7 +1189,7 @@ pub fn required_deps(kind: Kind, api: &PortApi) -> Vec<(&'static str, String)> {
         // A Mojo unit has no Cargo dependencies.
         Kind::MojoPy => {}
         // The C ABI needs no binding crate.
-        Kind::CAbi | Kind::Ffi => {}
+        Kind::CAbi | Kind::Ffi | Kind::MojoNode => {}
         Kind::Wasm => {
             deps.push(("wasm-bindgen", r#""0.2""#.into()));
             if any_async {

@@ -524,6 +524,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
             crate::harness_go::build(crate_dir, &manifest)
         }
         Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
+        Kind::MojoNode => bail!("building mojo-node units is not wired yet"),
         Kind::Napi => {
             let target = crate_dir.join("target");
             run(

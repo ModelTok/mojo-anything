@@ -183,7 +183,7 @@ pub fn package(opts: &Options) -> Result<Outcome> {
                 out.display()
             ));
         }
-        Kind::CAbi | Kind::Ffi => bail!(
+        Kind::CAbi | Kind::Ffi | Kind::MojoNode => bail!(
             "package covers napi-rs and wasm-bindgen crates; this one is {:?}",
             manifest.kind
         ),

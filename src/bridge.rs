@@ -36,13 +36,17 @@ pub enum Kind {
     /// A Python extension module written in Mojo, imported by a generated wrapper package.
     #[serde(rename = "mojo-py")]
     MojoPy,
+    /// A Mojo port of a TS/JS unit, reached from Node through a Node-API C shim over the JSON
+    /// dispatcher.
+    #[serde(rename = "mojo-node")]
+    MojoNode,
 }
 
 /// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     use crate::lang::Lang;
     match kind {
-        Kind::MojoPy | Kind::CAbi => true,
+        Kind::MojoPy | Kind::CAbi | Kind::MojoNode => true,
         Kind::Ffi => matches!(language, Lang::Go | Lang::Ruby),
         Kind::Napi | Kind::Wasm => false,
     }
@@ -1115,6 +1119,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
+        // `mojo-node` units are bridged by default once their bridge exists (M4 Task 3).
         _ => Kind::Napi,
     });
 
@@ -1844,6 +1849,7 @@ fn readme(m: &Manifest) -> String {
             Kind::MojoPy => "a Mojo Python extension",
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
+            Kind::MojoNode => "a Node-API addon over the JSON dispatcher",
         },
     )
 }
@@ -1924,6 +1930,14 @@ mod tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_kind_round_trips() {
+        assert_eq!(serde_json::to_value(Kind::MojoNode).unwrap(), "mojo-node");
+        let k: Kind = serde_json::from_value(serde_json::json!("mojo-node")).unwrap();
+        assert_eq!(k, Kind::MojoNode);
+        assert!(mojo_unit(Kind::MojoNode, crate::lang::Lang::Ts));
+    }
 
     #[test]
     fn readmes_name_the_port_language() {

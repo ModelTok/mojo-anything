@@ -85,7 +85,7 @@ fn finds_risks_with_locations() {
 fn picks_status_and_bridge() {
     let report = mini();
     let fs = unit(&report, "packages/a/src/fs.ts");
-    assert_eq!((fs.status, fs.bridge), (Status::Ready, Bridge::NapiRs));
+    assert_eq!((fs.status, fs.bridge), (Status::Ready, Bridge::MojoNode));
     let view = unit(&report, "packages/a/src/view/");
     assert_eq!((view.status, view.bridge), (Status::Keep, Bridge::KeepInJs));
     assert_eq!(
@@ -193,7 +193,7 @@ fn json_output_is_versioned() {
     let json = serde_json::to_value(mini()).unwrap();
     assert_eq!(json["schema"], "mojo-anything/analyze@1");
     assert_eq!(json["units"][0]["status"], "ready");
-    assert_eq!(json["units"][0]["bridge"], "napi-rs");
+    assert_eq!(json["units"][0]["bridge"], "mojo-node");
 }
 
 fn whole(dir: &str) -> mojo_anything::whole_app::WholeApp {

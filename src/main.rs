@@ -34,7 +34,8 @@ struct Cli {
 
 #[derive(Clone, Copy, ValueEnum)]
 enum KindArg {
-    Napi,
+    /// A Mojo port behind a Node-API addon.
+    Node,
     Wasm,
 }
 
@@ -594,7 +595,7 @@ fn run() -> Result<ExitCode> {
                 root: &root,
                 unit: &unit,
                 kind: kind.map(|k| match k {
-                    KindArg::Napi => bridge::Kind::Napi,
+                    KindArg::Node => bridge::Kind::MojoNode,
                     KindArg::Wasm => bridge::Kind::Wasm,
                 }),
                 out,
