@@ -211,7 +211,7 @@ so an upstream change cannot pass silently.
 ports it, the functions in Rust and kept in the original, the cases and the last `diff`, the
 whole app's glue (Mojo only, or still handing cases to the original), the units not ported yet,
 and every port whose original changed since it was recorded. `map --write` saves it as
-`rust/PORT_MAP.md`; committed, it shows each upstream change as a diff. `map --check` exits 1
+`mojo/PORT_MAP.md`; committed, it shows each upstream change as a diff. `map --check` exits 1
 while any recording is stale, for CI.
 
 After an upstream change: pull it, run `map`, and for each port marked **changed** run `record`

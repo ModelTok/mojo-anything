@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.erkamyaman/mojo-anything",
+  "name": "io.github.ModelTok/mojo-anything",
   "title": "mojo-anything",
-  "description": "Rewrite an app in Rust one piece at a time, checked against the original's recorded behavior.",
+  "description": "Rewrite an app in Mojo one piece at a time, checked against the original's recorded behaviour.",
   "repository": {
-    "url": "https://github.com/erkamyaman/rust-anything",
+    "url": "https://github.com/ModelTok/mojo-anything",
     "source": "github"
   },
-  "websiteUrl": "https://github.com/erkamyaman/rust-anything",
-  "version": "2.1.0",
+  "websiteUrl": "https://github.com/ModelTok/mojo-anything",
+  "version": "0.1.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mojo-anything",
-      "version": "2.1.0",
+      "version": "0.1.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

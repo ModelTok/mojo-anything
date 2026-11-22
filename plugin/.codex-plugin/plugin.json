@@ -1,16 +1,16 @@
 {
   "name": "mojo-anything",
-  "version": "2.1.0",
-  "description": "Rewrite your app in Rust, one piece at a time, checked against the original's recorded behavior at every step: profile, bridge, record, diff, bench, shadow and gate, for TypeScript/JavaScript, Python, C, Go, Ruby and Java, with whole-app record and replay for PHP and C#.",
+  "version": "0.1.0",
+  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step: profile, bridge, record, diff, bench, shadow and gate, for TypeScript/JavaScript, Python, C, Go, Ruby, Java and Kotlin, with whole-app record and replay for PHP and C#. Runs on Linux (x64, arm64) and macOS (arm64).",
   "author": {
-    "name": "Erkam Yaman",
-    "url": "https://github.com/erkamyaman"
+    "name": "ModelTok",
+    "url": "https://github.com/ModelTok"
   },
-  "homepage": "https://github.com/erkamyaman/rust-anything",
-  "repository": "https://github.com/erkamyaman/rust-anything",
+  "homepage": "https://github.com/ModelTok/mojo-anything",
+  "repository": "https://github.com/ModelTok/mojo-anything",
   "license": "MIT",
   "keywords": [
-    "rust",
+    "mojo",
     "performance",
     "migration",
     "mcp",
@@ -20,12 +20,12 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "mojo-anything",
-    "shortDescription": "Rewrite your app in Rust one piece at a time, checked against the original.",
+    "shortDescription": "Rewrite your app in Mojo one piece at a time, checked against the original.",
     "category": "Coding",
-    "developerName": "Erkam Yaman",
-    "websiteUrl": "https://github.com/erkamyaman/rust-anything",
-    "privacyPolicyUrl": "https://github.com/erkamyaman/rust-anything/blob/main/docs/privacy.md",
-    "termsOfServiceUrl": "https://github.com/erkamyaman/rust-anything/blob/main/LICENSE",
+    "developerName": "ModelTok",
+    "websiteUrl": "https://github.com/ModelTok/mojo-anything",
+    "privacyPolicyUrl": "https://github.com/ModelTok/mojo-anything/blob/main/docs/privacy.md",
+    "termsOfServiceUrl": "https://github.com/ModelTok/mojo-anything/blob/main/LICENSE",
     "logo": "./.claude-plugin/icon.png"
   }
 }

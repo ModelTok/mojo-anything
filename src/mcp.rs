@@ -165,10 +165,17 @@ pub fn handle(request: &Value) -> Option<Value> {
         "initialize" => json!({
             "protocolVersion": request["params"]["protocolVersion"].as_str().unwrap_or(PROTOCOL_VERSION),
             "capabilities": { "tools": {}, "prompts": {} },
-            "serverInfo": { "name": "mojo-anything", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "Incremental TS/JS to Rust migration. Loop per unit: analyze -> bridge -> \
-                record -> (port src/port.rs) -> build -> diff -> shadow -> gate. Never mark a port done \
-                before gate passes.",
+            "serverInfo": {
+                "name": "mojo-anything",
+                "title": "mojo-anything: port code to Mojo",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "instructions": "Incremental migration to Mojo of TypeScript/JavaScript, Python, C, Go, \
+                Ruby, Java and Kotlin code, one unit at a time, the original's callers keeping their \
+                API. Loop per unit: analyze -> bridge -> record -> (write the port in port.mojo) -> \
+                build -> diff -> shadow -> gate. Never mark a port done before gate passes. A whole \
+                app: app_record -> app_front_door (mojo/app) -> the loop and app_wire per unit -> \
+                app_lift.",
         }),
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools() }),
@@ -260,8 +267,22 @@ const FAILURES: &[FailureKind] = &[
     FailureKind {
         code: "build_failed",
         retryable: false,
-        matches: |t| t.contains("cargo build") && t.contains("failed"),
+        matches: |t| {
+            // The first line names the step: `mojo build ...`, `mojo precompile ...`, `cc ...`
+            // (the Node-API shim) or `wasm-ld` (the wasm module), then `failed`.
+            let first = t.lines().next().unwrap_or_default();
+            ["mojo build", "mojo precompile", "cc ", "wasm-ld"]
+                .iter()
+                .any(|step| first.starts_with(step))
+                && first.contains(" failed")
+        },
         next: Some("fix the compiler errors in the message, then mojo-anything build {path}"),
+    },
+    FailureKind {
+        code: "not_built",
+        retryable: false,
+        matches: |t| t.starts_with("no built library at"),
+        next: Some("mojo-anything build {path}"),
     },
     FailureKind {
         code: "invalid_arguments",
@@ -318,17 +339,13 @@ const fn meta(
 }
 
 /// `[readOnly, destructive, idempotent, openWorld]` per tool. Tools that run the original's
-/// code, test commands or cargo are open-world; only app_lift rewrites files the user wrote.
+/// code, test commands or the Mojo compiler are open-world; only app_lift rewrites files the user wrote.
 const TOOL_META: &[ToolMeta] = &[
     meta("analyze", "Analyze repository", [true, false, true, false]),
-    meta(
-        "bridge",
-        "Scaffold unit crate",
-        [false, false, false, false],
-    ),
+    meta("bridge", "Scaffold Mojo unit", [false, false, false, false]),
     meta(
         "refresh",
-        "Regenerate bindings",
+        "Regenerate generated layers",
         [false, false, true, false],
     ),
     meta(
@@ -336,14 +353,14 @@ const TOOL_META: &[ToolMeta] = &[
         "Record original behavior",
         [false, false, false, true],
     ),
-    meta("build", "Build crate", [false, false, true, true]),
+    meta("build", "Build Mojo port", [false, false, true, true]),
     meta(
         "diff",
         "Diff port against recording",
         [false, false, true, true],
     ),
     meta("profile", "Profile workload", [false, false, true, true]),
-    meta("bench", "Benchmark port", [false, false, true, true]),
+    meta("bench", "Benchmark Mojo port", [false, false, true, true]),
     meta(
         "fuzz",
         "Fuzz port against original",
@@ -373,7 +390,11 @@ const TOOL_META: &[ToolMeta] = &[
         [false, false, false, true],
     ),
     meta("app_wire", "Wire unit into app", [false, false, true, true]),
-    meta("app_lift", "Lift to pure app", [false, true, false, true]),
+    meta(
+        "app_lift",
+        "Lift to pure Mojo app",
+        [false, true, false, true],
+    ),
 ];
 
 fn tools() -> Value {
@@ -395,20 +416,20 @@ fn tools() -> Value {
 }
 
 fn tool_schemas() -> Value {
-    let crate_dir = json!({ "type": "string", "description": "Folder of the generated crate (holds mojo-anything.json)." });
+    let crate_dir = json!({ "type": "string", "description": "The Mojo port's folder (holds mojo-anything.json and port.mojo)." });
     json!([
         {
             "name": "analyze",
-            "description": "Map a repository (TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin): units, port order (waves), risks with file:line, bridge per unit, dependency-to-crate fit, and `start_here`: the best first ports.",
+            "description": "Map a repository (TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin; PHP and C# for whole apps) for a port to Mojo: units, port order (waves), risks with file:line, the Mojo bridge per unit, what replaces each dependency in Mojo (a stdlib module, a pixi package or a Python module through CPython interop) with its fit, and `start_here`: the best first ports.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string", "description": "Repository root." },
                 "lang": { "type": "string", "enum": ["ts", "python", "c", "go", "ruby", "java", "kotlin", "php", "csharp"], "description": "Source language; detected from the repository when omitted." },
-                "whole_app": { "type": "boolean", "description": "Plan a whole-app port: entry points and shape (cli, server, library), every dependency imported or declared with its crate and fit, pieces in port order (units that import each other together), and numbered decisions with a recommended answer for the grilling round." },
+                "whole_app": { "type": "boolean", "description": "Plan a whole-app port: entry points and shape (cli, server, library), every dependency imported or declared with its Mojo replacement and fit, pieces in port order (units that import each other together), and numbered decisions with a recommended answer for the grilling round." },
             }, "required": ["root"] },
         },
         {
             "name": "bridge",
-            "description": "Scaffold the port of one unit: stubs to port in port.mojo and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
+            "description": "Scaffold the Mojo port of one unit in <root>/mojo/<name>: stubs to port in port.mojo and the generated layers its callers need, so they keep the original's API: a Python extension module and wrapper package (mojo-py), C exports with the original names (c-abi), a JSON dispatcher behind a Go cgo or Ruby Fiddle wrapper (ffi), a Node-API addon or a wasm64 module behind index.cjs for TS/JS (mojo-node, mojo-wasm), Java classes over the Foreign Function & Memory API for Java and Kotlin (mojo-jvm). Never overwrites an existing folder.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "unit": { "type": "string", "description": "Unit id from analyze." },
@@ -423,7 +444,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "refresh",
-            "description": "Regenerate a port's generated layers from the signatures in port.mojo, after changing them, adding any new batch classes. Never touches the port.",
+            "description": "Regenerate a Mojo port's generated layers (dispatcher, wrappers, index.cjs, Java classes) from the signatures in port.mojo, after changing them, adding any new batch classes. Never touches port.mojo.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes to add, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
@@ -438,33 +459,33 @@ fn tool_schemas() -> Value {
                 "inputs": { "type": "string", "description": "JSONL file of extra cases: {\"fn\": name, \"args\": [...]}." },
                 "module": { "type": "string", "description": "JS only: import the original from this JS module instead of the TS source." },
                 "resolve_from": { "type": "string", "description": "Resolve npm packages from this folder's node_modules." },
-                "float_tolerance": { "type": "number", "description": "Numeric code: floats match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9. Saved with the crate for diff and gate; 0 removes it." },
+                "float_tolerance": { "type": "number", "description": "Numeric code: floats match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9. Saved with the port for diff and gate; 0 removes it." },
                 "node_args": { "type": "array", "items": { "type": "string" }, "description": "Extra arguments for node, e.g. [\"--import=tsx\"]." },
                 "test_command": { "type": "array", "items": { "type": "string" }, "description": "TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. [\"npx\", \"jest\"] or [\"pytest\"]. Runs in the original's folder." },
-                "pin_clock": { "type": "boolean", "description": "TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning." },
+                "pin_clock": { "type": "boolean", "description": "TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo). Kept for later runs; false stops pinning." },
             }, "required": ["crate"] },
         },
         {
             "name": "build",
-            "description": "Build the port: the Node-API addon, Python extension or shared library.",
+            "description": "Build the Mojo port with mojo build --Werror: the Python extension (mojo-py), the shared library (c-abi, ffi, mojo-jvm), the shared library and its Node-API addon (mojo-node), or the wasm64 module (mojo-wasm).",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
             }, "required": ["crate"] },
         },
         {
             "name": "diff",
-            "description": "Replay cases.jsonl against the built port and list mismatches.",
+            "description": "Replay cases.jsonl against the built Mojo port, through the same layer the original's callers use, and list mismatches.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "ignore_key_order": { "type": "boolean" },
-                "module": { "type": "string", "description": "Test this JS module instead of the crate's `index.cjs`." },
+                "module": { "type": "string", "description": "Test this JS module instead of the port's `index.cjs`." },
                 "node_args": { "type": "array", "items": { "type": "string" }, "description": "Extra arguments for node, e.g. [\"--import=tsx\"]." },
                 "float_tolerance": { "type": "number", "description": "Floats match within this tolerance for this run (the one saved by record otherwise)." },
             }, "required": ["crate"] },
         },
         {
             "name": "profile",
-            "description": "Run a real workload (a command: node or python3 script, `go test -bench`, java, ruby) under the language's profiler and rank the repository's hot functions by inclusive time, with their callers, call counts and advice: what to port together, and which loops to batch (`bridge` with `batch`). Profile before porting: leaf functions called one at a time are slower in Rust.",
+            "description": "Run a real workload (a command: node or python3 script, `go test -bench`, java, ruby) under the language's profiler and rank the repository's hot functions by inclusive time, with their callers, call counts and advice: what to port together, and which loops to batch (`bridge` with `batch`). Profile before porting: a small function called one item at a time gets slower once ported, since every call crosses into Mojo.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "command": { "type": "array", "items": { "type": "string" }, "description": "The workload, run in root: [\"node\", \"bench.mjs\"]." },
@@ -473,7 +494,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "bench",
-            "description": "Time the recorded cases on the original and on the built Rust module, bridge included; speedup below 1 means the port is slower as its callers call it. Returns the rows and a verdict with advice: ship, keep the slower functions, or port a bigger unit.",
+            "description": "Time the recorded cases on the original and on the built Mojo port, bridge included; speedup below 1 means the port is slower as its callers call it. Returns the rows and a verdict with advice: ship, keep the slower functions, or port a bigger unit.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "resolve_from": { "type": "string" },
@@ -483,7 +504,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "fuzz",
-            "description": "Live differential test: generate fresh inputs from a new seed (the record generator, without the cases already recorded), run them through the original and the built port, and report mismatches the recording missed. Returns the seed to replay, counts and the first mismatches; `keep` appends mismatching (or all) fresh cases to cases.jsonl so the next diff and gate check them. Works wherever record and diff do on this machine (TS/JS, Python, C, Go, Ruby, Java, Kotlin).",
+            "description": "Live differential test: generate fresh inputs from a new seed (the record generator, without the cases already recorded), run them through the original and the built Mojo port, and report mismatches the recording missed. Returns the seed to replay, counts and the first mismatches; `keep` appends mismatching (or all) fresh cases to cases.jsonl so the next diff and gate check them. Works wherever record and diff do on this machine (TS/JS, Python, C, Go, Ruby, Java, Kotlin).",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "cases": { "type": "integer", "description": "Fresh cases per function (and scenarios per class) in each round (default 200)." },
@@ -496,31 +517,31 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "shadow",
-            "description": "Generate a drop-in shadow (a TS or Python module, Go package, Ruby file, Java classes or C file) that runs the original and the Rust port side by side and reports mismatches; MOJO_ANYTHING_MODE=old|shadow|new switches at runtime.",
+            "description": "Generate a drop-in shadow (a TS or Python module, Go package, Ruby file, Java classes or C file) that runs the original and the Mojo port side by side and reports mismatches; MOJO_ANYTHING_MODE=old|shadow|new switches at runtime.",
             "inputSchema": { "type": "object", "properties": { "crate": crate_dir, "out": { "type": "string" } }, "required": ["crate"] },
         },
         {
             "name": "map",
-            "description": "Port map of a repository: each unit of the original with the crate that ports it, its functions in Rust and kept in the original, its cases and last diff, the whole app's glue (Mojo only, or still handing cases to the original), the units not ported yet in the order analyze suggests, and every port whose original changed since it was recorded (`changed_upstream`: re-record it and diff). Read-only; the CLI's `map --write` saves it as rust/PORT_MAP.md.",
+            "description": "Port map of a repository: each unit of the original with the Mojo port of it, its functions in Mojo and kept in the original, its cases and last diff, the whole app's glue (Mojo only, or still handing cases to the original), the units not ported yet in the order analyze suggests, and every port whose original changed since it was recorded (`changed_upstream`: re-record it and diff). Read-only; the CLI's `map --write` saves it as mojo/PORT_MAP.md.",
             "inputSchema": { "type": "object", "properties": {
                 "repo": { "type": "string", "description": "Repository root." },
-                "crates": { "type": "array", "items": { "type": "string" }, "description": "Folders with crates kept outside the repository." }
+                "crates": { "type": "array", "items": { "type": "string" }, "description": "Folders of Mojo ports kept outside the repository." }
             }, "required": ["repo"] },
         },
         {
             "name": "package",
-            "description": "Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Python units get a wheel project, TS/JS units npm packages (per-platform Node-API addon, or one wasm package), Ruby a platform gem and a pure-Ruby gem, Go a module, C a header and libraries with a pkg-config file, Java and Kotlin a Maven jar; each with a workflow for linux-x64, linux-arm64 and darwin-arm64. No package carries the Mojo runtime.",
+            "description": "Lay out installable packages for a gated Mojo port; writes files only, never builds other platforms or publishes. Python units get a wheel project that depends on mojo-compiler==1.2.0 for the Mojo runtime; TS/JS units npm packages (a main package with a Node-API addon per platform, or one wasm package that needs Node 24); Ruby a platform gem and a pure-Ruby gem; Go a module; C a header, libraries and a pkg-config file; Java and Kotlin a jar. Each comes with a workflow for linux-x64, linux-arm64 and darwin-arm64. No package bundles the Mojo runtime: outside a wheel it must be on LD_LIBRARY_PATH or DYLD_LIBRARY_PATH.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
-                "name": { "type": "string", "description": "Package name on npm or PyPI; defaults to the crate name." },
+                "name": { "type": "string", "description": "Package name on npm or PyPI; defaults to the port's name." },
                 "version": { "type": "string", "description": "Package version; defaults to the original package's." },
-                "out": { "type": "string", "description": "Output folder; defaults to <crate>/package." },
+                "out": { "type": "string", "description": "Output folder; defaults to <port>/package." },
                 "dry_run": { "type": "boolean", "description": "List the files, write nothing." },
             }, "required": ["crate"] },
         },
         {
             "name": "gate",
-            "description": "Definition of done: fmt, clippy -D warnings, cargo test, unsafe with SAFETY comments only, no unimplemented functions, build, API present, recorded behavior matches.",
+            "description": "Definition of done for a Mojo port: port.mojo formatted as mojo format writes it, every test_*.mojo passes under mojo run, no function still a stub, abort, raw pointers and external_call only with a # SAFETY: comment (c-abi: no pointers in port.mojo at all), every place the original fails on purpose reached by a recorded failing case, the port at most 3x the original's lines plus 50, mojo build --Werror, every export present (C exports for c-abi, the original classes' public members for mojo-jvm), recorded behaviour matches.",
             "inputSchema": { "type": "object", "properties": { "crate": crate_dir, "node_args": { "type": "array", "items": { "type": "string" }, "description": "Extra arguments for node, e.g. [\"--import=tsx\"]." } }, "required": ["crate"] },
         },
         {
@@ -549,7 +570,7 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "app_replay",
-            "description": "Replay <repo>/mojo/app-cases/ against a build (the original, the front door, the final Rust binary): passed/total, fallback rate when the build reports it, and a report with a diff per failing case (mojo/app-cases/replay-report.md).",
+            "description": "Replay <repo>/mojo/app-cases/ against a build (the original, the Mojo front door, the lifted Mojo binary): passed/total, fallback rate when the build reports it, and a report with a diff per failing case (mojo/app-cases/replay-report.md).",
             "inputSchema": { "type": "object", "properties": {
                 "repo": { "type": "string", "description": "Repository root." },
                 "build": { "type": "string", "description": "Command line of the build to test; the original when omitted." },
@@ -928,6 +949,90 @@ mod tests {
         assert_eq!(unknown["error"]["code"], -32601);
     }
 
+    /// Words that belong to rust-anything's toolchain, not to a Mojo port.
+    fn rust_words() -> regex::Regex {
+        regex::Regex::new(r"(?i)\b(rust|cargo|clippy|napi|pyo3|jni|port\.rs)\b").unwrap()
+    }
+
+    #[test]
+    fn tool_descriptions_name_mojo() {
+        let words = rust_words();
+        let list = handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).unwrap();
+        let tools = list["result"]["tools"].as_array().unwrap();
+        for tool in tools {
+            let text = tool.to_string();
+            let found: Vec<&str> = words.find_iter(&text).map(|m| m.as_str()).collect();
+            assert!(found.is_empty(), "{} says {found:?}: {text}", tool["name"]);
+        }
+        for name in [
+            "analyze",
+            "bridge",
+            "refresh",
+            "build",
+            "diff",
+            "bench",
+            "fuzz",
+            "shadow",
+            "gate",
+            "package",
+            "map",
+            "app_front_door",
+            "app_wire",
+            "app_lift",
+        ] {
+            let tool = tools.iter().find(|t| t["name"] == name).unwrap();
+            let description = tool["description"].as_str().unwrap();
+            assert!(description.contains("Mojo"), "{name}: {description}");
+        }
+        let prompts =
+            handle(&json!({ "jsonrpc": "2.0", "id": 2, "method": "prompts/list" })).unwrap();
+        let text = prompts.to_string();
+        assert!(!words.is_match(&text), "{text}");
+        assert!(text.contains("Mojo"), "{text}");
+    }
+
+    #[test]
+    fn initialize_names_server() {
+        let init =
+            handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }))
+                .unwrap();
+        assert_eq!(init["result"]["serverInfo"]["name"], "mojo-anything");
+        let instructions = init["result"]["instructions"].as_str().unwrap();
+        assert!(!rust_words().is_match(instructions), "{instructions}");
+        assert!(instructions.contains("port.mojo"), "{instructions}");
+    }
+
+    #[test]
+    fn prompts_come_from_mojo_skill() {
+        let skill = include_str!("../skills/mojo-anything/SKILL.md");
+        let first = crate::mcp_prompts::body(skill).lines().next().unwrap();
+        assert!(first.starts_with("# ") && first.contains("Mojo"), "{first}");
+        let words = rust_words();
+        for (name, args) in [
+            (
+                "port_unit",
+                json!({ "path": "/repo", "unit": "src/slug.ts" }),
+            ),
+            ("port_unit", json!({ "path": "/repo" })),
+            ("port_whole_app", json!({ "path": "/repo" })),
+        ] {
+            let got = handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+                "params": { "name": name, "arguments": args } }))
+            .unwrap();
+            let text = got["result"]["messages"][0]["content"]["text"]
+                .as_str()
+                .unwrap();
+            if name == "port_unit" {
+                assert!(text.starts_with(first), "{name}: {text}");
+            }
+            assert!(text.contains(first), "{name}");
+            let description = got["result"]["description"].as_str().unwrap();
+            assert!(description.contains("Mojo"), "{description}");
+            let found: Vec<&str> = words.find_iter(text).map(|m| m.as_str()).collect();
+            assert!(found.is_empty(), "{name} says {found:?}");
+        }
+    }
+
     #[test]
     fn tools_carry_annotations() {
         let list = handle(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).unwrap();
@@ -982,31 +1087,55 @@ mod tests {
         assert_eq!(s["message"], result["content"][0]["text"]);
         assert!(s["code"].is_string() && s["retryable"].is_boolean());
 
-        let args = json!({ "crate": "rust/slug" });
+        let args = json!({ "crate": "mojo/slug" });
         let cases = [
             (
                 "no recorded cases to compare; run `mojo-anything record` first",
                 "no_recording",
                 false,
-                Some("mojo-anything record rust/slug"),
+                Some("mojo-anything record mojo/slug"),
             ),
             (
                 "no cases in mojo/app-cases: run `mojo-anything app record` first",
                 "no_recording",
                 false,
-                Some("mojo-anything app record rust/slug -- <command that runs the original>"),
+                Some("mojo-anything app record mojo/slug -- <command that runs the original>"),
             ),
             (
-                "slug changed since it was recorded: re-run `mojo-anything record rust/slug`",
+                "slug changed since it was recorded: re-run `mojo-anything record mojo/slug`",
                 "stale_recording",
                 false,
-                Some("mojo-anything record rust/slug"),
+                Some("mojo-anything record mojo/slug"),
             ),
             (
-                "cargo build failed (exit status: 101):\nerror[E0308]",
+                "mojo build failed:\nport.mojo:3:5: error: use of unknown declaration 'x'",
                 "build_failed",
                 false,
-                Some("fix the compiler errors in the message, then mojo-anything build rust/slug"),
+                Some("fix the compiler errors in the message, then mojo-anything build mojo/slug"),
+            ),
+            (
+                "mojo build dispatcher.mojo failed:\nerror: ...",
+                "build_failed",
+                false,
+                None,
+            ),
+            (
+                "cc node_shim.c failed:\nnode_shim.c:1: error",
+                "build_failed",
+                false,
+                None,
+            ),
+            (
+                "mojo build --emit llvm failed:\nerror",
+                "build_failed",
+                false,
+                None,
+            ),
+            (
+                "the recorded case `x` failed: expected 1, got 2",
+                "failed",
+                false,
+                None,
             ),
             (
                 "`node x.mjs` was still running after 600s and was stopped",
@@ -1058,13 +1187,13 @@ mod tests {
             .as_str()
             .unwrap();
         assert!(text.contains("`src/slug.ts`") && text.contains("/repo"));
-        assert!(text.contains("# Migration to Rust with mojo-anything"));
+        assert!(text.contains("# Migration to Mojo with mojo-anything"));
         assert!(!text.starts_with("---"));
         let whole = get(4, "port_whole_app", json!({ "path": "/repo" }));
         let text = whole["result"]["messages"][0]["content"]["text"]
             .as_str()
             .unwrap();
-        assert!(text.contains("/repo") && text.contains("# Whole app to a pure Rust app"));
+        assert!(text.contains("/repo") && text.contains("# Whole app to a pure Mojo app"));
         assert_eq!(get(5, "port_unit", json!({}))["error"]["code"], -32602);
         assert_eq!(
             get(6, "nope", json!({ "path": "/repo" }))["error"]["code"],

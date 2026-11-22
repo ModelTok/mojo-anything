@@ -544,7 +544,7 @@ pub fn text(r: &Report) -> String {
     {
         out.push_str(&format!(
             "\nThe agents run `{} mcp`. Restart them, then ask, for example:\n  \
-             \"Profile this repo's slowest workflow with mojo-anything and move the hot loop to Rust.\"\n",
+             \"Profile this repo's slowest workflow with mojo-anything and move the hot loop to Mojo.\"\n",
             r.command.display()
         ));
     }
@@ -845,6 +845,52 @@ mod tests {
         let err = setup(&opts(&home, vec![Agent::OpenCode])).unwrap_err();
         assert!(format!("{err:#}").contains("not valid JSON"), "{err:#}");
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "{ not json");
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn setup_keeps_rust_anything_entry() {
+        // rust-anything is another tool: its entries and its skill are never ours to change.
+        let home = temp_home("rust-anything");
+        let claude = home.join(".claude.json");
+        let rust_entry = json!({"type": "stdio", "command": "/opt/bin/rust-anything", "args": ["mcp"], "env": {}});
+        std::fs::write(
+            &claude,
+            serde_json::to_string_pretty(&json!({"mcpServers": {"rust-anything": rust_entry}}))
+                .unwrap(),
+        )
+        .unwrap();
+        let codex = home.join(".codex/config.toml");
+        std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+        let codex_rust =
+            "[mcp_servers.rust-anything]\ncommand = \"/opt/bin/rust-anything\"\nargs = [\"mcp\"]\n";
+        std::fs::write(&codex, codex_rust).unwrap();
+        let rust_skill = home.join(".claude/skills/rust-anything/SKILL.md");
+        std::fs::create_dir_all(rust_skill.parent().unwrap()).unwrap();
+        std::fs::write(&rust_skill, "---\nname: rust-anything\n---\n").unwrap();
+
+        let mut options = opts(&home, vec![Agent::Claude, Agent::Codex]);
+        let r = setup(&options).unwrap();
+        let said = text(&r);
+        assert!(said.contains("Mojo"), "{said}");
+        assert!(!said.contains("Rust"), "{said}");
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&claude).unwrap()).unwrap();
+        assert_eq!(doc["mcpServers"]["rust-anything"], rust_entry);
+        assert_eq!(doc["mcpServers"][NAME]["command"], "/opt/bin/mojo-anything");
+        let toml = std::fs::read_to_string(&codex).unwrap();
+        assert!(toml.starts_with(codex_rust), "{toml}");
+        assert!(toml.contains("[mcp_servers.mojo-anything]"), "{toml}");
+
+        options.remove = true;
+        setup(&options).unwrap();
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&claude).unwrap()).unwrap();
+        assert_eq!(doc["mcpServers"], json!({"rust-anything": rust_entry}));
+        assert_eq!(std::fs::read_to_string(&codex).unwrap(), codex_rust);
+        assert_eq!(
+            std::fs::read_to_string(&rust_skill).unwrap(),
+            "---\nname: rust-anything\n---\n"
+        );
+        assert!(!home.join(".claude/skills").join(NAME).exists());
         std::fs::remove_dir_all(&home).unwrap();
     }
 

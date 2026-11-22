@@ -310,7 +310,7 @@ enum Cmd {
         /// Also look for crates in this folder (crates kept outside the repository).
         #[arg(long = "crates")]
         crates: Vec<PathBuf>,
-        /// Write the map to rust/PORT_MAP.md in the repository instead of printing it.
+        /// Write the map to mojo/PORT_MAP.md in the repository instead of printing it.
         #[arg(long)]
         write: bool,
         /// Exit 1 when the original changed since any port was recorded.
@@ -319,8 +319,9 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Check the language runtimes, the agent setup and the MCP server, with the command that
-    /// fixes each problem. Exits 1 when something required is missing.
+    /// Check pixi and the pinned Mojo, the language runtimes, the agent setup and the MCP
+    /// server, with the command that fixes each problem. Exits 1 when something required is
+    /// missing.
     Doctor {
         #[arg(long)]
         json: bool,

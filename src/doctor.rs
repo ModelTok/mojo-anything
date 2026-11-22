@@ -1,8 +1,9 @@
-//! `doctor`: check the toolchains, the agent setup and the MCP server on this machine, and say
-//! the command that fixes each problem.
+//! `doctor`: check pixi and the pinned Mojo, the language runtimes, the agent setup and the MCP
+//! server on this machine, and say the command that fixes each problem.
 //!
-//! Language runtimes are optional: each matters only for the languages being ported. Cargo, the
-//! MCP server and the setup of every agent found on the machine are required.
+//! Language runtimes are optional: each matters only for the languages being ported. pixi, the
+//! pinned Mojo, the MCP server and the setup of every agent found on the machine are required.
+//! Mojo builds only on Linux and macOS, so on Windows the pixi and Mojo rows point at WSL.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -186,12 +187,15 @@ pub fn run() -> Report {
         .and_then(|p| p.canonical())
         .unwrap_or_else(|_| PathBuf::from(NAME));
     let mut checks: Vec<Check> = std::thread::scope(|s| {
+        let toolchain = s.spawn(|| mojo_toolchain(Platform::HERE));
         let probes: Vec<_> = RUNTIMES.iter().map(|r| s.spawn(|| runtime(r))).collect();
         let mcp = s.spawn(|| mcp_self_test(&exe));
-        let mut checks: Vec<Check> = probes
-            .into_iter()
-            .map(|p| p.join().expect("a runtime probe panicked"))
-            .collect();
+        let mut checks = toolchain.join().expect("the Mojo probe panicked");
+        checks.extend(
+            probes
+                .into_iter()
+                .map(|p| p.join().expect("a runtime probe panicked")),
+        );
         checks.push(mcp.join().expect("the MCP self-test panicked"));
         checks
     });
@@ -204,101 +208,59 @@ struct Runtime {
     program: &'static str,
     args: &'static [&'static str],
     minimum: Option<Version>,
-    required: bool,
     java: bool,
-    /// Fix commands: macOS, Windows, elsewhere.
-    fix: [&'static str; 3],
+    /// Fix commands: macOS, then Linux (which Windows runs in WSL).
+    fix: [&'static str; 2],
 }
 
-/// The C++ Build Tools, which Rust links with on Windows. Without `--add`, winget installs them
-/// with no workload: no compiler, linker or Windows SDK. The workload's recommended tools build for
-/// x64 and x86, so a build for Windows on ARM (npm has no binary for it) adds the ARM64 tools.
-const BUILD_TOOLS: &str = if cfg!(all(windows, target_arch = "aarch64")) {
-    BUILD_TOOLS_ARM64
-} else {
-    BUILD_TOOLS_X64
-};
-const BUILD_TOOLS_X64: &str = "winget install Microsoft.VisualStudio.2022.BuildTools --override \"--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended\"";
-const BUILD_TOOLS_ARM64: &str = "winget install Microsoft.VisualStudio.2022.BuildTools --override \"--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --add Microsoft.VisualStudio.Component.VC.Tools.ARM64\"";
-/// winget adds nothing to Build Tools that are already installed: an upgrade cannot add a workload.
-const BUILD_TOOLS_INSTALLED: &str = "(Build Tools already installed: add \"Desktop development with C++\" in Visual Studio Installer)";
+/// Where mojo-anything runs on Windows: Mojo builds only on Linux and macOS.
+const WSL: &str = "wsl -d Ubuntu-24.04 --cd ~/github/mojo-anything";
+/// pixi's own installer, for Linux and macOS; it puts pixi in `~/.pixi/bin`.
+const PIXI_INSTALL: &str = "curl -fsSL https://pixi.sh/install.sh | sh";
+/// How long `pixi exec` may take to get the pinned Mojo: the first run downloads it.
+const MOJO_PROBE: Duration = Duration::from_secs(300);
 
 const RUNTIMES: &[Runtime] = &[
     Runtime {
-        name: "cargo",
-        program: "cargo",
+        name: "python",
+        program: "python3",
         args: &["--version"],
-        minimum: Some(Version(1, 97, 0)),
-        required: true,
+        minimum: Some(Version(3, 9, 0)),
         java: false,
-        fix: [
-            "rustup update stable",
-            "rustup update stable",
-            "rustup update stable",
-        ],
+        fix: ["brew install python@3.13", "sudo apt install python3"],
     },
     Runtime {
         name: "node",
         program: "node",
         args: &["--version"],
-        minimum: Some(Version(22, 6, 0)),
-        required: false,
+        minimum: Some(Version(24, 0, 0)),
         java: false,
-        fix: [
-            "brew install node@24",
-            "winget install OpenJS.NodeJS",
-            "fnm install 24 && fnm default 24",
-        ],
-    },
-    Runtime {
-        name: "python3",
-        program: if cfg!(windows) { "python" } else { "python3" },
-        args: &["--version"],
-        minimum: Some(Version(3, 9, 0)),
-        required: false,
-        java: false,
-        fix: [
-            "brew install python@3.13",
-            "winget install Python.Python.3.13",
-            "sudo apt install python3",
-        ],
+        fix: ["brew install node@24", "fnm install 24 && fnm default 24"],
     },
     Runtime {
         name: "cc",
         program: "cc",
         args: &["--version"],
         minimum: None,
-        required: false,
         java: false,
-        fix: [
-            "xcode-select --install",
-            BUILD_TOOLS,
-            "sudo apt install build-essential",
-        ],
+        fix: ["xcode-select --install", "sudo apt install build-essential"],
     },
     Runtime {
         name: "go",
         program: "go",
         args: &["version"],
         minimum: Some(Version(1, 22, 0)),
-        required: false,
         java: false,
-        fix: [
-            "brew install go",
-            "winget install GoLang.Go",
-            "install Go 1.22+ from https://go.dev/dl",
-        ],
+        fix: ["brew install go", "install Go 1.22+ from https://go.dev/dl"],
     },
     Runtime {
         name: "ruby",
         program: "ruby",
         args: &["--version"],
         minimum: Some(Version(3, 0, 0)),
-        required: false,
         java: false,
         fix: [
             "brew install ruby && export PATH=\"$(brew --prefix ruby)/bin:$PATH\"",
-            "winget install RubyInstallerTeam.RubyWithDevKit.3.4",
             "sudo apt install ruby-full",
         ],
     },
@@ -307,69 +269,48 @@ const RUNTIMES: &[Runtime] = &[
         program: "java",
         args: &["-version"],
         minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
-        required: false,
         java: true,
-        fix: [
-            "brew install openjdk",
-            "winget install EclipseAdoptium.Temurin.25.JDK",
-            "sudo apt install openjdk-25-jdk",
-        ],
+        fix: ["brew install openjdk", "sudo apt install openjdk-25-jdk"],
     },
     Runtime {
         name: "javac",
         program: "javac",
         args: &["-version"],
         minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
-        required: false,
         java: true,
-        fix: [
-            "brew install openjdk",
-            "winget install EclipseAdoptium.Temurin.25.JDK",
-            "sudo apt install openjdk-25-jdk",
-        ],
+        fix: ["brew install openjdk", "sudo apt install openjdk-25-jdk"],
     },
     Runtime {
         name: "kotlinc",
         program: "kotlinc",
         args: &["-version"],
         minimum: None,
-        required: false,
         java: false,
-        fix: [
-            "brew install kotlin",
-            "winget install JetBrains.Kotlin",
-            "sdk install kotlin",
-        ],
+        fix: ["brew install kotlin", "sdk install kotlin"],
     },
     Runtime {
         name: "php",
         program: "php",
         args: &["--version"],
         minimum: Some(Version(8, 0, 0)),
-        required: false,
         java: false,
-        fix: [
-            "brew install php",
-            "winget install PHP.PHP.8.4",
-            "sudo apt install php-cli",
-        ],
+        fix: ["brew install php", "sudo apt install php-cli"],
     },
     Runtime {
         name: "dotnet",
         program: "dotnet",
         args: &["--version"],
         minimum: None,
-        required: false,
         java: false,
         fix: [
             "brew install --cask dotnet-sdk",
-            "winget install Microsoft.DotNet.SDK.8",
             "install the .NET SDK from https://dotnet.microsoft.com/download",
         ],
     },
 ];
 
-/// Where a fix runs: [`Runtime::fix`] has one command for each, in this order.
+/// Where a check runs; a parameter of the checks so that each platform's rows can be tested
+/// anywhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Platform {
     MacOs,
@@ -386,37 +327,34 @@ impl Platform {
         Platform::Other
     };
 
-    fn pick(self, fix: &[&'static str; 3]) -> &'static str {
-        fix[self as usize]
+    /// The fix for this platform: on Windows the Linux command, run in WSL, where Mojo builds.
+    fn pick(self, fix: &[&'static str; 2]) -> String {
+        match self {
+            Platform::MacOs => fix[0].to_string(),
+            Platform::Other => fix[1].to_string(),
+            Platform::Windows => format!("in WSL ({WSL}): {}", fix[1]),
+        }
     }
 }
 
 /// The commands that install or update `r` on `platform`, one per line, to run in order; `None`
 /// when it is fine.
 fn runtime_fix(r: &Runtime, status: Status, platform: Platform) -> Option<String> {
-    let fix = match (status, r.name) {
-        (Status::Ok, _) => return None,
-        (Status::Outdated, "cargo") => "rustup update stable".to_string(),
-        // rustup's script needs a Unix shell. winget runs `rustup-init -y`, which skips the Build
-        // Tools with a warning, so they come first, on a line of their own: `cmd` does not split
-        // commands at `;`.
-        (Status::Missing, "cargo") if platform == Platform::Windows => {
-            format!("{BUILD_TOOLS}\nwinget install Rustlang.Rustup")
-        }
-        (Status::Missing, "cargo") => {
-            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh".to_string()
-        }
-        _ => platform.pick(&r.fix).to_string(),
-    };
-    Some(if fix.starts_with(BUILD_TOOLS) {
-        format!("{fix}\n{BUILD_TOOLS_INSTALLED}")
-    } else {
-        fix
-    })
+    if status == Status::Ok {
+        return None;
+    }
+    let mut fix = platform.pick(&r.fix);
+    if r.java {
+        fix.push_str(&format!(
+            "\n(Java and Kotlin units need Java {} or newer, for the Foreign Function & Memory API)",
+            crate::jvm::MIN_JAVA
+        ));
+    }
+    Some(fix)
 }
 
 /// The program's banner (stdout, else stderr), or `None` when it did not run.
-fn probe(program: &str, args: &[&str]) -> Option<String> {
+fn probe(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
     let out =
         crate::process::output(Command::new(program).args(args), crate::process::QUICK).ok()?;
     if !out.success() {
@@ -437,44 +375,188 @@ fn which(program: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn runtime(r: &Runtime) -> Check {
-    let banner = probe(r.program, r.args);
+/// The row for `r` from its banner (`None` when it did not run).
+fn assess(r: &Runtime, banner: Option<String>, platform: Platform) -> Check {
     let version = banner.as_deref().and_then(if r.java {
         parse_java_version
     } else {
         parse_version
     });
     let status = grade(banner.is_some(), version, r.minimum);
-    let mut detail = match (&banner, r.minimum) {
+    let outdated = status == Status::Outdated;
+    let detail = match (&banner, r.minimum) {
         (None, _) => format!("`{}` not found or did not run", r.program),
-        (Some(b), Some(min)) if status == Status::Outdated && r.java => format!(
+        (Some(b), Some(min)) if outdated && r.java => format!(
             "{b}; Java and Kotlin units need Java {}+ (the Foreign Function & Memory API)",
             min.0
         ),
-        (Some(b), Some(min)) if status == Status::Outdated => {
+        (Some(b), Some(_)) if outdated && r.name == "node" => {
+            if version.is_some_and(|v| v < Version(22, 6, 0)) {
+                format!(
+                    "{b}; TS and JS units need Node 22.6+, and the wasm bridge (`mojo-wasm`) and \
+                     `profile` need Node 24+"
+                )
+            } else {
+                format!(
+                    "{b}; TS and JS units work, but the wasm bridge (`mojo-wasm`) and `profile` \
+                     need Node 24+"
+                )
+            }
+        }
+        (Some(b), Some(min)) if outdated => {
             format!("{b}; mojo-anything needs {}.{}+", min.0, min.1)
         }
         (Some(b), Some(min)) if r.java => format!("{b} (Java and Kotlin units need {}+)", min.0),
         (Some(b), _) => b.clone(),
     };
-    if r.name == "node" && status == Status::Ok && version.is_some_and(|v| v.0 < 24) {
-        detail.push_str("; works, but `profile` needs Node 24");
-    }
-    if r.name == "ruby"
-        && status == Status::Outdated
-        && cfg!(target_os = "macos")
-        && which("ruby").is_some_and(|p| p.starts_with("/usr/bin"))
-    {
-        detail.push_str("; this is macOS's system Ruby");
-    }
     Check {
         name: r.name.to_string(),
         status,
-        required: r.required,
+        required: false,
         detail,
-        fix: runtime_fix(r, status, Platform::HERE),
+        fix: runtime_fix(r, status, platform),
     }
 }
+
+fn runtime(r: &Runtime) -> Check {
+    let mut check = assess(r, probe(r.program, r.args), Platform::HERE);
+    if r.name == "ruby"
+        && check.status == Status::Outdated
+        && Platform::HERE == Platform::MacOs
+        && which("ruby").is_some_and(|p| p.starts_with("/usr/bin"))
+    {
+        check.detail.push_str("; this is macOS's system Ruby");
+    }
+    check
+}
+
+/// `pixi exec` arguments that run the pinned Mojo's `mojo --version`, from the channels every
+/// generated unit lists.
+fn pinned_mojo_args() -> Vec<String> {
+    let mut args = vec!["exec".to_string()];
+    for channel in crate::mojo::CHANNELS {
+        args.push("-c".into());
+        args.push((*channel).into());
+    }
+    args.push("--spec".into());
+    args.push(format!("mojo=={}", crate::mojo::MOJO_VERSION));
+    args.push("mojo".into());
+    args.push("--version".into());
+    args
+}
+
+/// The `pixi` and `mojo` rows. Both are required; on Windows both fail and point at WSL.
+fn mojo_toolchain(platform: Platform) -> Vec<Check> {
+    let version = crate::mojo::MOJO_VERSION;
+    if platform == Platform::Windows {
+        let fix = format!("use the WSL clone: {WSL}");
+        return vec![
+            Check {
+                name: "pixi".into(),
+                status: Status::Missing,
+                required: true,
+                detail:
+                    "Mojo builds only on Linux and macOS: on Windows, mojo-anything runs in WSL"
+                        .into(),
+                fix: Some(fix.clone()),
+            },
+            Check {
+                name: "mojo".into(),
+                status: Status::Missing,
+                required: true,
+                detail: format!("Mojo {version} runs only on Linux and macOS"),
+                fix: Some(fix),
+            },
+        ];
+    }
+    let pixi = crate::mojo::find_pixi(
+        std::env::var_os("PATH"),
+        std::env::var_os("HOME").map(PathBuf::from),
+    );
+    let banner = pixi.as_ref().and_then(|p| probe(p, &["--version"]));
+    let pixi_row = Check {
+        name: "pixi".into(),
+        status: if banner.is_some() {
+            Status::Ok
+        } else {
+            Status::Missing
+        },
+        required: true,
+        detail: match (&pixi, &banner) {
+            (Some(p), Some(b)) => format!("{b} ({})", p.display()),
+            (Some(p), None) => format!("`{} --version` did not run", p.display()),
+            (None, _) => "`pixi` is not on PATH or in ~/.pixi/bin".into(),
+        },
+        fix: banner.is_none().then(|| PIXI_INSTALL.to_string()),
+    };
+    let mojo_row = match pixi.filter(|_| banner.is_some()) {
+        None => Check {
+            name: "mojo".into(),
+            status: Status::Missing,
+            required: true,
+            detail: format!("pixi runs the pinned Mojo {version}, and pixi is missing"),
+            fix: Some(format!("{PIXI_INSTALL}\n(then run doctor again)")),
+        },
+        Some(pixi) => pinned_mojo(&pixi, version),
+    };
+    vec![pixi_row, mojo_row]
+}
+
+/// Runs the pinned Mojo through `pixi exec`, the way every generated unit gets it.
+fn pinned_mojo(pixi: &Path, version: &str) -> Check {
+    let args = pinned_mojo_args();
+    let by_hand = format!("{} {}", quoted(pixi), args.join(" "));
+    let out = crate::process::output(
+        Command::new(pixi)
+            .args(&args)
+            .current_dir(std::env::temp_dir()),
+        MOJO_PROBE,
+    );
+    let (status, detail) = match out {
+        Err(e) => (
+            Status::Missing,
+            format!("pixi did not get Mojo {version}: {e:#} (the first run downloads it)"),
+        ),
+        Ok(out) if !out.success() => {
+            let err = out.stderr_text();
+            let last = err.lines().rev().find(|l| !l.trim().is_empty());
+            (
+                Status::Missing,
+                format!(
+                    "pixi could not run Mojo {version}: {}",
+                    last.unwrap_or("no message").trim()
+                ),
+            )
+        }
+        Ok(out) => {
+            let text = out.stdout_text();
+            let banner = text.lines().next().unwrap_or_default().trim().to_string();
+            if parse_version(&banner) == parse_version(version) {
+                (
+                    Status::Ok,
+                    format!("{banner}, through pixi (the Mojo every unit pins)"),
+                )
+            } else {
+                (
+                    Status::Outdated,
+                    format!("pixi ran `{banner}`, not the pinned Mojo {version}"),
+                )
+            }
+        }
+    };
+    Check {
+        name: "mojo".into(),
+        status,
+        required: true,
+        detail,
+        fix: (status != Status::Ok).then(|| format!("{by_hand}\n(run it to see the whole error)")),
+    }
+}
+
+/// How mojo-anything itself is installed: the npm wrapper, which downloads the release binary,
+/// or that binary's archive from the GitHub release (`.github/workflows/release.yml`).
+const INSTALL: &str = "`npm install -g mojo-anything` (Linux x64/arm64, macOS arm64), \
+                       or the archive for your platform from https://github.com/ModelTok/mojo-anything/releases";
 
 /// Starts `<exe> mcp`, asks for `initialize` and `tools/list`, and expects both answers in 10 s.
 fn mcp_self_test(exe: &Path) -> Check {
@@ -486,13 +568,13 @@ fn mcp_self_test(exe: &Path) -> Check {
         Err(e) => (Status::Missing, format!("`{} mcp`: {e}", exe.display())),
     };
     Check {
-        name: "mcp server".into(),
+        name: "mcp".into(),
         status,
         required: true,
         detail,
         fix: (status != Status::Ok).then(|| {
             format!(
-                "run `{} mcp` by hand and look at what it prints; reinstall with `cargo install mojo-anything`",
+                "run `{} mcp` by hand and look at what it prints; reinstall with {INSTALL}",
                 quoted(exe)
             )
         }),
@@ -805,7 +887,7 @@ pub fn text(r: &Report) -> String {
     out.push_str(if r.ok() {
         "\nEverything required is in place. Language runtimes are optional: each matters only for the languages you port.\n"
     } else {
-        "\nSomething required is missing: cargo, the MCP server, or the setup of an agent found here. Run the fix commands above.\n"
+        "\nSomething required is missing: pixi or the pinned Mojo, the MCP server, or the setup of an agent found here. Run the fix commands above.\n"
     });
     out
 }
@@ -851,6 +933,69 @@ mod tests {
             assert_eq!(r.minimum, Some(Version(22, 0, 0)), "{name}");
             let banner = Some(Version(21, 0, 2));
             assert_eq!(grade(true, banner, r.minimum), Status::Outdated, "{name}");
+        }
+    }
+
+    #[test]
+    fn doctor_on_windows_points_at_wsl() {
+        let checks = mojo_toolchain(Platform::Windows);
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["pixi", "mojo"]);
+        for c in &checks {
+            assert_ne!(c.status, Status::Ok, "{c:?}");
+            assert!(c.required, "{c:?}");
+            let fix = c.fix.as_deref().unwrap_or_default();
+            assert!(fix.contains("wsl -d Ubuntu-24.04"), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn java_21_is_too_old() {
+        let status = grade(true, Some(Version(21, 0, 4)), Some(Version(22, 0, 0)));
+        assert_eq!(status, Status::Outdated);
+        let java = runtime_named("java");
+        let c = assess(
+            java,
+            Some("openjdk version \"21.0.4\" 2024-07-16".into()),
+            Platform::Other,
+        );
+        assert_eq!(c.status, Status::Outdated, "{c:?}");
+        assert!(!c.required, "{c:?}");
+        let fix = c.fix.unwrap_or_default();
+        assert!(fix.contains("Java 22"), "{fix}");
+    }
+
+    #[test]
+    fn node_22_warns_about_wasm() {
+        let node = runtime_named("node");
+        let c = assess(node, Some("v22.12.0".into()), Platform::Other);
+        assert_eq!(c.status, Status::Outdated, "{c:?}");
+        assert!(!c.required, "{c:?}");
+        assert!(c.detail.contains("mojo-wasm"), "{c:?}");
+        assert!(c.fix.is_some(), "{c:?}");
+        let ok = assess(node, Some("v24.1.0".into()), Platform::Other);
+        assert_eq!(ok.status, Status::Ok, "{ok:?}");
+        assert!(ok.fix.is_none(), "{ok:?}");
+    }
+
+    #[test]
+    fn rows_are_the_mojo_toolchain_and_the_runtimes() {
+        let names: Vec<&str> = RUNTIMES.iter().map(|r| r.name).collect();
+        for name in [
+            "python", "node", "go", "ruby", "java", "kotlinc", "php", "dotnet",
+        ] {
+            assert!(names.contains(&name), "no {name} in {names:?}");
+        }
+        assert!(!names.contains(&"cargo"), "{names:?}");
+        for r in RUNTIMES {
+            assert!(!assess(r, None, Platform::Other).required, "{}", r.name);
+            for status in [Status::Missing, Status::Outdated] {
+                for platform in [Platform::MacOs, Platform::Windows, Platform::Other] {
+                    let fix = runtime_fix(r, status, platform).unwrap();
+                    assert!(!fix.contains("winget"), "{}: {fix}", r.name);
+                    assert!(!fix.contains("rustup"), "{}: {fix}", r.name);
+                }
+            }
         }
     }
 
@@ -1010,7 +1155,7 @@ mod tests {
         );
         assert_eq!(
             fix(Platform::Windows),
-            Some(format!("{BUILD_TOOLS}\n{BUILD_TOOLS_INSTALLED}"))
+            Some(format!("in WSL ({WSL}): sudo apt install build-essential"))
         );
         assert_eq!(
             fix(Platform::Other).as_deref(),
@@ -1020,51 +1165,15 @@ mod tests {
     }
 
     #[test]
-    fn windows_fixes_need_no_unix_shell() {
-        for r in RUNTIMES {
-            for status in [Status::Missing, Status::Outdated] {
-                let fix = runtime_fix(r, status, Platform::Windows).unwrap();
-                assert!(!fix.contains("| sh"), "{}: {fix}", r.name);
-            }
-        }
-    }
-
-    #[test]
-    fn windows_build_tools_fixes_add_the_cpp_workload() {
-        for name in ["cargo", "cc"] {
-            let fix = runtime_fix(runtime_named(name), Status::Missing, Platform::Windows).unwrap();
-            assert!(
-                fix.contains("--add Microsoft.VisualStudio.Workload.VCTools"),
-                "{name}: {fix}"
-            );
-        }
-    }
-
-    #[test]
-    fn windows_cargo_fix_has_one_command_per_line() {
-        let fix = runtime_fix(runtime_named("cargo"), Status::Missing, Platform::Windows).unwrap();
+    fn the_pinned_mojo_comes_from_the_units_channels() {
+        let args = pinned_mojo_args();
+        let line = args.join(" ");
         assert_eq!(
-            fix.lines().collect::<Vec<_>>(),
-            [
-                BUILD_TOOLS,
-                "winget install Rustlang.Rustup",
-                BUILD_TOOLS_INSTALLED
-            ]
-        );
-    }
-
-    #[test]
-    fn windows_on_arm_adds_the_arm64_tools() {
-        let workload = "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended";
-        assert!(BUILD_TOOLS_X64.contains(workload));
-        assert!(!BUILD_TOOLS_X64.contains("ARM64"));
-        assert!(BUILD_TOOLS_ARM64.contains(workload));
-        assert!(
-            BUILD_TOOLS_ARM64.ends_with(" --add Microsoft.VisualStudio.Component.VC.Tools.ARM64\"")
-        );
-        assert_eq!(
-            BUILD_TOOLS == BUILD_TOOLS_ARM64,
-            cfg!(all(windows, target_arch = "aarch64"))
+            line,
+            format!(
+                "exec -c https://conda.modular.com/max -c conda-forge --spec mojo=={} mojo --version",
+                crate::mojo::MOJO_VERSION
+            )
         );
     }
 
@@ -1072,7 +1181,7 @@ mod tests {
     fn fixes_of_several_lines_line_up() {
         let report = Report {
             checks: vec![Check {
-                name: "cargo".into(),
+                name: "mojo".into(),
                 status: Status::Missing,
                 required: true,
                 detail: "not found".into(),
@@ -1083,5 +1192,18 @@ mod tests {
         let lines: Vec<_> = out.lines().collect();
         assert!(lines[1].trim_start().starts_with("fix: first"), "{out}");
         assert_eq!(lines[1].find("first"), lines[2].find("second"), "{out}");
+    }
+
+    #[test]
+    fn mcp_fix_points_at_the_npm_wrapper_and_the_release() {
+        let check = mcp_self_test(Path::new("/nonexistent/mojo-anything"));
+        assert_eq!(check.status, Status::Missing);
+        let fix = check.fix.unwrap();
+        assert!(fix.contains("npm install -g mojo-anything"), "{fix}");
+        assert!(
+            fix.contains("https://github.com/ModelTok/mojo-anything/releases"),
+            "{fix}"
+        );
+        assert!(!fix.contains("cargo"), "{fix}");
     }
 }

@@ -62,6 +62,12 @@ fn map_lists_ports_and_marks_upstream_changes() {
     let md = port_map::markdown(&map);
     assert!(md.contains("**1 changed upstream**"), "{md}");
     assert!(md.contains("`mojo-anything record rust/util-rs`"), "{md}");
+    assert!(
+        md.contains("have a Mojo port") && md.contains("| In Mojo |"),
+        "{md}"
+    );
+    assert!(!md.contains("Rust"), "{md}");
+    assert_eq!(port_map::MAP_FILE, "mojo/PORT_MAP.md");
 
     let outside =
         std::env::temp_dir().join(format!("mojo-anything-map-out-{}", std::process::id()));
