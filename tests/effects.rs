@@ -213,7 +213,7 @@ fn a_server_that_mails_twice_fails_only_on_that_request() {
         normalize: &[],
         name: Some("server"),
         traps: false,
-        timeout_secs: None,
+        timeout_secs: Some(120),
         http: true,
         server_args: &[],
         fresh: &[],
