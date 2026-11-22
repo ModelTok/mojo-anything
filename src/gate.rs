@@ -269,6 +269,9 @@ pub struct GateOutcome {
 
 pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     let manifest = Manifest::load(crate_dir)?;
+    if crate::jvm::is_jvm(manifest.language) {
+        crate::jvm::require_java()?;
+    }
     let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
     let mut checks = if mojo {
         let mut checks = mojo_checks(crate_dir);

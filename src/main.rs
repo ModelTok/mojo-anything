@@ -24,8 +24,8 @@ use mojo_anything::{analyze, app, bridge, front_door, gate, harness, lift, mcp, 
 #[command(
     name = "mojo-anything",
     version,
-    about = "Rewrite TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin apps in Rust, one verified piece at a time",
-    after_help = "Loop per unit: analyze -> bridge -> record -> port src/port.rs -> build -> diff -> shadow -> gate"
+    about = "Rewrite TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin apps in Mojo, one verified piece at a time",
+    after_help = "Loop per unit: analyze -> bridge -> record -> port port.mojo -> build -> diff -> shadow -> gate"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -99,7 +99,7 @@ enum Cmd {
         #[arg(long, value_name = "TYPE_PARAM")]
         as_json: Vec<String>,
     },
-    /// 2b. Regenerate the bindings from the signatures in the port (`port.mojo`, or `port.rs`).
+    /// 2b. Regenerate the bindings from the signatures in the port (`port.mojo`).
     Refresh {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
@@ -145,7 +145,7 @@ enum Cmd {
         /// Pin the clock and random numbers while recording and diffing (TS/JS with the node
         /// bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
         /// `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port
-        /// reads them from `pinned.mojo` (a Rust port: `src/port/pinned.rs`). Kept for later
+        /// reads them from `pinned.mojo`. Kept for later
         /// runs until `--no-pin-clock`.
         #[arg(long, conflicts_with = "no_pin_clock")]
         pin_clock: bool,
@@ -161,7 +161,7 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
     },
-    /// 3c. Replay recorded cases against the Rust module.
+    /// 3c. Replay recorded cases against the built Mojo port.
     Diff {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
@@ -182,7 +182,7 @@ enum Cmd {
         #[arg(long = "node-arg", allow_hyphen_values = true)]
         node_args: Vec<String>,
     },
-    /// 3d. Time the recorded cases on the TS original and on Rust, bridge included.
+    /// 3d. Time the recorded cases on the original and on the Mojo port, bridge included.
     Bench {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
@@ -238,7 +238,7 @@ enum Cmd {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
-    /// 4. Generate a drop-in module that runs TS and Rust side by side.
+    /// 4. Generate a drop-in module that runs the original and the Mojo port side by side.
     Shadow {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
@@ -457,7 +457,7 @@ enum AppCmd {
     /// Hand commands to a unit's port (after it passes gate): adds the unit to `mojo/app`, a
     /// glue file to write once (a CLI), the routing and a kill switch
     /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays. A CLI or a library takes
-    /// a Mojo unit (`mojo/<name>` with `port.mojo`); a server still takes a Rust crate.
+    /// a Mojo unit (`mojo/<name>` with `port.mojo`); a server takes one for each route.
     Wire {
         /// Repository root.
         repo: PathBuf,
@@ -644,8 +644,8 @@ fn run() -> Result<ExitCode> {
                 && let Some(helper) = mojo_anything::pin::set(&crate_dir, pin_clock)?
             {
                 say!(
-                    "Wrote {}: add `mod pinned;` to port.rs and call `pinned::now_ms()` and \
-                     `pinned::random()` where the original reads the clock or draws a number",
+                    "Wrote {}: import it in port.mojo (`from pinned import now_ms, random`) and call \
+                     `now_ms()` and `random()` where the original reads the clock or draws a number",
                     helper.display()
                 );
             }
@@ -759,7 +759,7 @@ fn run() -> Result<ExitCode> {
                 if let Some(t) = d.trend.as_ref().filter(|t| t.stalled) {
                     let shown: Vec<String> = t.passed.iter().map(ToString::to_string).collect();
                     say!(
-                        "Stalled: the last {} changes to port.rs gained no matching case ({} of {}). \
+                        "Stalled: the last {} changes to the port gained no matching case ({} of {}). \
                          Stop and look at the remaining mismatches with a person, or keep these \
                          functions in the original for now.",
                         mojo_anything::recording::STALL_AFTER,
@@ -887,7 +887,7 @@ fn run() -> Result<ExitCode> {
                     "function",
                     "cases",
                     "orig ns/call",
-                    "Rust ns/call",
+                    "port ns/call",
                     "speedup"
                 );
                 for r in &rows {
@@ -1423,5 +1423,15 @@ mod tests {
             );
             assert!(err.to_string().contains("invalid value"), "{step}: {err}");
         }
+    }
+
+    /// `--help` describes the Mojo tool, not the Rust one it was forked from.
+    #[test]
+    fn help_names_mojo() {
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("Mojo"), "{help}");
+        assert!(!help.contains("Rust"), "{help}");
+        assert!(!help.contains("port.rs"), "{help}");
     }
 }

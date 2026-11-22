@@ -711,6 +711,62 @@ fn companion_name(companion: Node<'_>, source: &str) -> String {
         .map_or_else(|| "Companion".to_string(), |n| text(n, source).to_string())
 }
 
+/// Whether the class `class` declares a public constructor without parameters, or gets
+/// Kotlin's implicit one (a plain class without constructors). Interfaces, abstract, sealed,
+/// enum and annotation classes have none to keep; a constructor whose parameters all have
+/// defaults is not counted (its no-arg overload sits next to the one the wrapper drops).
+fn public_no_arg_constructor(class: Node<'_>, source: &str) -> bool {
+    let mut cursor = class.walk();
+    if class.children(&mut cursor).any(|c| c.kind() == "interface") {
+        return false;
+    }
+    let restricted = |mods: &str| {
+        modifier_words(mods).any(|w| {
+            matches!(
+                w,
+                "private"
+                    | "protected"
+                    | "internal"
+                    | "abstract"
+                    | "sealed"
+                    | "enum"
+                    | "annotation"
+            )
+        })
+    };
+    if restricted(&modifiers(class, source)) {
+        return false;
+    }
+    let public_no_arg = |ctor: Node<'_>, params_kind: &str| {
+        !restricted(&modifiers(ctor, source))
+            && named_children(ctor)
+                .into_iter()
+                .filter(|n| n.kind() == params_kind)
+                .all(|p| named_children(p).is_empty())
+    };
+    let primary = named_children(class)
+        .into_iter()
+        .find(|n| n.kind() == "primary_constructor");
+    let secondary: Vec<Node> = named_children(class)
+        .into_iter()
+        .filter(|n| n.kind() == "class_body")
+        .flat_map(named_children)
+        .filter(|n| n.kind() == "secondary_constructor")
+        .collect();
+    match primary {
+        Some(p) => {
+            public_no_arg(p, "class_parameters")
+                || secondary
+                    .iter()
+                    .any(|s| public_no_arg(*s, "function_value_parameters"))
+        }
+        None if secondary.is_empty() => true,
+        None => secondary
+            .iter()
+            .any(|s| public_no_arg(*s, "function_value_parameters")),
+    }
+}
+
 /// `@file:JvmName("Utils")`, which renames the class a file's top-level functions live on.
 fn file_jvm_name(root: Node<'_>, source: &str) -> Option<String> {
     named_children(root)
@@ -798,17 +854,18 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                     continue;
                 };
                 let class_owner = owner(text(name, source));
+                let constructor = public_no_arg_constructor(child, source);
                 for member in named_children(child) {
                     if member.kind() == "class_body" {
                         for decl in named_children(member) {
                             if decl.kind() == "object_declaration" {
-                                // A nested object has its own JVM class; only a companion
-                                // object's statics live on the enclosing class.
+                                // A nested object has its own JVM class, `Outer$Inner`; only
+                                // a companion object's statics live on the enclosing class.
                                 if let Some(nested) = decl.child_by_field_name("name") {
                                     collect(
                                         decl,
                                         source,
-                                        &owner(text(nested, source)),
+                                        &format!("{class_owner}${}", text(nested, source)),
                                         path,
                                         false,
                                         Some(Holder::Object),
@@ -817,6 +874,7 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                                 }
                             } else if decl.kind() == "companion_object" {
                                 let holder = Holder::Companion(companion_name(decl, source));
+                                let first = out.len();
                                 collect(
                                     decl,
                                     source,
@@ -826,6 +884,11 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                                     Some(holder),
                                     &mut out,
                                 );
+                                // The wrapper replaces this class, so it keeps the
+                                // constructor callers may use.
+                                for f in &mut out[first..] {
+                                    f.jvm_constructor = constructor;
+                                }
                             }
                         }
                     }
@@ -945,6 +1008,48 @@ mod tests {
             fns[0].jvm_holder,
             Some(Holder::Companion("Companion".into()))
         );
+    }
+
+    /// An `object` declared inside a class compiles to the JVM class `Outer$Inner`, not to a
+    /// top-level `Inner`.
+    #[test]
+    fn a_nested_object_lives_on_its_own_jvm_class() {
+        let src = "package com.example\n\nclass Shapes {\n  object Sign {\n    \
+                   @JvmStatic fun sign(n: Long): Long = n\n  }\n}\n";
+        let fns = exports("src/main/kotlin/com/example/Shapes.kt", src);
+        assert_eq!(fns.len(), 1, "{fns:?}");
+        assert_eq!(receiver(&fns[0]).0, "com.example.Shapes$Sign");
+        assert_eq!(fns[0].jvm_holder, Some(Holder::Object));
+        assert_eq!(fns[0].blocker, None);
+    }
+
+    /// A class whose companion holds the exports keeps a public no-arg constructor when the
+    /// original has one (Kotlin's implicit constructor included), so `Units()` still links.
+    #[test]
+    fn a_class_keeps_its_public_no_arg_constructor() {
+        let companion =
+            "{\n  companion object {\n    @JvmStatic fun f(s: String): String = s\n  }\n}\n";
+        for (head, kept) in [
+            ("class Units ", true),
+            ("class Units() ", true),
+            ("class Units public constructor() ", true),
+            ("class Units private constructor() ", false),
+            ("class Units internal constructor() ", false),
+            ("class Units(val x: Int) ", false),
+            ("abstract class Units ", false),
+            ("sealed class Units ", false),
+            ("interface Units ", false),
+        ] {
+            let src = format!("package com.example\n\n{head}{companion}");
+            let fns = exports("src/main/kotlin/com/example/Units.kt", &src);
+            assert_eq!(fns.len(), 1, "{src}\n{fns:?}");
+            assert_eq!(fns[0].jvm_constructor, kept, "{src}");
+        }
+        let src = "package com.example\n\nobject Nums {\n  @JvmStatic fun f(s: String): String = s\n}\n\
+                   fun top(s: String): String = s\n";
+        let fns = exports("src/main/kotlin/com/example/Nums.kt", src);
+        assert_eq!(fns.len(), 2, "{fns:?}");
+        assert!(fns.iter().all(|f| !f.jvm_constructor), "{fns:?}");
     }
 
     #[test]

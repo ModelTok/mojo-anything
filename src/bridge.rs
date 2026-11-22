@@ -1,9 +1,7 @@
 //! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
 //! later steps read.
 //!
-//! The port (`port.mojo`, or `src/port.rs` for a Java or Kotlin unit bridged with `--kind ffi`)
-//! holds the logic;
-//! the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
+//! The port (`port.mojo`) holds the logic; the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
 //! are rewritten by `refresh` and never edited by hand.
 
 use crate::walk::Canonical;
@@ -800,9 +798,8 @@ pub struct Refreshed {
     pub files: Vec<String>,
 }
 
-/// Regenerates the binding layers from the signatures in the port (`port.mojo`, or `src/port.rs`
-/// for a Rust-era Java or Kotlin crate, whose Cargo.toml also gets the dependencies it needs).
-/// Never touches the port.
+/// Regenerates the binding layers from the signatures in the port (`port.mojo`). Never touches
+/// the port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
     if manifest.kind == Kind::MojoJvm {

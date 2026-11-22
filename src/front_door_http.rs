@@ -7,16 +7,24 @@ use anyhow::{Result, bail, ensure};
 
 use crate::codegen::PortApi;
 use crate::front_door::{KILL_SWITCH_PREFIX, State, WiredUnit};
-use crate::front_door_mojo::{GLUE_MARKER, mojo_ident, mojo_str, port_listing, port_package};
+use crate::front_door_mojo::{
+    GLUE_MARKER, OsConstants, mojo_ident, mojo_str, port_listing, port_package, render_os,
+};
 
 const METHODS: [&str; 7] = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
-/// `http.mojo`: requests, responses, sockets and route matching, written into `mojo/app` as is.
-pub(crate) const HTTP_MOJO: &str = include_str!("mojo/http.mojo");
+/// `http.mojo`: requests, responses, sockets and route matching, with `#[linux]` / `#[macos]`
+/// regions and socket constants to fill (see [`render_os`]).
+const HTTP_MOJO: &str = include_str!("mojo/http.mojo");
 
-/// `original.mojo` of a server, with `{{RUN}}`, `{{IN_ROOT}}`, `{{FALLBACK_ENV}}` and
-/// `{{REPO_ENV}}` to fill.
+/// `original.mojo` of a server, with `{{RUN}}`, `{{REPO_FILES}}`, `{{ARGS}}`, `{{IN_ROOT}}`,
+/// `{{FALLBACK_ENV}}` and `{{REPO_ENV}}` to fill, and `#[linux]` / `#[macos]` regions.
 const ORIGINAL_HTTP_MOJO: &str = include_str!("mojo/original_http.mojo");
+
+/// `http.mojo` for the system `os` describes, written into `mojo/app`.
+pub(crate) fn http_mojo(os: &OsConstants) -> String {
+    render_os(HTTP_MOJO, os)
+}
 
 /// The Mojo sources `front_door` writes for a server, in the order they are formatted.
 pub const SOURCES: [&str; 4] = ["main.mojo", "original.mojo", "units.mojo", "http.mojo"];
@@ -198,12 +206,13 @@ fn port_source(args: &[String]) -> (bool, String) {
 /// The accept loop shared by the front door and the lifted server. `args`: the arguments every
 /// start was recorded with, where `{port}` marks the port the server is given.
 fn main_source(state: &State, lifted: bool, args: &[String]) -> String {
-    let (header, import_original, start, served) = if lifted {
+    let (header, import_original, start, served, idle) = if lifted {
         (
             format!(
                 "`{}`, lifted by mojo-anything: every request is answered by a unit.",
                 state.name.replace('\n', " ")
             ),
+            "",
             "",
             "",
             "",
@@ -218,6 +227,7 @@ fn main_source(state: &State, lifted: bool, args: &[String]) -> String {
             "import original\n",
             "    original.report_fallbacks()\n    original.start()\n",
             "            original.served(req)\n",
+            "            original.idle()\n",
         )
     };
     let (takes_argv, port) = port_source(args);
@@ -250,28 +260,36 @@ def _loopback() raises -> Bool:
 
 
 def main() raises:
-{start}    var listener = http.listen(_port(), _loopback())
+{start}    var listeners = http.listen_all(_port(), _loopback())
     while True:",
         host = HOST_ENV,
         host_env = mojo_str(HOST_ENV),
     );
-    out += &MAIN_LOOP.replace("{{served}}", served);
+    out += &MAIN_LOOP
+        .replace("{{served}}", served)
+        .replace("{{idle}}", idle);
     out
 }
 
-/// The rest of `main()`: one connection at a time, kept alive while the client wants.
+/// The rest of `main()`: one connection at a time, kept alive while the client wants. A body
+/// larger than `http.max_body()` is refused with 413 before it is read.
 const MAIN_LOOP: &str = "
-        var fd = http.accept(listener)
+        var fd = http.accept(listeners, 1000)
         if fd < 0:
-            continue
+{{idle}}            continue
         var conn = http.Conn(fd)
+        var refused = False
         while True:
             var next: Optional[http.Request]
             try:
                 next = http.read_request(conn)
             except e:
+                refused = http.too_large(e)
                 _ = http.write_response(
-                    fd, http.text(400, String(\"front door: \", e, \"\\n\")), False, False
+                    fd,
+                    http.text(413 if refused else 400, String(\"front door: \", e, \"\\n\")),
+                    False,
+                    False,
                 )
                 break
             if not next:
@@ -285,9 +303,12 @@ const MAIN_LOOP: &str = "
             var keep = req.keep_alive()
             if not http.write_response(fd, resp, req.method == \"HEAD\", keep):
                 break
-            if not keep or not http.wait_readable(fd, listener, 5000):
+            if not keep or not http.wait_readable(fd, listeners, 5000):
                 break
-        http.close(fd)
+        if refused:
+            http.close_after_refusal(fd)
+        else:
+            http.close(fd)
 ";
 
 /// `main.mojo` of the front door: starts the original, then answers every request through
@@ -305,7 +326,13 @@ pub(crate) fn lifted_main_mojo_http(state: &State, args: &[String]) -> String {
 /// with, taken as they are, as `app replay` passes them) start the original, `{port}` in either
 /// being its own private port. `in_root`: the original runs in the repository, as recorded;
 /// otherwise in the front door's own working directory (the recording copies fresh files there).
-pub(crate) fn original_mojo_http(run: &[String], args: &[String], in_root: bool) -> String {
+pub(crate) fn original_mojo_http(
+    run: &[String],
+    repo_files: &[String],
+    args: &[String],
+    in_root: bool,
+    os: &OsConstants,
+) -> String {
     let list = |items: &[String]| {
         if items.is_empty() {
             "List[String]()".to_string()
@@ -314,8 +341,9 @@ pub(crate) fn original_mojo_http(run: &[String], args: &[String], in_root: bool)
             format!("[{}]", words.join(", "))
         }
     };
-    ORIGINAL_HTTP_MOJO
+    render_os(ORIGINAL_HTTP_MOJO, os)
         .replace("{{RUN}}", &list(run))
+        .replace("{{REPO_FILES}}", &list(repo_files))
         .replace("{{ARGS}}", &list(args))
         .replace("{{IN_ROOT}}", if in_root { "True" } else { "False" })
         .replace("{{FALLBACK_ENV}}", crate::app::FALLBACK_ENV)
@@ -515,10 +543,10 @@ mod tests {
     #[test]
     fn generated_servers_send_without_nagle_delays() {
         // Every accepted and every outgoing socket gets TCP_NODELAY.
-        assert!(HTTP_MOJO.contains("comptime _TCP_NODELAY = Int32(1)"));
+        let http = http_mojo(&crate::front_door_mojo::os_constants("linux"));
+        assert!(http.contains("comptime _TCP_NODELAY = Int32(1)"));
         assert_eq!(
-            HTTP_MOJO
-                .matches("_set_int(fd, _IPPROTO_TCP, _TCP_NODELAY, 1)")
+            http.matches("_set_int(fd, _IPPROTO_TCP, _TCP_NODELAY, 1)")
                 .count(),
             2,
             "accept and connect"
@@ -527,7 +555,7 @@ mod tests {
             main_mojo_http(&state(&[]), &[]),
             lifted_main_mojo_http(&state(&[]), &[]),
         ] {
-            assert!(code.contains("http.accept(listener)"), "{code}");
+            assert!(code.contains("http.accept(listeners, 1000)"), "{code}");
         }
     }
 
@@ -550,7 +578,10 @@ mod tests {
             code.contains("return Int(String(word[byte = 24 : word.byte_length() - 1]))"),
             "{code}"
         );
-        assert!(code.contains("http.listen(_port(), _loopback())"), "{code}");
+        assert!(
+            code.contains("http.listen_all(_port(), _loopback())"),
+            "{code}"
+        );
         assert!(
             code.contains("            original.served(req)\n"),
             "{code}"
@@ -558,7 +589,14 @@ mod tests {
         let lifted = lifted_main_mojo_http(&state(&[]), &[]);
         assert!(!lifted.contains("argv"), "{lifted}");
         assert!(!lifted.contains("served"), "{lifted}");
-        let original = original_mojo_http(&["python3".into(), "s.py".into()], &args, true);
+        let original = original_mojo_http(
+            &["python3".into(), "s.py".into()],
+            &["s.py".into()],
+            &args,
+            true,
+            &crate::front_door_mojo::os_constants("linux"),
+        );
+        assert!(original.contains("return [\"s.py\"]"), "{original}");
         assert!(
             original.contains("return [\"--db\", \"--urls=http://127.0.0.1:{port}/\"]"),
             "{original}"
@@ -568,7 +606,11 @@ mod tests {
 
     #[test]
     fn every_external_call_says_why_it_is_safe() {
-        for code in [HTTP_MOJO, ORIGINAL_HTTP_MOJO] {
+        for code in [
+            HTTP_MOJO,
+            ORIGINAL_HTTP_MOJO,
+            crate::front_door_mojo::ORIGINAL_MOJO,
+        ] {
             let lines: Vec<&str> = code.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 if line.contains("external_call[") {

@@ -7,6 +7,8 @@
 #include <node_api.h>
 
 #include <dlfcn.h>
+#include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,28 +24,51 @@ static mojo_free_fn mojo_free;
 #define LIB_FILE "lib@LIB@.so"
 #endif
 
-// Loads the library next to this addon. Returns an error message, or NULL.
-static const char *load_library(void) {
-  if (mojo_call) return NULL;
+static const char *load_problem;
+static char load_message[512];
+static pthread_once_t load_once = PTHREAD_ONCE_INIT;
+
+// Loads the library next to this addon, once for every thread (worker threads load the addon
+// too); sets `load_problem` when it cannot.
+static void load_library_once(void) {
   Dl_info info;
-  if (!dladdr((void *)&load_library, &info) || !info.dli_fname) return "cannot find the addon's own path";
+  if (!dladdr((void *)&load_library_once, &info) || !info.dli_fname) {
+    load_problem = "cannot find the addon's own path";
+    return;
+  }
   const char *slash = strrchr(info.dli_fname, '/');
   size_t dir = slash ? (size_t)(slash - info.dli_fname) + 1 : 0;
   size_t size = dir + sizeof(LIB_FILE);
   char *path = malloc(size);
-  if (!path) return "out of memory";
+  if (!path) {
+    load_problem = "out of memory";
+    return;
+  }
   memcpy(path, info.dli_fname, dir);
   memcpy(path + dir, LIB_FILE, sizeof(LIB_FILE));
   void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   free(path);
-  if (!lib) return dlerror();
-  mojo_call = (mojo_call_fn)dlsym(lib, "mojo_anything_call");
-  mojo_free = (mojo_free_fn)dlsym(lib, "mojo_anything_free");
-  if (!mojo_call || !mojo_free) {
-    mojo_call = NULL;
-    return "the library does not export mojo_anything_call and mojo_anything_free";
+  if (!lib) {
+    const char *why = dlerror();
+    snprintf(load_message, sizeof load_message, "%s", why ? why : "dlopen failed");
+    load_problem = load_message;
+    return;
   }
-  return NULL;
+  mojo_call_fn call = (mojo_call_fn)dlsym(lib, "mojo_anything_call");
+  mojo_free_fn release = (mojo_free_fn)dlsym(lib, "mojo_anything_free");
+  if (!call || !release) {
+    dlclose(lib);
+    load_problem = "the library does not export mojo_anything_call and mojo_anything_free";
+    return;
+  }
+  mojo_call = call;
+  mojo_free = release;
+}
+
+// Loads the library next to this addon. Returns an error message, or NULL.
+static const char *load_library(void) {
+  pthread_once(&load_once, load_library_once);
+  return load_problem;
 }
 
 // A JS string argument as a NUL-terminated UTF-8 copy, or NULL after throwing.
@@ -100,6 +125,13 @@ static napi_value call(napi_env env, napi_callback_info info) {
 }
 
 static napi_value init(napi_env env, napi_value exports) {
+  // The library is loaded with the addon, so a missing or broken one fails `require` (and a
+  // shadow falls back to the original) instead of every later call.
+  const char *problem = load_library();
+  if (problem) {
+    napi_throw_error(env, NULL, problem);
+    return NULL;
+  }
   napi_value fn;
   napi_create_function(env, "call", NAPI_AUTO_LENGTH, call, NULL, &fn);
   napi_set_named_property(env, exports, "call", fn);

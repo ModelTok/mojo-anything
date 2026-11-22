@@ -463,6 +463,19 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
         let Some(body) = class.child_by_field_name("body") else {
             continue;
         };
+        // A public no-arg constructor, or the implicit one a class without constructors gets
+        // (public, as the class is). An abstract class has no instances of its own.
+        let constructors: Vec<Node> = named_children(body)
+            .into_iter()
+            .filter(|n| n.kind() == "constructor_declaration")
+            .collect();
+        let constructor = !modifiers(class).split_whitespace().any(|w| w == "abstract")
+            && (constructors.is_empty()
+                || constructors.iter().any(|c| {
+                    modifiers(*c).split_whitespace().any(|w| w == "public")
+                        && c.child_by_field_name("parameters")
+                            .is_some_and(|p| named_children(p).is_empty())
+                }));
         for method in named_children(body) {
             if method.kind() != "method_declaration" {
                 continue;
@@ -538,6 +551,7 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                     signature.join(", ")
                 )),
                 blocker,
+                jvm_constructor: constructor,
                 ..Default::default()
             });
         }
@@ -600,6 +614,27 @@ mod tests {
         );
         assert_eq!(fns[1].returns, "string[]");
         assert!(fns[2].blocker.is_some());
+    }
+
+    /// The wrapper keeps a public no-arg constructor when the original class has one, declared
+    /// or implicit, so `new Strings()` in a caller still links.
+    #[test]
+    fn a_class_keeps_its_public_no_arg_constructor() {
+        for (class, body, kept) in [
+            ("public final class", "", true),
+            ("public final class", "public Strings() {}", true),
+            ("public final class", "private Strings() {}", false),
+            ("public final class", "Strings() {}", false),
+            ("public final class", "public Strings(int x) {}", false),
+            ("public abstract class", "", false),
+        ] {
+            let src = format!(
+                "package p;\n{class} Strings {{\n{body}\npublic static int f(int x) {{ return x; }}\n}}\n"
+            );
+            let fns = exports("src/main/java/p/Strings.java", &src);
+            assert_eq!(fns.len(), 1, "{src}");
+            assert_eq!(fns[0].jvm_constructor, kept, "{src}");
+        }
     }
 
     #[test]

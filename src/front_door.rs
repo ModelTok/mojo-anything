@@ -345,10 +345,16 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
             ("main.mojo", http_door::main_mojo_http(&state, &http.args)),
             (
                 "original.mojo",
-                http_door::original_mojo_http(&config.run, &http.args, http.fresh.is_empty()),
+                http_door::original_mojo_http(
+                    &config.run,
+                    &mojo_door::repo_files(&config.run, &repo),
+                    &http.args,
+                    http.fresh.is_empty(),
+                    &mojo_door::host_os(),
+                ),
             ),
             ("units.mojo", http_door::units_mojo_http(&state, false)),
-            ("http.mojo", http_door::HTTP_MOJO.to_string()),
+            ("http.mojo", http_door::http_mojo(&mojo_door::host_os())),
         ];
         return finish_front_door(
             &repo,
@@ -378,7 +384,12 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         ("main.mojo", mojo_door::main_mojo(&state, &flags)),
         (
             "original.mojo",
-            mojo_door::original_mojo(&config.run, false),
+            mojo_door::original_mojo(
+                &config.run,
+                &mojo_door::repo_files(&config.run, &repo),
+                false,
+                &mojo_door::host_os(),
+            ),
         ),
         ("units.mojo", mojo_door::units_mojo(&state, false)),
     ];

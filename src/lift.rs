@@ -654,7 +654,7 @@ fn lift_binary(repo: &Path, mut state: State) -> Result<LiftOutcome> {
             let replay = replay_with(repo, &exe)?;
             checklist.push(Item::new(
                 "replay",
-                if replay.passed == replay.total {
+                if replay.total > 0 && replay.passed == replay.total {
                     Mark::Pass
                 } else {
                     Mark::Fail
@@ -732,6 +732,29 @@ fn lift_binary(repo: &Path, mut state: State) -> Result<LiftOutcome> {
         replay,
         stage: None,
     })
+}
+
+/// The library lift's `replay` item: every recorded case matched through the bindings before
+/// the lift, and the lift left each `port.mojo` as it was.
+fn library_replay_item(unchanged: bool, passed: usize, total: usize) -> Item {
+    if total == 0 {
+        return Item::new(
+            "replay",
+            Mark::Fail,
+            "no recorded case ran through the bindings, so nothing was checked: record the units' cases first",
+        );
+    }
+    Item::new(
+        "replay",
+        if unchanged && passed == total {
+            Mark::Pass
+        } else {
+            Mark::Fail
+        },
+        format!(
+            "{passed}/{total} recorded cases matched through the bindings before the lift; the lift leaves every port.mojo as it was"
+        ),
+    )
 }
 
 /// Lifts a library front door to a pure Mojo package: `__init__.mojo` re-exports each unit's
@@ -852,17 +875,7 @@ fn lift_library(repo: &Path, mut state: State) -> Result<LiftOutcome> {
         )),
     }
     let (passed, total) = replay_before.unwrap_or((0, 0));
-    checklist.push(Item::new(
-        "replay",
-        if unchanged && passed == total {
-            Mark::Pass
-        } else {
-            Mark::Fail
-        },
-        format!(
-            "{passed}/{total} recorded cases matched through the bindings before the lift; the lift leaves every port.mojo as it was"
-        ),
-    ));
+    checklist.push(library_replay_item(unchanged, passed, total));
     checklist.push(Item::new(
         "replay in CI",
         Mark::Warn,
@@ -995,6 +1008,17 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A library lift whose replay ran no case has checked nothing: it fails.
+    #[test]
+    fn library_lift_with_no_cases_fails() {
+        assert_eq!(library_replay_item(true, 12, 12).mark, Mark::Pass);
+        assert_eq!(library_replay_item(false, 12, 12).mark, Mark::Fail);
+        assert_eq!(library_replay_item(true, 11, 12).mark, Mark::Fail);
+        let none = library_replay_item(true, 0, 0);
+        assert_eq!(none.mark, Mark::Fail, "{}", none.detail);
+        assert!(none.detail.contains("no recorded case"), "{}", none.detail);
+    }
 
     #[test]
     fn calls_into_the_original_are_found_and_prose_is_not() {

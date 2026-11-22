@@ -589,6 +589,9 @@ pub fn bench(opts: &BenchOptions) -> Result<Vec<BenchRow>> {
         ..*opts
     };
     let manifest = Manifest::load(opts.crate_dir)?;
+    if crate::jvm::is_jvm(manifest.language) {
+        crate::jvm::require_java()?;
+    }
     if manifest.language == crate::lang::Lang::Python {
         return crate::harness_py::bench(opts.crate_dir, &manifest, opts.min_ms);
     }
@@ -693,6 +696,7 @@ pub struct DiffOptions<'a> {
 const SHOWN_MISMATCHES: usize = 20;
 
 pub fn diff(opts: &DiffOptions) -> Result<DiffOutcome> {
+    crate::jvm::require_java_for(opts.crate_dir)?;
     diff_after(opts, diff_exact(opts)?)
 }
 
