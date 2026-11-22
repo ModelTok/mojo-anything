@@ -370,7 +370,7 @@ public final class MojoAnythingJson {
 "#;
 
 /// Boxes a primitive type for generics: `int` to `Integer`.
-fn boxed(t: &str) -> String {
+pub(crate) fn boxed(t: &str) -> String {
     match t.trim() {
         "int" => "Integer".into(),
         "long" => "Long".into(),
@@ -545,7 +545,7 @@ pub fn wrappers(m: &Manifest, api: &crate::codegen::PortApi) -> Vec<(String, Str
 }
 
 /// The `java.util` imports the original signatures need.
-fn imports_of(m: &Manifest) -> String {
+pub(crate) fn imports_of(m: &Manifest) -> String {
     let mut names: Vec<&str> = Vec::new();
     for f in &m.exports {
         let types = f
@@ -673,6 +673,10 @@ public final class MojoAnythingDriver {
             Throwable cause = e.getCause();
             out.put("error", String.valueOf(cause.getMessage()));
             out.put("error_type", cause.getClass().getSimpleName());
+            // The Mojo bridge could not make the call: whatever the original threw, no match.
+            if (cause.getClass().getName().equals("mojoanything.MojoAnythingError$Panic")) {
+                out.put("panic", true);
+            }
         } catch (ReflectiveOperationException e) {
             out.put("error", e.toString());
             out.put("error_type", "ReflectiveOperationException");
@@ -695,7 +699,9 @@ public final class MojoAnythingDriver {
     }
 
     private static boolean same(Map<String, Object> expected, Map<String, Object> got) {
-        if (String.valueOf(got.get("error")).contains("Rust panic:")) {
+        // A panic, or a Mojo stub not ported yet, never agrees with an error the original threw.
+        String error = String.valueOf(got.get("error"));
+        if (got.containsKey("panic") || error.contains("Rust panic:") || error.startsWith("not ported: ")) {
             return false;
         }
         if (expected.containsKey("error")) {
@@ -1500,6 +1506,33 @@ public final class MojoAnythingError extends RuntimeException {
             }
         }
         return new RuntimeException(type + ": " + message);
+    }
+
+    private static final java.util.regex.Pattern CLASS_NAME =
+        java.util.regex.Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*");
+
+    /**
+     * Throws the exception a port's error names: {@code "java.lang.NumberFormatException: For
+     * input string: \"x\""} (or {@code "NumberFormatException: ..."}, found in java.lang,
+     * java.util and java.io) throws that class with the text after ": ". A class that is not a
+     * RuntimeException, or has no (String) constructor, gives a RuntimeException carrying the
+     * whole text. Declared to return the exception so callers can write {@code throw raise(...)}.
+     */
+    public static RuntimeException raise(String text) {
+        int colon = text.indexOf(": ");
+        if (colon > 0 && CLASS_NAME.matcher(text.substring(0, colon)).matches()) {
+            throw make(text.substring(0, colon), text.substring(colon + 2));
+        }
+        throw new RuntimeException(text);
+    }
+
+    /** A call the port could not take: an unknown function, or an argument its types cannot hold. Never matches a recorded case. */
+    public static final class Panic extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        public Panic(String message) {
+            super(message);
+        }
     }
 }
 "#;

@@ -21,6 +21,7 @@ pub mod codegen_js;
 pub mod codegen_kotlin;
 pub mod codegen_mojo;
 pub mod codegen_mojo_c;
+pub mod codegen_mojo_jvm;
 pub mod codegen_mojo_node;
 pub mod codegen_mojo_py;
 pub mod codegen_py;
