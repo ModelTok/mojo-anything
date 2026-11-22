@@ -217,30 +217,37 @@ A library has no process to replay: its public API is the front door, and each u
 cases are the proof.
 
 ```sh
-mojo-anything app front-door .        # mojo/app: a Cargo crate with the public API
+mojo-anything app front-door .          # mojo/app: a Mojo package with the public API
 # each unit through the loop: bridge, record, port, build, diff, gate; then:
-mojo-anything app wire . textkit-rs   # re-exported from mojo/app; the original imports its shadow
-mojo-anything app replay .            # every wired unit's cases; fallback = exports still in the original
+mojo-anything app wire . textkit-mojo   # re-exported from mojo/app; the original imports its shadow
+mojo-anything app replay .              # every wired unit's cases; fallback = exports still in the original
 mojo-anything app lift .
 ```
 
-The library front door is still the Rust one from before the move to Mojo; it takes units bridged
-to Rust and refuses Mojo units.
-
 - `app front-door` finds the public API (every unit's exports) when the repository has no `main`
-  and no server (`--library` otherwise), and scaffolds `mojo/app` as a library crate. Each wired
-  unit becomes a module of it: `pub use textkit_rs::port as textkit;`.
-- `app wire` takes a crate made by `bridge`, runs `gate`, and writes the unit's shadow drop-in:
-  the original package imports it in place of the unit, so its callers keep the original API and
-  reach the port. `MOJO_ANYTHING_UNIT_<NAME>=original` sends the unit back (C: build without the
-  shadow's flags).
-- `app replay` runs every wired unit's recorded cases through its bindings. The fallback rate is
-  the share of public exports the port does not answer yet: unwired units, and exports `bridge`
-  keeps in the original language.
-- `app lift` needs fallback 0 and every unit through `gate`; it strips the bindings, wrappers and
-  shadows from the units and leaves `mojo/app` as one library. It does not touch any port, so the
-  cases that matched through the bindings still describe it; the checklist warns about files of
-  the original that still import the shadows.
+  and no server (`--library` otherwise), and scaffolds `mojo/app` as a Mojo package: a pixi
+  project whose `__init__.mojo` re-exports each wired unit's port under the unit's module name
+  (`from textkit.units.textkit import port as textkit`), so a Mojo program imports
+  `from textkit import textkit` and calls `textkit.slugify(...)`.
+- Every build puts the package together under `mojo/app/.mojo-anything/build/src/<package>/`
+  (`__init__.mojo`, and each unit's `port.mojo` with the modules it imports as
+  `<package>.units.<module>`) and runs `mojo precompile --Werror` into
+  `mojo/app/.mojo-anything/build/<package>.mojoc`; a Mojo program builds against it with
+  `mojo build -I mojo/app/.mojo-anything/build`.
+- `app wire` takes a Mojo unit made by `bridge` (`mojo/<name>` with `port.mojo` and its
+  manifest), runs `gate`, and writes the unit's shadow drop-in: the original package imports it in
+  place of the unit, so its callers keep the original API and reach the port.
+  `MOJO_ANYTHING_UNIT_<NAME>=original` sends the unit back (C: build without the shadow's flags).
+  Units bridged to Rust (Java and Kotlin, until they move to Mojo) are refused.
+- `app replay` runs every wired unit's recorded cases through its bindings (build each unit with
+  `mojo-anything build` first). The fallback rate is the share of public exports the port does not
+  answer yet: unwired units, and exports `bridge` keeps in the original language.
+- `app lift` needs fallback 0 and every unit through `gate`; on a copy, it strips the bindings,
+  wrappers and shadows from the units, keeps each `port.mojo`, the helpers it imports and its
+  tests, and leaves `mojo/app` as one pure Mojo package: each unit's Mojo checks, `mojo format`
+  on `__init__.mojo` and `mojo precompile` must pass before it is copied back. It does not touch
+  any port, so the cases that matched through the bindings still describe it; the checklist warns
+  about files of the original that still import the shadows.
 
 All five are MCP tools too: `app_record`, `app_replay`, `app_front_door`, `app_wire` and
 `app_lift`.

@@ -1,6 +1,7 @@
 //! `app lift`: once the front door answers every recorded case through its units, remove the
 //! fallback, the kill switches and the units' bindings, and prove the pure binary on the recorded
-//! cases: a pure Mojo binary for a CLI, a Rust one for a server or a library (still Cargo apps).
+//! cases: a pure Mojo binary for a CLI, a pure Mojo package for a library, and a Rust binary for
+//! a server (still a Cargo app).
 //!
 //! The lift is made on a copy of the front door and its units (`mojo/app`, `mojo/app-cases`, the
 //! unit folders) and only copied back when every check passes, so a lift
@@ -526,32 +527,9 @@ fn ship_settings(doc: &mut DocumentMut) {
     }
 }
 
-fn lift_library(stage_app: &Path, state: &mut State) -> Result<()> {
-    state.lifted = true;
-    let _ = std::fs::remove_file(stage_app.join(crate::library::CARGO_CONFIG));
-    let lib = stage_app.join("src/lib.rs");
-    std::fs::write(&lib, crate::library::lib_rs(state, true))?;
-    front_door::rustfmt(&lib);
-    std::fs::write(
-        stage_app.join(STATE_FILE),
-        serde_json::to_string_pretty(state)? + "\n",
-    )?;
-    let cargo = stage_app.join("Cargo.toml");
-    let mut doc: DocumentMut = std::fs::read_to_string(&cargo)?.parse()?;
-    doc["package"]["description"] = value(format!(
-        "`{}` in Rust, lifted by mojo-anything from its units' ports",
-        state.name
-    ));
-    ship_settings(&mut doc);
-    std::fs::write(&cargo, doc.to_string())?;
-    Ok(())
-}
-
-/// Lifts a server or a library (still Rust apps; a CLI is lifted by [`lift_cli`]).
+/// Lifts a server (still a Rust app; a CLI is lifted by [`lift_cli`], a library by
+/// [`lift_library`]).
 fn lift_app(stage_app: &Path, state: &mut State) -> Result<()> {
-    if state.kind == AppKind::Library {
-        return lift_library(stage_app, state);
-    }
     let main = stage_app.join("src/main.rs");
     if is_generated_main(&std::fs::read_to_string(&main)?, state) {
         std::fs::write(&main, http_door::lifted_main_rs())?;
@@ -1076,6 +1054,195 @@ fn lift_cli(repo: &Path, mut state: State) -> Result<LiftOutcome> {
     })
 }
 
+/// Lifts a library front door to a pure Mojo package: `__init__.mojo` re-exports each unit's
+/// port with no kill switches or bindings left, each unit without its bridge.
+fn lift_library(repo: &Path, mut state: State) -> Result<LiftOutcome> {
+    let app_dir = repo.join(APP_DIR);
+    let mojo_dir = repo.join("mojo");
+    let mut blockers = Vec::new();
+    if state.units.is_empty() {
+        blockers.push("no unit is wired yet: run `mojo-anything app wire` first".to_string());
+    }
+    let mut units = Vec::new();
+    for unit in &state.units {
+        let dir = app_dir
+            .join(&unit.path)
+            .canonical()
+            .with_context(|| format!("unit {} not found at {}", unit.name, unit.path))?;
+        if !dir.starts_with(&mojo_dir) {
+            blockers.push(format!(
+                "{}: lift works on Mojo units under mojo/, and this one is at {}",
+                unit.crate_name,
+                dir.display()
+            ));
+        }
+        units.push((unit.clone(), dir));
+    }
+    let before = crate::library::mojo_build_lib(&app_dir)
+        .and_then(|_| crate::library::replay(repo, &state, None));
+    let replay_before = before.as_ref().ok().map(|r| (r.passed, r.total));
+    blockers.extend(front_door_blockers(before, true, crate::library::INIT_FILE));
+    for (unit, dir) in &units {
+        let checks = if dir.join(crate::bridge::MANIFEST).exists() {
+            gate::gate(dir, &[])?.checks
+        } else {
+            gate::mojo_checks(dir)
+        };
+        let failed: Vec<&str> = checks
+            .iter()
+            .filter(|c| !c.passed)
+            .map(|c| c.name)
+            .collect();
+        if !failed.is_empty() {
+            blockers.push(format!(
+                "{}: gate fails ({}): run `mojo-anything gate {}`",
+                unit.crate_name,
+                failed.join(", "),
+                dir.display()
+            ));
+        }
+    }
+    if !blockers.is_empty() {
+        return Ok(LiftOutcome::refused(blockers, Vec::new(), None));
+    }
+
+    let stage = stage_dir();
+    let staged_path = |dir: &Path| stage.join(dir.strip_prefix(repo).unwrap_or(dir));
+    let stage_app = staged_path(&app_dir);
+    copy_tree(&app_dir, &stage_app)?;
+    let mut staged_units = Vec::new();
+    for (unit, dir) in &units {
+        let staged = staged_path(dir);
+        copy_tree(dir, &staged)?;
+        strip_unit(&staged)?;
+        staged_units.push((unit.clone(), dir.clone(), staged));
+    }
+    state.lifted = true;
+    let init = crate::library::INIT_FILE;
+    std::fs::write(stage_app.join(init), crate::library::lib_mojo(&state, true))?;
+    std::fs::write(
+        stage_app.join(STATE_FILE),
+        serde_json::to_string_pretty(&state)? + "\n",
+    )?;
+    crate::front_door_mojo::mojo_format_in(&stage_app, &app_dir, &[init]);
+
+    let mut checklist = Vec::new();
+    for (unit, _, staged) in &staged_units {
+        for check in gate::mojo_checks_in(staged, &app_dir) {
+            checklist.push(Item::from_check(&unit.crate_name, check));
+        }
+    }
+    let text = std::fs::read_to_string(stage_app.join(init)).unwrap_or_default();
+    checklist.push(
+        match unformatted(
+            &stage_app.join(".mojo-anything/format"),
+            &app_dir,
+            &[(init.to_string(), text)],
+        ) {
+            Ok(differ) if differ.is_empty() => Item::new(
+                format!("{APP_DIR}: mojo format"),
+                Mark::Pass,
+                format!("{init} formatted"),
+            ),
+            Ok(_) => Item::new(
+                format!("{APP_DIR}: mojo format"),
+                Mark::Fail,
+                format!("{init} is not as `mojo format` writes it (run `mojo format {init}` in {APP_DIR})"),
+            ),
+            Err(e) => Item::new(
+                format!("{APP_DIR}: mojo format"),
+                Mark::Fail,
+                format!("{e:#}"),
+            ),
+        },
+    );
+    let unchanged = staged_units.iter().all(|(_, dir, staged)| {
+        std::fs::read(dir.join("port.mojo")).ok() == std::fs::read(staged.join("port.mojo")).ok()
+    });
+    match crate::library::mojo_build_lib_in(&stage_app, &app_dir) {
+        Ok(_) => checklist.push(Item::new(
+            format!("{APP_DIR}: mojo precompile"),
+            Mark::Pass,
+            "`mojo precompile` builds the lifted package from the units' ports",
+        )),
+        Err(e) => checklist.push(Item::new(
+            format!("{APP_DIR}: mojo precompile"),
+            Mark::Fail,
+            format!("{e:#}"),
+        )),
+    }
+    let (passed, total) = replay_before.unwrap_or((0, 0));
+    checklist.push(Item::new(
+        "replay",
+        if unchanged && passed == total {
+            Mark::Pass
+        } else {
+            Mark::Fail
+        },
+        format!(
+            "{passed}/{total} recorded cases matched through the bindings before the lift; the lift leaves every port.mojo as it was"
+        ),
+    ));
+    checklist.push(Item::new(
+        "replay in CI",
+        Mark::Warn,
+        "the recorded cases ran through the units' bindings, which the lift removes: each unit's test_*.mojo is what CI keeps; turn the cases that matter into Mojo tests",
+    ));
+    let references = crate::library::original_references(repo, &state);
+    checklist.push(if references.is_empty() {
+        Item::new(
+            "original package",
+            Mark::Pass,
+            "nothing in the original names the units' bindings or shadows",
+        )
+    } else {
+        Item::new(
+            "original package",
+            Mark::Warn,
+            format!(
+                "these files use the units' bindings or shadows, which the lift removes; the original stays as reference, so point them back at its own modules: {}",
+                references.join(", ")
+            ),
+        )
+    });
+    let sources: Vec<PathBuf> = staged_units.iter().map(|(_, _, s)| s.clone()).collect();
+    checklist.extend(mojo_asset_items(repo, &sources));
+
+    let failed: Vec<String> = checklist
+        .iter()
+        .filter(|i| i.mark == Mark::Fail)
+        .map(|i| format!("{}: {}", i.name, i.detail))
+        .collect();
+    if !failed.is_empty() {
+        return Ok(LiftOutcome::refused(failed, checklist, Some(stage)));
+    }
+    let mut removed = Vec::new();
+    removed.extend(sync(&stage_app, &app_dir)?);
+    for (_, dir, staged) in &staged_units {
+        removed.extend(sync(staged, dir)?);
+    }
+    let _ = std::fs::remove_dir_all(&stage);
+    let package = crate::library::mojo_build_lib(&app_dir)?;
+    Ok(LiftOutcome {
+        lifted: true,
+        blockers: Vec::new(),
+        checklist,
+        units: state.units.iter().map(|u| u.crate_name.clone()).collect(),
+        removed: removed
+            .iter()
+            .map(|p| {
+                p.strip_prefix(repo)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect(),
+        binary: Some(package),
+        replay: None,
+        stage: None,
+    })
+}
+
 /// Whether Mojo source calls into the original's module (`original.run(...)`); prose that
 /// ends a sentence with "original." does not count.
 fn calls_original(text: &str) -> bool {
@@ -1139,13 +1306,13 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
     if state.lifted {
         bail!("{} is already lifted", repo.join(APP_DIR).display());
     }
-    if state.kind == AppKind::Cli {
-        return lift_cli(&repo, state);
+    match state.kind {
+        AppKind::Cli => return lift_cli(&repo, state),
+        AppKind::Library => return lift_library(&repo, state),
+        AppKind::Http => {}
     }
-    let library = state.kind == AppKind::Library;
-    let config = app::Config::load(&repo)?;
     ensure!(
-        library || config.is_some(),
+        app::Config::load(&repo)?.is_some(),
         "no recorded cases: run `app record` first"
     );
     let app_dir = repo.join(APP_DIR);
@@ -1171,13 +1338,13 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
             .join("src/units")
             .join(format!("{}.rs", front_door::ident(&unit.name)));
         let glue_text = std::fs::read_to_string(&glue).unwrap_or_default();
-        if !library && front_door::is_stub(&glue_text) {
+        if front_door::is_stub(&glue_text) {
             blockers.push(format!(
                 "{}: the glue in {} is still the generated stub",
                 unit.name,
                 glue.display()
             ));
-        } else if !library && glue_text.contains("original::") {
+        } else if glue_text.contains("original::") {
             blockers.push(format!(
                 "{}: the glue in {} still hands cases to the original (`original::`): answer them in Rust, then lift again",
                 unit.name,
@@ -1187,7 +1354,7 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
         units.push((unit.clone(), dir));
     }
     let main = std::fs::read_to_string(app_dir.join("src/main.rs")).unwrap_or_default();
-    if !library && !is_generated_main(&main, &state) && main.contains("original::") {
+    if !is_generated_main(&main, &state) && main.contains("original::") {
         blockers.push(
             "src/main.rs was changed and still calls the original: remove `mod original`, `original::report_fallbacks()` and `original::run` by hand, then lift again"
                 .to_string(),
@@ -1195,25 +1362,16 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
     }
 
     let target_dir = app_dir.join("target");
-    let before = if library {
-        crate::library::cargo_build_lib(&app_dir, Some(&target_dir))
-            .and_then(|()| crate::library::replay(&repo, &state, None))
-    } else {
-        front_door::cargo_build(&app_dir, Some(&target_dir)).and_then(|exe| {
-            app::replay(&ReplayOptions {
-                case: None,
-                repo: &repo,
-                build: Some(&app::shell_quote(&exe.to_string_lossy())),
-                timeout_secs: None,
-                port: None,
-            })
+    let before = front_door::cargo_build(&app_dir, Some(&target_dir)).and_then(|exe| {
+        app::replay(&ReplayOptions {
+            case: None,
+            repo: &repo,
+            build: Some(&app::shell_quote(&exe.to_string_lossy())),
+            timeout_secs: None,
+            port: None,
         })
-    };
-    let replay_before = match &before {
-        Ok(r) => Some((r.passed, r.total)),
-        Err(_) => None,
-    };
-    blockers.extend(front_door_blockers(before, library, "src/original.rs"));
+    });
+    blockers.extend(front_door_blockers(before, false, "src/original.rs"));
     for (unit, dir) in &units {
         let checks = if dir.join(crate::bridge::MANIFEST).exists() {
             gate::gate(dir, &[])?.checks
@@ -1295,63 +1453,15 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
     checklist.push(Item::new(
         "replay in CI",
         Mark::Warn,
-        if library {
-            "the recorded cases ran through the units' bindings, which the lift removes: `cargo test` on the crates is what CI keeps; turn the cases that matter into Rust tests"
-        } else {
-            "trycmd runs command lines only: run `mojo-anything app replay <repo> --build <the binary>` in CI for the HTTP cases"
-        },
+        "trycmd runs command lines only: run `mojo-anything app replay <repo> --build <the binary>` in CI for the HTTP cases",
     ));
     checklist.extend(target_items(&repo, &stage_app, &target_dir));
     let mut sources = vec![stage_app.join("src")];
     sources.extend(staged_units.iter().map(|(_, _, s)| s.join("src")));
     checklist.extend(asset_items(&repo, &sources));
 
-    if library {
-        let references = crate::library::original_references(&repo, &state);
-        checklist.push(if references.is_empty() {
-            Item::new(
-                "original package",
-                Mark::Pass,
-                "nothing in the original names the units' bindings or shadows",
-            )
-        } else {
-            Item::new(
-                "original package",
-                Mark::Warn,
-                format!(
-                    "these files use the units' bindings or shadows, which the lift removes; the original stays as reference, so point them back at its own modules: {}",
-                    references.join(", ")
-                ),
-            )
-        });
-        let unchanged = staged_units.iter().all(|(_, dir, staged)| {
-            std::fs::read(dir.join("src/port.rs")).ok()
-                == std::fs::read(staged.join("src/port.rs")).ok()
-        });
-        let built = crate::library::cargo_build_lib(&stage_app, Some(&target_dir));
-        let (passed, total) = replay_before.unwrap_or((0, 0));
-        checklist.push(Item::new(
-            "replay",
-            if built.is_ok() && unchanged && passed == total {
-                Mark::Pass
-            } else {
-                Mark::Fail
-            },
-            match built {
-                Err(e) => format!("{e:#}"),
-                Ok(()) => format!(
-                    "{passed}/{total} recorded cases matched through the bindings before the lift; the lift leaves every port.rs as it was, and the whole API builds as one Rust library"
-                ),
-            },
-        ));
-    }
-    let built = if library {
-        Ok(PathBuf::new())
-    } else {
-        front_door::cargo_build(&stage_app, Some(&target_dir))
-    };
+    let built = front_door::cargo_build(&stage_app, Some(&target_dir));
     let replay = match built {
-        Ok(_) if library => None,
         Err(e) => {
             checklist.push(Item::new("build", Mark::Fail, format!("{e:#}")));
             None
@@ -1399,12 +1509,7 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
         removed.extend(sync(staged, dir)?);
     }
     let _ = std::fs::remove_dir_all(&stage);
-    let binary = if library {
-        crate::library::cargo_build_lib(&app_dir, Some(&target_dir))?;
-        None
-    } else {
-        Some(front_door::cargo_build(&app_dir, Some(&target_dir))?)
-    };
+    let binary = Some(front_door::cargo_build(&app_dir, Some(&target_dir))?);
     Ok(LiftOutcome {
         lifted: true,
         blockers: Vec::new(),

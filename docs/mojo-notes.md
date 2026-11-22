@@ -151,6 +151,21 @@ Confirmed by the spikes before M6 Task 3 and by `tests/app.rs` `wire_*`, `wired_
   raises on anything else; `//` and `%` on `Int` floor as Python's do; `from std.time import
   perf_counter_ns`.
 
+## Packages (library front door)
+
+Confirmed by spikes before M6 Task 6 and by `tests/library.rs` (2026-11-22).
+
+- `mojo precompile [--Werror] <dir> -o <name>.mojoc` builds a package from a folder holding
+  `__init__.mojo`; the package is named after the folder. `mojo package` is deprecated in 1.2
+  ("use 'precompile' instead") and refuses any output not ending in `.mojoc`. A package whose
+  modules hold only comments precompiles.
+- An importer finds it with `mojo build -I <folder holding the .mojoc>`; the `.mojoc` is tied to
+  the compiler version that wrote it.
+- `__init__.mojo` can re-export a sub-module under another name:
+  `from pkg.units.text import port as text`, and importers write `from pkg import text` and call
+  `text.shout(...)`. Modules inside the package import each other by their full name
+  (`from pkg.units.text.helper import twice`).
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.

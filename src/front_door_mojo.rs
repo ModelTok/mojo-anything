@@ -414,7 +414,7 @@ pub fn local_modules(unit_dir: &Path, roots: &[&str]) -> Vec<String> {
 
 /// A unit module's source as a module of the package `package`: imports of the unit's own
 /// modules (`locals`) name them through the package, so two units' helpers never collide.
-fn package_source(text: &str, package: &str, locals: &[String]) -> String {
+pub(crate) fn package_source(text: &str, package: &str, locals: &[String]) -> String {
     let mut out = String::new();
     for line in text.split_inclusive('\n') {
         let rewritten = imported_module(line).and_then(|(name, rest, from)| {

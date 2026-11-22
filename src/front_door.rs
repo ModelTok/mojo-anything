@@ -317,7 +317,7 @@ fn build_and_replay(repo: &Path, state: &State) -> Result<ReplayOutcome> {
     let app_dir = repo.join(APP_DIR);
     let target_dir = app_dir.join("target");
     if state.kind == AppKind::Library {
-        crate::library::cargo_build_lib(&app_dir, Some(&target_dir))?;
+        crate::library::mojo_build_lib(&app_dir)?;
         return crate::library::replay(repo, state, None);
     }
     let exe = if state.kind == AppKind::Cli {
@@ -473,7 +473,7 @@ fn finish_front_door(
         std::fs::write(&target, text).with_context(|| format!("writing {}", target.display()))?;
     }
     match state.kind {
-        AppKind::Library => rustfmt(&dir.join("src/lib.rs")),
+        AppKind::Library => mojo_door::mojo_format(&dir, &[crate::library::INIT_FILE]),
         AppKind::Http => rustfmt(&dir.join("src/main.rs")),
         AppKind::Cli => mojo_door::mojo_format(&dir, &mojo_door::SOURCES),
     }
@@ -509,7 +509,7 @@ fn library_front_door(
         .filter(|n| !n.is_empty())
         .or_else(|| repo.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "lib".to_string());
-    let package = package_name(&name);
+    let package = crate::library::package_ident(&name);
     let state = State {
         schema: SCHEMA.to_string(),
         name: name.clone(),
@@ -525,9 +525,15 @@ fn library_front_door(
         "no exported function or class found to make a public API from"
     );
     let files: Vec<(&str, String)> = vec![
-        ("Cargo.toml", crate::library::cargo_toml(&package, &name)),
-        (".gitignore", "/target\n".to_string()),
-        ("src/lib.rs", crate::library::lib_rs(&state, false)),
+        (
+            "pixi.toml",
+            mojo_door::pixi_toml_app(&package_name(&name), false),
+        ),
+        (".gitignore", "/.pixi/\n/.mojo-anything/\n".to_string()),
+        (
+            crate::library::INIT_FILE,
+            crate::library::lib_mojo(&state, false),
+        ),
     ];
     finish_front_door(
         repo,
@@ -541,40 +547,54 @@ fn library_front_door(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn library_wire(
-    repo: &Path,
-    opts: &WireOptions,
-    mut state: State,
-    crate_dir: &Path,
-    crate_name: String,
-    name: String,
-    switch: String,
-    gate: Option<bool>,
-) -> Result<WireOutcome> {
+/// `wire` for a library: a Mojo unit `bridge` made becomes a module of the package in
+/// `mojo/app`, and the original package reaches it through its shadow drop-in.
+fn library_wire(repo: &Path, opts: &WireOptions, mut state: State) -> Result<WireOutcome> {
     ensure!(
         opts.commands.is_empty() && opts.routes.is_empty(),
         "{} is a library: a unit answers its own exports, so wire takes no --command or --route",
         state.name
     );
-    let manifest = crate::bridge::Manifest::load(crate_dir).with_context(|| {
+    let unit_dir = find_mojo_unit(repo, opts.unit, "the library front door is a Mojo package")?;
+    let manifest = crate::bridge::Manifest::load(&unit_dir).with_context(|| {
         format!(
-            "a library unit is a crate made by `bridge` (the original package calls it through its bindings), and {} has no manifest",
-            crate_dir.display()
+            "a library unit is one `bridge` made (the original package calls it through its bindings), and {} has no manifest",
+            unit_dir.display()
         )
     })?;
+    let crate_name = manifest.crate_name.clone();
+    let name = unit_name(&crate_name).to_string();
+    let switch = kill_switch(&crate_name);
+    let gate = if opts.skip_gate {
+        None
+    } else {
+        let outcome = crate::gate::gate(&unit_dir, &[])?;
+        if !outcome.passed {
+            let failed: Vec<String> = outcome
+                .checks
+                .iter()
+                .filter(|c| !c.passed)
+                .map(|c| c.name.to_string())
+                .collect();
+            bail!(
+                "{crate_name} does not pass gate ({}): run `mojo-anything gate {}` and fix it before wiring",
+                failed.join(", "),
+                unit_dir.display()
+            );
+        }
+        Some(true)
+    };
     let api = crate::library::api_unit(&state, &manifest.unit)?.clone();
     let app_dir = repo.join(APP_DIR);
     let previous = state.units.iter().position(|u| u.name == name);
     let shadow = crate::library::shadow_for(
-        crate_dir,
+        &unit_dir,
         previous.and_then(|i| state.units[i].shadow.as_deref()),
     )?;
-    let path = from_app_dir(repo, crate_dir);
     let entry = WiredUnit {
         name: name.clone(),
-        crate_name: crate_name.clone(),
-        path: path.clone(),
+        crate_name,
+        path: from_app_dir(repo, &unit_dir),
         commands: Vec::new(),
         routes: Vec::new(),
         switch: switch.clone(),
@@ -586,15 +606,15 @@ fn library_wire(
         Some(i) => state.units[i] = entry,
         None => state.units.push(entry),
     }
-    let cargo_path = app_dir.join("Cargo.toml");
-    let mut doc: DocumentMut = std::fs::read_to_string(&cargo_path)?.parse()?;
-    let mut dep = InlineTable::new();
-    dep.insert("path", path.as_str().into());
-    doc["dependencies"][crate_name.as_str()] = value(dep);
-    std::fs::write(&cargo_path, doc.to_string())?;
-    let lib = app_dir.join("src/lib.rs");
-    std::fs::write(&lib, crate::library::lib_rs(&state, false))?;
-    rustfmt(&lib);
+    let init = app_dir.join(crate::library::INIT_FILE);
+    std::fs::write(&init, crate::library::lib_mojo(&state, false))?;
+    mojo_door::mojo_format(&app_dir, &[crate::library::INIT_FILE]);
+    if mojo_door::port_modules(&unit_dir)
+        .iter()
+        .any(|m| m == "json")
+    {
+        mojo_door::add_json_dependency(&app_dir)?;
+    }
     state.save(repo)?;
     let replay = if opts.check {
         Some(build_and_replay(repo, &state)?)
@@ -604,11 +624,11 @@ fn library_wire(
     Ok(WireOutcome {
         shadow,
         unit: name,
-        crate_dir: crate_dir.to_path_buf(),
+        crate_dir: unit_dir,
         commands: Vec::new(),
         routes: Vec::new(),
         switch,
-        glue: lib,
+        glue: init,
         glue_pending: false,
         gate,
         replay,
@@ -666,7 +686,7 @@ fn refuse_mojo_unit(repo: &Path, unit: &str) -> Result<()> {
         ) && (named || m.unit.trim_end_matches('/') == wanted)
         {
             bail!(
-                "{} is a Mojo unit: server and library front doors are still Rust apps and \
+                "{} is a Mojo unit: the server front door is still a Rust app and \
                  cannot take Mojo units yet; check the unit on its own with diff, shadow and gate",
                 dir.display()
             );
@@ -677,7 +697,8 @@ fn refuse_mojo_unit(repo: &Path, unit: &str) -> Result<()> {
 
 pub struct WireOptions<'a> {
     pub repo: &'a Path,
-    /// Unit crate folder, its name under `rust/`, or the unit id it was bridged from.
+    /// The unit: its folder, its name under `mojo/` (`rust/` for a server), or the unit id it
+    /// was bridged from.
     pub unit: &'a str,
     /// Commands the unit answers; kept from the last wire when empty.
     pub commands: &'a [String],
@@ -715,8 +736,10 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         !state.lifted,
         "the app is lifted: there is no fallback left to wire around; call the crate from src/units directly"
     );
-    if state.kind == AppKind::Cli {
-        return cli_wire(&repo, opts, state);
+    match state.kind {
+        AppKind::Cli => return cli_wire(&repo, opts, state),
+        AppKind::Library => return library_wire(&repo, opts, state),
+        AppKind::Http => {}
     }
     let app_dir = repo.join(APP_DIR);
     let crate_dir = find_unit(&repo, opts.unit)?;
@@ -760,11 +783,6 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         }
         Some(true)
     };
-    if state.kind == AppKind::Library {
-        return library_wire(
-            &repo, opts, state, &crate_dir, crate_name, name, switch, gate,
-        );
-    }
 
     let previous = state.units.iter().position(|u| u.name == name);
     let http = state.kind == AppKind::Http;
@@ -880,7 +898,7 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
 /// A Mojo unit folder for the CLI front door: `mojo/<unit>`, `mojo/<unit>-mojo`, a folder
 /// given as a path, or the unit id a manifest under `mojo/` names. A folder is a Mojo unit
 /// when it holds `port.mojo`.
-fn find_mojo_unit(repo: &Path, unit: &str) -> Result<PathBuf> {
+fn find_mojo_unit(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
     let mojo = repo.join("mojo");
     let app_dir = repo.join(APP_DIR);
     for candidate in [
@@ -909,13 +927,27 @@ fn find_mojo_unit(repo: &Path, unit: &str) -> Result<PathBuf> {
         rust.join(unit),
         rust.join(format!("{unit}-rs")),
         repo.join(unit),
+        PathBuf::from(unit),
     ] {
         if candidate.join("Cargo.toml").is_file() {
             bail!(
-                "{} is a Rust crate: the CLI front door is a Mojo binary and wires Mojo units \
-                 (a folder with port.mojo); Java and Kotlin units move to Mojo with M5",
+                "{} is a Rust crate: {door} and wires Mojo units (a folder with port.mojo); \
+                 Java and Kotlin units move to Mojo with M5",
                 candidate.display()
             );
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(&rust) {
+        for entry in entries.flatten() {
+            if let Ok(m) = crate::bridge::Manifest::load(&entry.path())
+                && m.unit.trim_end_matches('/') == wanted
+            {
+                bail!(
+                    "{} is a Rust crate: {door} and wires Mojo units (a folder with port.mojo); \
+                     Java and Kotlin units move to Mojo with M5",
+                    entry.path().display()
+                );
+            }
         }
     }
     bail!(
@@ -932,7 +964,7 @@ fn cli_wire(repo: &Path, opts: &WireOptions, mut state: State) -> Result<WireOut
         state.name
     );
     let app_dir = repo.join(APP_DIR);
-    let unit_dir = find_mojo_unit(repo, opts.unit)?;
+    let unit_dir = find_mojo_unit(repo, opts.unit, "the CLI front door is a Mojo binary")?;
     let manifest = crate::bridge::Manifest::load(&unit_dir).ok();
     let crate_name = match &manifest {
         Some(m) => m.crate_name.clone(),

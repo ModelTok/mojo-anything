@@ -469,20 +469,22 @@ enum AppCmd {
         /// Only write the files; skip the build and replay.
         #[arg(long)]
         no_check: bool,
-        /// Treat the repository as a library even if it has a `main`: the front door is a Rust
-        /// crate with the public API (found by default when there is no main and no server).
+        /// Treat the repository as a library even if it has a `main`: the front door is a Mojo
+        /// package with the public API (found by default when there is no main and no server).
         #[arg(long)]
         library: bool,
         #[arg(long)]
         json: bool,
     },
-    /// Hand commands to a unit's `port.rs` (after it passes gate): adds the crate to `mojo/app`,
-    /// a glue file to write once, the routing and a kill switch
-    /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays.
+    /// Hand commands to a unit's port (after it passes gate): adds the unit to `mojo/app`, a
+    /// glue file to write once (a CLI), the routing and a kill switch
+    /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays. A CLI or a library takes
+    /// a Mojo unit (`mojo/<name>` with `port.mojo`); a server still takes a Rust crate.
     Wire {
         /// Repository root.
         repo: PathBuf,
-        /// Unit crate: its folder, its name under `rust/`, or the unit id it was bridged from.
+        /// The unit: its folder, its name under `mojo/` (or `rust/` for a server), or the unit
+        /// id it was bridged from.
         unit: String,
         /// A command the unit answers. Repeatable; kept from the last wire when omitted.
         #[arg(long = "command")]
