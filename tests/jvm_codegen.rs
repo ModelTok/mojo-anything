@@ -113,6 +113,58 @@ public class Check {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// EmberJson joins an escaped surrogate pair with `| 0x10000` instead of `+ 0x10000`, so
+/// `"𠈀"` (U+20200) reached a port as U+10200: every character on planes 2, 4, ... 16
+/// arrived on the plane below. The codec writes a whole pair as the character itself and escapes
+/// only lone halves.
+#[test]
+fn json_writes_supplementary_characters_raw() {
+    if !common::have_java() {
+        return;
+    }
+    let dir = scratch("json");
+    write(
+        &dir.join("src/mojoanything/MojoAnythingJson.java"),
+        mojo_anything::codegen_java::JSON_JAVA,
+    );
+    write(
+        &dir.join("src/Check.java"),
+        r#"import mojoanything.MojoAnythingJson;
+
+public class Check {
+    public static void main(String[] args) {
+        String s = "a𠈀😀\uD800b\uDC00";
+        String text = MojoAnythingJson.write(s);
+        StringBuilder out = new StringBuilder();
+        text.codePoints().forEach(c -> out.append(Integer.toHexString(c)).append(' '));
+        System.out.println(out.toString().trim());
+        System.out.println(MojoAnythingJson.parse(text).equals(s));
+    }
+}
+"#,
+    );
+    let classes = dir.join("classes");
+    run(Command::new("javac")
+        .args(["-encoding", "UTF-8", "-d"])
+        .arg(&classes)
+        .args(java_sources(&dir.join("src"))));
+    let out = run(Command::new("java")
+        .args(["-XX:-UsePerfData", "-cp"])
+        .arg(&classes)
+        .arg("Check"));
+    let lines: Vec<&str> = out.lines().collect();
+    // `"`, `a`, U+20200, U+1F600, `\ud800` spelt out, `b`, `\udc00` spelt out, `"`.
+    assert_eq!(
+        lines,
+        [
+            "22 61 20200 1f600 5c 75 64 38 30 30 62 5c 75 64 63 30 30 22",
+            "true"
+        ],
+        "{out}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn fixture_manifest() -> Manifest {
     let root = Path::new(ROOT).join("tests/fixtures/java");
     let mut exports = Vec::new();

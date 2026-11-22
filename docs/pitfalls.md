@@ -32,6 +32,12 @@ formatter with unported syntax) had no way to decline after reading stdin. Glue 
 doc trees. Case and input lines are read with `unbounded_depth` and the limit disabled, in the
 harness and in generated `from_json`; a test reads a 200-deep line.
 
+**Characters beyond U+1FFFF reached the port on the wrong plane.** EmberJson joins an escaped
+surrogate pair with `| 0x10000` instead of `+ 0x10000`, so `"𠈀"` (U+20200) read as
+U+10200, on planes 2, 4, ... 16 only; emoji (plane 1) passed, and so did every recorded case. The
+Java codec escaped every surrogate. Send whole pairs to EmberJson as UTF-8, escape only lone
+halves, and check string ports on every code point, not on the recorded traps alone.
+
 **A bridge found no functions in a module that exports a list.** `export { a, b as c }` was not
 read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that way.
 

@@ -232,8 +232,13 @@ public final class MojoAnythingJson {
                 case '\t': out.append("\\t"); break;
                 case '\r': out.append("\\r"); break;
                 default:
-                    if (c < 0x20 || Character.isSurrogate(c)) {
-                        // Escaped surrogates keep lone halves intact through any UTF-8 layer.
+                    if (Character.isHighSurrogate(c) && i + 1 < s.length()
+                            && Character.isLowSurrogate(s.charAt(i + 1))) {
+                        // A whole pair goes as the character: EmberJson joins an escaped pair
+                        // wrongly on planes 2, 4, ... 16.
+                        out.append(c).append(s.charAt(++i));
+                    } else if (c < 0x20 || Character.isSurrogate(c)) {
+                        // Escaped lone halves stay intact through any UTF-8 layer.
                         out.append(String.format("\\u%04x", (int) c));
                     } else {
                         out.append(c);

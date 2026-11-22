@@ -14,7 +14,7 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 | Ruby | `shellwords.rb` from Ruby 3.3 ([`ruby-shellwords-mojo`](../demo/real-world/ruby-shellwords-mojo/README.md)) | 3 | 1,626 (449 raise), recorded again 2026-11-22 | Mojo port: 1,626/1,626, and 1,617/1,617 on the Rust-era recording; gate passes |
 | Python | `colorsys.py` from CPython 3.13 | 6 | 2,400 | 2,400/2,400, gate passes |
 | Python | CPython 3.12's `base64` command line, as a whole app ([`python-base64-mojo`](../demo/real-world/python-base64-mojo/README.md)) | 4 (one hand-written unit) | 74 CLI cases | lifted to a pure Mojo binary: 74/74 with the original moved away ([below](#a-whole-cli-lifted-to-mojo-cpythons-base64)) |
-| Java | JDK 21 behind a facade (`Integer`, `Long`, `Math`, `Double.toString`, `URLEncoder`, `Base64`, `toUpperCase`) | 11 | 4,492 (226 throw) | 4,492/4,492, gate passes |
+| Java | OpenJDK 25 behind a facade (`Integer`, `Long`, `Math`, `Double.toString`, `URLEncoder`, `Base64`, `toUpperCase`) ([`java-jdk-mojo`](../demo/real-world/java-jdk-mojo/README.md)) | 11 | 4,782 (286 throw), recorded again 2026-11-22 on Java 25 (4,492 on the JDK 21 recording: the 290 new cases come from newer traps and 28 added `Double.toString` inputs; every case recorded on both JDKs gives the same result) | Mojo port: 4,782/4,782, and 4,492/4,492 on the JDK 21 recording; gate passes; a wider check of 446,916 cases (random doubles, every BMP character through `parseRadix`, every code point through the string functions) matches too |
 | C | glibc behind a facade (`strtol`, `atoi`, `strtod`, `strspn`, `strcmp`, ctype) | 9 | 2,488 (12 crash), recorded again 2026-11-21 | Mojo port: 2,488/2,488, and 1,859/1,859 on the Rust-era recording; gate passes |
 | C | ffmpeg libavutil n7.1's `rational.c` ([`ffmpeg-mojo`](../demo/real-world/ffmpeg-mojo/README.md)) | 8 (+2 kept) | 46,764 | Mojo port: 46,764/46,764, gate passes; ffmpeg's other nine units are Rust ports only |
 | C | aklomp/base64 (vendored in mypyc's runtime) | 0 of 7 | - | plan only: every function takes output buffers or a state struct |
@@ -24,6 +24,13 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 The Go and Ruby Mojo ports have not been benchmarked yet: on 2026-11-22 the machine was busy
 (load average 16 on 24 threads), and these numbers are only taken on a quiet one. The table below
 is the Rust-era measurement.
+
+The Java Mojo port was benchmarked (`bench`, run twice, AMD Ryzen 9 3900X, 12 cores / 24
+threads, WSL2, load average 1.2-1.8, 2026-11-22): 0.03x overall, every function slower than
+Java. A call through FFM and the JSON dispatcher costs about 1 µs before any work
+(`reverseBits`: 9-10 ns in Java, 1,030-1,034 ns through Mojo); `formatDouble` takes 12.1-13.5 µs
+against 80-91 ns, as it works on exact big numbers; the closest is `parseRadix` at 0.21-0.22x.
+The Rust JNI bridge's 0.18x below came from typed JNI calls, which `mojo-jvm` does not have.
 
 The first bridges for Python, Go, Ruby and Java sent every argument and result through JSON
 text, which cost 10-50x more than the work in these functions. They were rebuilt to convert
