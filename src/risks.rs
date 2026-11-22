@@ -304,6 +304,7 @@ pub fn uses_regex(lang: crate::lang::Lang, source: &str) -> bool {
         ]),
         Lang::Kotlin => has(&["kotlin.text.Regex", "Regex(", ".toRegex("]),
         Lang::C => has(&["<regex.h>", "pcre", "regcomp("]),
+        Lang::Cpp => has(&["<regex>", "<regex.h>", "std::regex", "pcre", "regcomp("]),
         Lang::Php => has(&["preg_", "mb_ereg"]),
         Lang::Csharp => has(&["Regex", "RegularExpressions"]),
     }

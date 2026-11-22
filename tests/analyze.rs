@@ -189,6 +189,32 @@ fn a_c_unit_depends_on_what_its_own_header_includes() {
 }
 
 #[test]
+fn a_cpp_project_lists_its_units_and_what_stays_in_cpp() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cpp");
+    let report = analyze(&root).unwrap();
+    assert_eq!(report.language, mojo_anything::lang::Lang::Cpp);
+    let kit = unit(&report, "src/kit.cpp");
+    assert_eq!(kit.bridge, Bridge::CAbi);
+    assert_eq!((kit.exports, kit.bridgeable), (13, 13));
+    let refused = unit(&report, "src/refused.cpp");
+    // Fifteen functions (one per overloaded name) and two classes; only `kept` crosses.
+    assert_eq!((refused.exports, refused.bridgeable), (17, 1));
+    let main = unit(&report, "src/main.cpp");
+    assert_eq!(
+        main.internal_deps,
+        ["src/kit.cpp"],
+        "{:?}",
+        main.internal_deps
+    );
+    assert!(main.wave > kit.wave);
+    assert!(
+        kit.risks.iter().any(|r| r.risk == Risk::Exceptions),
+        "{:?}",
+        kit.risks
+    );
+}
+
+#[test]
 fn json_output_is_versioned() {
     let json = serde_json::to_value(mini()).unwrap();
     assert_eq!(json["schema"], "mojo-anything/analyze@1");

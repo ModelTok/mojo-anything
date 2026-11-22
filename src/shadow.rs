@@ -27,6 +27,13 @@ pub fn shadow(crate_dir: &Path, out: Option<&Path>) -> Result<ShadowOutcome> {
     if manifest.language == crate::lang::Lang::Python {
         return shadow_python(&crate_dir, &manifest, out);
     }
+    if manifest.language == crate::lang::Lang::Cpp {
+        bail!(
+            "not yet: `shadow` for C++ units comes after correctness; `diff` and `bench` check \
+             {} against the original",
+            crate_dir.display()
+        );
+    }
     if manifest.kind == crate::bridge::Kind::CAbi {
         return shadow_c(&crate_dir, &manifest, out);
     }

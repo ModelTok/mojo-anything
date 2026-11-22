@@ -82,7 +82,7 @@ impl Bridge {
         match lang {
             Lang::Ts => Self::MojoNode,
             Lang::Python => Self::MojoPy,
-            Lang::C => Self::CAbi,
+            Lang::C | Lang::Cpp => Self::CAbi,
             Lang::Go => Self::Cgo,
             Lang::Ruby => Self::Fiddle,
             Lang::Java | Lang::Kotlin => Self::MojoJvm,
@@ -312,6 +312,9 @@ fn check_bridgeable(root: &Path, report: &mut Report, lang: Lang) {
     if lang == Lang::C {
         crate::lang::c::use_typedefs(root);
     }
+    if lang == Lang::Cpp {
+        crate::lang::cpp::use_typedefs(root);
+    }
     for unit in &mut report.units {
         if matches!(unit.status, Status::Keep | Status::Blocked) {
             continue;
@@ -348,7 +351,11 @@ fn check_bridgeable(root: &Path, report: &mut Report, lang: Lang) {
             unit.status = Status::Caution;
             unit.notes.insert(
                 0,
-                if lang == Lang::C {
+                if lang == Lang::Cpp {
+                    "No export can cross the C ABI shim (classes, member functions, templates, \
+                     overloads, state objects, types outside the subset): bridge free functions \
+                     with plain arguments over them (a facade), an API change."
+                } else if lang == Lang::C {
                     "No export can cross the C ABI bridge (contexts, function pointers, structs by \
                      value, pointers it cannot pair with a length): bridge a wrapper with plain \
                      arguments, an API change."

@@ -115,7 +115,9 @@ fn raise_line(lang: Lang, lines: &[&str], range: Range<usize>) -> Option<usize> 
             .find(|&i| !is_comment(lang, lines[i]) && re.is_match(lines[i]))
     };
     match lang {
-        Lang::Ts | Lang::Java | Lang::Kotlin | Lang::Php | Lang::Csharp => find(&word("throw")),
+        Lang::Ts | Lang::Java | Lang::Kotlin | Lang::Php | Lang::Csharp | Lang::Cpp => {
+            find(&word("throw"))
+        }
         Lang::Python | Lang::Ruby => find(&word("raise")),
         Lang::Go => {
             let open = range

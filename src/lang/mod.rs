@@ -7,6 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub mod c;
+pub mod cpp;
 pub mod csharp;
 pub mod go;
 pub mod java;
@@ -31,6 +32,7 @@ pub enum Lang {
     Kotlin,
     Php,
     Csharp,
+    Cpp,
 }
 
 impl Lang {
@@ -39,6 +41,7 @@ impl Lang {
             Self::Ts => "TypeScript/JavaScript",
             Self::Python => "Python",
             Self::C => "C",
+            Self::Cpp => "C++",
             Self::Go => "Go",
             Self::Ruby => "Ruby",
             Self::Java => "Java",
@@ -54,7 +57,7 @@ impl Lang {
         match self {
             Self::Ts => "npm",
             Self::Python => "PyPI",
-            Self::C => "system libraries",
+            Self::C | Self::Cpp => "system libraries",
             Self::Go => "Go modules",
             Self::Ruby => "gems",
             Self::Java => "Maven",
@@ -145,6 +148,7 @@ impl Lang {
             return Self::Ts;
         }
         let mut counts = [0usize; Self::ALL.len()];
+        let (mut c_sources, mut headers) = (0usize, 0usize);
         for entry in crate::walk::builder(root)
             .hidden(true)
             .require_git(false)
@@ -159,9 +163,20 @@ impl Lang {
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
+            match ext {
+                "c" => c_sources += 1,
+                "h" => headers += 1,
+                _ => {}
+            }
             if let Some(i) = Self::ALL.iter().position(|l| l.extensions().contains(&ext)) {
                 counts[i] += 1;
             }
+        }
+        // `.h` headers count for C, unless the project has C++ sources and no C ones.
+        let (c, cpp) = (Self::index(Self::C), Self::index(Self::Cpp));
+        if counts[cpp] > 0 && c_sources == 0 {
+            counts[c] -= headers;
+            counts[cpp] += headers;
         }
         let best = (0..Self::ALL.len())
             .max_by_key(|&i| (counts[i], std::cmp::Reverse(i)))
@@ -169,7 +184,7 @@ impl Lang {
         Self::ALL[best]
     }
 
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Ts,
         Self::Python,
         Self::C,
@@ -179,7 +194,12 @@ impl Lang {
         Self::Kotlin,
         Self::Php,
         Self::Csharp,
+        Self::Cpp,
     ];
+
+    fn index(lang: Self) -> usize {
+        Self::ALL.iter().position(|l| *l == lang).unwrap_or(0)
+    }
 
     /// File extensions of the language's source files.
     pub fn extensions(self) -> &'static [&'static str] {
@@ -195,6 +215,7 @@ impl Lang {
             Self::Kotlin => &["kt"],
             Self::Php => &["php"],
             Self::Csharp => &["cs"],
+            Self::Cpp => &["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
         }
     }
 }
@@ -211,6 +232,7 @@ pub fn discover(lang: Lang, root: &Path) -> anyhow::Result<crate::ts::discover::
     match lang {
         Lang::Python => python::discover(root),
         Lang::C => c::discover(root),
+        Lang::Cpp => cpp::discover(root),
         Lang::Go => go::discover(root),
         Lang::Ruby => ruby::discover(root),
         Lang::Java => java::discover(root),
@@ -225,6 +247,7 @@ pub fn scan(lang: Lang, _path: &str, text: &str) -> crate::ts::scan::FileFacts {
     match lang {
         Lang::Python => python::scan(text),
         Lang::C => c::scan(text),
+        Lang::Cpp => cpp::scan(text),
         Lang::Go => go::scan(text),
         Lang::Ruby => ruby::scan(text),
         Lang::Java => java::scan(text),
@@ -250,6 +273,7 @@ pub fn resolve(
             python::Resolution::Unresolved => Resolution::Unresolved,
         },
         Lang::C => c::resolve(from, spec, index),
+        Lang::Cpp => cpp::resolve(from, spec, index),
         Lang::Go => go::resolve(spec, index, ws),
         Lang::Ruby => ruby::resolve(from, spec, index, ws),
         Lang::Java => java::resolve(spec, index, ws),
@@ -271,6 +295,7 @@ pub fn exports(
     match lang {
         Lang::Python => python::exports(path, text),
         Lang::C => (c::exports(path, text), Vec::new()),
+        Lang::Cpp => cpp::exports(path, text),
         Lang::Go => (go::exports(path, text), Vec::new()),
         Lang::Ruby => (ruby::exports(path, text), Vec::new()),
         Lang::Java => (java::exports(path, text), Vec::new()),
@@ -285,6 +310,7 @@ pub fn exports(
 pub fn lookup(lang: Lang, name: &str) -> Option<crate::ts::deps::CrateMatch> {
     match lang {
         Lang::C => c::lookup(name),
+        Lang::Cpp => cpp::lookup(name),
         Lang::Go => go::lookup(name),
         Lang::Ruby => ruby::lookup(name),
         Lang::Java => java::lookup(name),
@@ -345,6 +371,33 @@ mod tests {
     fn a_build_script_alone_does_not_make_a_kotlin_project() {
         let dir = project("script-only", &[("build.gradle.kts", "plugins { java }\n")]);
         assert_eq!(Lang::detect(&dir), Lang::Java);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cpp_project_with_headers_is_cpp() {
+        let dir = project(
+            "cpp",
+            &[
+                ("src/a.cpp", ""),
+                ("src/a.h", ""),
+                ("src/b.h", ""),
+                ("src/c.h", ""),
+            ],
+        );
+        assert_eq!(Lang::detect(&dir), Lang::Cpp);
+        let _ = std::fs::remove_dir_all(dir);
+        // A C project with one C++ file stays C: its headers are C's.
+        let dir = project(
+            "c-with-cpp",
+            &[
+                ("src/a.c", ""),
+                ("src/b.c", ""),
+                ("src/a.h", ""),
+                ("src/x.cpp", ""),
+            ],
+        );
+        assert_eq!(Lang::detect(&dir), Lang::C);
         let _ = std::fs::remove_dir_all(dir);
     }
 

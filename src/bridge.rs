@@ -842,7 +842,12 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     if manifest.kind == Kind::CAbi {
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
-        let files = c_bindings(&manifest, &crate::codegen_mojo::parse_port_mojo(&port))?;
+        let api = crate::codegen_mojo::parse_port_mojo(&port);
+        let files = if manifest.language == crate::lang::Lang::Cpp {
+            crate::codegen_cpp::bindings(&manifest, &api).map_err(anyhow::Error::msg)?
+        } else {
+            c_bindings(&manifest, &api)?
+        };
         write_files(crate_dir, &files)?;
         return Ok(Refreshed {
             functions: manifest.exports.iter().map(|f| f.name.clone()).collect(),
@@ -968,6 +973,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let mut js_only = Vec::new();
     if lang == crate::lang::Lang::C {
         crate::lang::c::use_typedefs(&root);
+    }
+    if lang == crate::lang::Lang::Cpp {
+        crate::lang::cpp::use_typedefs(&root);
     }
     for file in &unit.files {
         if file.ends_with(".vue") || file.ends_with(".svelte") || file.ends_with(".astro") {
@@ -1180,6 +1188,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         float_tolerance: None,
     };
     match kind {
+        Kind::CAbi if lang == crate::lang::Lang::Cpp => bridge_cpp(&manifest, &crate_dir, &js_only),
         Kind::CAbi => bridge_c(&manifest, &crate_dir, &js_only),
         Kind::Ffi if mojo_unit(kind, lang) => bridge_ffi_mojo(&manifest, &crate_dir, &js_only),
         Kind::Ffi => bail!(
@@ -1672,6 +1681,58 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
     })
 }
 
+fn bridge_cpp(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_cpp::port_mojo_cpp(manifest).map_err(anyhow::Error::msg)?;
+    let api = crate::codegen_mojo::parse_port_mojo(&port);
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        (
+            "pixi.toml".into(),
+            crate::codegen_mojo_py::pixi_toml(manifest),
+        ),
+        (".gitignore".into(), ".mojo-anything/\n.pixi/\n".into()),
+        ("README.md".into(), readme(manifest)),
+        (
+            MANIFEST.into(),
+            serde_json::to_string_pretty(manifest)? + "\n",
+        ),
+    ];
+    files.extend(crate::codegen_cpp::bindings(manifest, &api).map_err(anyhow::Error::msg)?);
+    write_files(crate_dir, &files)?;
+    let library = crate::harness_mojo_c::library_path(Path::new(""), manifest, false)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut notes = vec![
+        format!(
+            "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+            crate_dir.display()
+        ),
+        format!(
+            "C++ callers keep the original header: compile {} and link {}/{library} in place of {}.",
+            crate::codegen_cpp::WRAPPER,
+            crate::harness_mojo_c::BUILD_DIR,
+            manifest.unit
+        ),
+        "The library is not self-contained yet: once it uses the Mojo standard library it needs \
+         libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's \
+         .pixi/envs/default/lib, and it finds it \
+         there through an absolute RUNPATH. Ship that file beside it (and set the runpath to \
+         $ORIGIN) before linking it into a program that runs elsewhere."
+            .to_string(),
+    ];
+    for j in kept {
+        notes.push(format!("`{}` stays in C++: {}.", j.name, j.reason));
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: Kind::CAbi,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: manifest.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
+}
+
 fn readme(m: &Manifest) -> String {
     let functions: String = m
         .exports
@@ -1692,6 +1753,9 @@ fn readme(m: &Manifest) -> String {
         },
         kind = match m.kind {
             Kind::MojoPy => "a Mojo Python extension",
+            Kind::CAbi if m.language == crate::lang::Lang::Cpp => {
+                "a C ABI shim (`cpp/shim.cpp`) and a C++ wrapper with the original signatures (`cpp/wrapper.cpp`)"
+            }
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
             Kind::MojoNode => "a Node-API addon over the JSON dispatcher",

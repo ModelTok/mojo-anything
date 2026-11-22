@@ -76,7 +76,7 @@ fn main_pattern(lang: Lang) -> Option<&'static str> {
         Lang::Ts => r"^#!.*\bnode\b",
         Lang::Python => r#"if\s+__name__\s*==\s*['"]__main__['"]"#,
         Lang::Go => r"^func\s+main\s*\(\s*\)",
-        Lang::C => r"\bint\s+main\s*\(",
+        Lang::C | Lang::Cpp => r"\bint\s+main\s*\(",
         Lang::Ruby => r"^#!.*\bruby\b|\bARGV\b|__FILE__\s*==\s*\$0",
         Lang::Java => r"public\s+static\s+void\s+main\s*\(",
         Lang::Kotlin => r"\bfun\s+main\s*\(",
@@ -576,7 +576,7 @@ pub fn declared(root: &Path, lang: Lang) -> BTreeSet<String> {
                 }
             }
         }
-        Lang::C => {}
+        Lang::C | Lang::Cpp => {}
     }
     out.into_iter()
         .filter(|n| !n.is_empty())

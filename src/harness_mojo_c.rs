@@ -57,6 +57,10 @@ pub fn build(unit_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
     std::fs::create_dir_all(unit_dir.join(BUILD_DIR))?;
     let lib = library_path(&unit_dir, manifest, false);
     build_one(&unit_dir, EXPORTS, &lib)?;
+    // A C++ unit has no shadow build: its bench calls both libraries through the shim's names.
+    if manifest.language == crate::lang::Lang::Cpp {
+        return Ok(lib);
+    }
     build_one(
         &unit_dir,
         EXPORTS_SHADOW,
