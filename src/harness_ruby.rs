@@ -1,6 +1,6 @@
 //! The Ruby side of record, build, diff and bench. A generated driver calls the module
 //! functions by name: with the original files loaded to record, and with the Fiddle wrapper
-//! over the Rust library loaded to diff.
+//! over the Mojo library loaded to diff.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -159,16 +159,12 @@ pub fn bench(crate_dir: &Path, m: &Manifest, min_ms: u64) -> Result<Vec<BenchRow
     Ok(crate::harness::bench_rows(m, &timings[0], &timings[1]))
 }
 
-/// Builds the extension and puts it beside the wrapper as `ruby/<lib>_native.so`.
+/// Builds the unit's Mojo library from `dispatcher.mojo` into `.mojo-anything/build`, where the
+/// Fiddle wrapper loads it.
 pub fn build(crate_dir: &Path, m: &Manifest) -> Result<PathBuf> {
-    let lib = crate::harness_cargo::build(crate_dir, m)?;
-    let ext = if cfg!(target_os = "macos") {
-        "bundle"
-    } else {
-        "so"
-    };
-    let target = crate_dir.join(format!("ruby/{}_native.{ext}", m.lib_name()));
-    std::fs::create_dir_all(crate_dir.join("ruby"))?;
-    std::fs::copy(&lib, &target)?;
-    Ok(target)
+    let unit_dir = std::path::absolute(crate_dir)?;
+    std::fs::create_dir_all(unit_dir.join(crate::harness_mojo_c::BUILD_DIR))?;
+    let lib = crate::harness_mojo_c::library_path(&unit_dir, m, false);
+    crate::harness_mojo_c::build_one(&unit_dir, crate::codegen_ffi::DISPATCHER, &lib)?;
+    Ok(lib)
 }

@@ -983,30 +983,27 @@ fn ruby_modules_bridge_record_and_diff() {
     let manifest = Manifest::load(&dir).unwrap();
     let kept: Vec<&str> = manifest.js_only.iter().map(|j| j.name.as_str()).collect();
     assert_eq!(kept, ["each_word"]);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    // YARD types, a literal default kept as a plain value, and `nil` as an Option.
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    // YARD types, a literal default kept as a plain value, and `nil` as an Optional.
     assert!(
-        port.contains("pub fn slugify(text: String, sep: String, max: Option<i64>)"),
+        port.contains("def slugify(text: String, sep: String, max: Optional[Int]) raises"),
         "{port}"
     );
-    let wrapper = std::fs::read_to_string(dir.join("ruby/textkit_rs.rb")).unwrap();
+    let wrapper = std::fs::read_to_string(dir.join("ruby/textkit_mojo.rb")).unwrap();
     assert!(
         wrapper.contains("def self.slugify(text, sep = \"-\", max: nil)"),
         "{wrapper}"
     );
-    // Batches keep the original's other parameters, defaults and keywords.
-    bridge::add_batches(&dir, &["slugify:text".into(), "page_count:total".into()]).unwrap();
-    let wrapper = std::fs::read_to_string(dir.join("ruby/textkit_rs.rb")).unwrap();
-    assert!(wrapper.contains("class SlugifyBatch"), "{wrapper}");
     assert!(
-        wrapper.contains("def run(sep = \"-\", max: nil)"),
+        wrapper.contains("MojoAnythingNativeTextkitMojo.call(\"slugify\", text, sep, max)"),
         "{wrapper}"
     );
-    assert!(
-        wrapper.contains("def rank(per_page = 10, min: 0)"),
-        "{wrapper}"
-    );
-    if !common::have("ruby") {
+    // Batches for Ruby come after correctness.
+    let err = bridge::add_batches(&dir, &["slugify:text".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("not yet"), "{err}");
+    if !common::have("ruby") || !common::have_mojo() {
         return;
     }
     let recorded = harness::record(&RecordOptions {
@@ -1031,7 +1028,7 @@ fn ruby_modules_bridge_record_and_diff() {
         node_args: &[],
     })
     .unwrap();
-    // Unported functions panic, which Ruby sees as a RuntimeError: nothing can match.
+    // Unported functions raise `not ported: ...`, which never matches.
     assert_eq!(diff.passed, 0, "{diff:?}");
     assert_eq!(diff.total, recorded.cases);
     let _ = std::fs::remove_dir_all(&dir);
