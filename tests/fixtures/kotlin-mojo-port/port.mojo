@@ -3,7 +3,7 @@
 # code units, 32-bit `Int` wrapping and truncating division, with Kotlin's own `trim()` (which
 # drops `Char.isWhitespace` characters, not Java's `<= ' '`).
 #
-# `_letter_or_digit` and `_java_lower` cover the scripts the recorded inputs use (Latin, Greek,
+# `_letter_ranges` and `_java_lower` cover the scripts the recorded inputs use (Latin, Greek,
 # Cyrillic, Armenian, Hebrew, Arabic, Devanagari, kana, CJK, Hangul, the full-width forms); they
 # are not complete copies of Java's Unicode tables.
 
@@ -62,6 +62,8 @@ def _encode(cps: List[Int]) -> String:
             out.append(UInt8(0x80 | ((cp >> 12) & 0x3F)))
             out.append(UInt8(0x80 | ((cp >> 6) & 0x3F)))
             out.append(UInt8(0x80 | (cp & 0x3F)))
+    # SAFETY: `out` holds the UTF-8 form of each code point above; a lone surrogate the
+    # dispatcher handed in goes back in the same three-byte form, as Java's text holds it.
     return String(unsafe_from_utf8=Span(out))
 
 
@@ -69,35 +71,6 @@ def _one(cp: Int) -> String:
     var cps = List[Int]()
     cps.append(cp)
     return _encode(cps)
-
-
-def _utf16(cps: List[Int]) -> List[Int]:
-    """The UTF-16 code units of the code points `cps`, as Java's `String` holds them.
-    """
-    var out = List[Int]()
-    for i in range(len(cps)):
-        var cp = cps[i]
-        if cp >= 0x10000:
-            out.append(0xD800 + ((cp - 0x10000) >> 10))
-            out.append(0xDC00 + ((cp - 0x10000) & 0x3FF))
-        else:
-            out.append(cp)
-    return out^
-
-
-def _from_utf16(units: List[Int]) -> List[Int]:
-    """The code points of the UTF-16 code units `units`."""
-    var out = List[Int]()
-    var i = 0
-    while i < len(units):
-        var u = units[i]
-        if u >= 0xD800 and u < 0xDC00 and i + 1 < len(units):
-            out.append(0x10000 + ((u - 0xD800) << 10) + (units[i + 1] - 0xDC00))
-            i += 2
-        else:
-            out.append(u)
-            i += 1
-    return out^
 
 
 def _cased(cp: Int) -> Bool:
@@ -149,91 +122,32 @@ def _java_lower(cps: List[Int]) -> List[Int]:
     return out^
 
 
-def _letter_or_digit(u: Int) -> Bool:
-    """`Character.isLetterOrDigit(char)` for one UTF-16 code unit."""
-    if u < 0x80:
-        return (
-            (u >= 48 and u <= 57)
-            or (u >= 65 and u <= 90)
-            or (u >= 97 and u <= 122)
-        )
-    if u == 0xAA or u == 0xB5 or u == 0xBA:
-        return True
-    if u < 0x2C2:
-        return u >= 0xC0 and u != 0xD7 and u != 0xF7
-    if u < 0x370:
-        return (
-            (u >= 0x2C6 and u <= 0x2D1)
-            or (u >= 0x2E0 and u <= 0x2E4)
-            or u == 0x2EC
-            or u == 0x2EE
-        )
-    if u < 0x530:
-        return (
-            (u >= 0x370 and u <= 0x374)
-            or u == 0x376
-            or u == 0x377
-            or (u >= 0x37A and u <= 0x37D)
-            or u == 0x37F
-            or u == 0x386
-            or (u >= 0x388 and u <= 0x38A)
-            or u == 0x38C
-            or (u >= 0x38E and u <= 0x3A1)
-            or (u >= 0x3A3 and u <= 0x3F5)
-            or (u >= 0x3F7 and u <= 0x481)
-            or (u >= 0x48A and u <= 0x52F)
-        )
-    if u < 0x600:
-        return (
-            (u >= 0x531 and u <= 0x556)
-            or u == 0x559
-            or (u >= 0x560 and u <= 0x588)
-            or (u >= 0x5D0 and u <= 0x5EA)
-            or (u >= 0x5EF and u <= 0x5F2)
-        )
-    if u < 0x900:
-        return (
-            (u >= 0x620 and u <= 0x64A)
-            or (u >= 0x660 and u <= 0x669)
-            or (u >= 0x66E and u <= 0x66F)
-            or (u >= 0x671 and u <= 0x6D3)
-            or u == 0x6D5
-            or (u >= 0x6F0 and u <= 0x6FC)
-        )
-    if u < 0x980:
-        return (
-            (u >= 0x904 and u <= 0x939)
-            or u == 0x93D
-            or u == 0x950
-            or (u >= 0x958 and u <= 0x961)
-            or (u >= 0x966 and u <= 0x96F)
-            or (u >= 0x971 and u <= 0x97F)
-        )
-    if u >= 0x1E00 and u <= 0x1EFF:
-        return True
-    if u >= 0x3041 and u <= 0x3096:
-        return True
-    if u >= 0x309D and u <= 0x309F:
-        return True
-    if u >= 0x30A1 and u <= 0x30FA:
-        return True
-    if u >= 0x30FC and u <= 0x30FF:
-        return True
-    if u >= 0x3400 and u <= 0x4DBF:
-        return True
-    if u >= 0x4E00 and u <= 0x9FFF:
-        return True
-    if u >= 0xAC00 and u <= 0xD7A3:
-        return True
-    if u >= 0xF900 and u <= 0xFAFF:
-        return True
-    return (
-        (u >= 0xFF10 and u <= 0xFF19)
-        or (u >= 0xFF21 and u <= 0xFF3A)
-        or (u >= 0xFF41 and u <= 0xFF5A)
-        or (u >= 0xFF66 and u <= 0xFFDC)
+def _letter_ranges() raises -> List[Int]:
+    """`Character.isLetterOrDigit(char)` as (first, last) UTF-16 unit pairs."""
+    var text = String(
+        "48-57 65-90 97-122 170-170 181-181 186-186 192-214 216-246 "
+        + "248-705 710-721 736-740 748-748 750-750 880-884 886-887 "
+        + "890-893 895-895 902-902 904-906 908-908 910-929 931-1013 "
+        + "1015-1153 1162-1327 1329-1366 1369-1369 1376-1416 1488-1514 "
+        + "1519-1522 1568-1610 1632-1641 1646-1647 1649-1747 1749-1749 "
+        + "1776-1788 2308-2361 2365-2365 2384-2384 2392-2401 2406-2415 "
+        + "2417-2431 7680-7935 12353-12438 12445-12447 12449-12538 "
+        + "12540-12543 13312-19903 19968-40959 44032-55203 63744-64255 "
+        + "65296-65305 65313-65338 65345-65370 65382-65500"
     )
+    var out = List[Int]()
+    for pair in text.split(" "):
+        var ends = String(pair).split("-")
+        out.append(Int(String(ends[0])))
+        out.append(Int(String(ends[1])))
+    return out^
 
+
+def _in_ranges(u: Int, ranges: List[Int]) -> Bool:
+    for i in range(0, len(ranges), 2):
+        if u >= ranges[i] and u <= ranges[i + 1]:
+            return True
+    return False
 
 
 def _wrap32(x: Int64) -> Int64:
@@ -308,12 +222,15 @@ def _words(text: String) -> List[String]:
 
 # Port of `slugify`.
 def slugify(text: String, max: Int32) raises -> String:
-    var units = _utf16(_java_lower(_decode(text)))
+    # A supplementary character is two surrogates, neither a letter: on code points it is one
+    # separator, and every kept character is one UTF-16 unit, so `max` counts code points.
+    var cps = _java_lower(_decode(text))
+    var letters = _letter_ranges()
     var out = List[Int]()
     var dash = False
-    for i in range(len(units)):
-        var u = units[i]
-        if _letter_or_digit(u):
+    for i in range(len(cps)):
+        var u = cps[i]
+        if _in_ranges(u, letters):
             out.append(u)
             dash = False
         elif not dash and len(out) > 0:
@@ -328,7 +245,7 @@ def slugify(text: String, max: Int32) raises -> String:
     var kept = List[Int]()
     for i in range(n):
         kept.append(out[i])
-    return _encode(_from_utf16(kept))
+    return _encode(kept)
 
 
 # Port of `words`.

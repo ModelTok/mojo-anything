@@ -102,6 +102,11 @@ fn compile(unit_dir: &Path, m: &Manifest, against: Against) -> Result<PathBuf> {
     Ok(classes)
 }
 
+/// The classpath of the driver compiled with the original sources or with the wrappers.
+pub(crate) fn classpath(unit_dir: &Path, m: &Manifest, against: Against) -> Result<Vec<PathBuf>> {
+    Ok(vec![compile(unit_dir, m, against)?])
+}
+
 fn driver(
     unit_dir: &Path,
     m: &Manifest,

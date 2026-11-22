@@ -1662,6 +1662,58 @@ fn java_mojo_rebuild_after_edit() {
 }
 
 #[test]
+fn java_mojo_gate_passes() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("gate");
+    java_mojo_record(&dir);
+    java_mojo_port(&dir);
+    // The Task 3 matching unit, built: the build makes the unit's pixi environment, which
+    // `mojo format` would otherwise wait for within its one-minute limit.
+    harness::build(&dir).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(gate.passed, "{:#?}", gate.checks);
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(api.passed, "{api:?}");
+    assert!(api.detail.contains("Nums.gcd"), "{}", api.detail);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_gate_fails_on_changed_signature() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("gate-signature");
+    java_mojo_port(&dir);
+    // A wrapper edited by hand: `gcd` now returns `int`. Callers compiled against the
+    // original's `long gcd(long, long)` would not link against it.
+    let nums = dir.join("java/com/example/text/Nums.java");
+    let text = std::fs::read_to_string(&nums).unwrap();
+    let edited = text.replace(
+        "public static long gcd(long a, long b) {\n        return (Long)",
+        "public static int gcd(long a, long b) {\n        return (int) (long) (Long)",
+    );
+    assert_ne!(text, edited, "{text}");
+    std::fs::write(&nums, edited).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(!gate.passed);
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(!api.passed, "{api:?}");
+    assert!(api.detail.contains("gcd"), "{}", api.detail);
+    assert!(api.detail.contains("(JJ)I"), "{}", api.detail);
+    let fix = api.fix.as_deref().unwrap_or_default();
+    assert!(fix.contains("mojo-anything refresh"), "{fix}");
+    // `refresh` writes the wrapper back with the original signature.
+    bridge::refresh(&dir).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(api.passed, "{api:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn jvm_parallel_calls_match() {
     if !common::have_java() || !common::have_mojo() {
         return;
