@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-labelledby="t">
+  <title id="t">mojo-anything: a flame with a check mark</title>
+  <defs>
+    <linearGradient id="outer" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#E8361C"/>
+      <stop offset="0.55" stop-color="#FF6A13"/>
+      <stop offset="1" stop-color="#FFB21E"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#FF8A1F"/>
+      <stop offset="1" stop-color="#FFE27A"/>
+    </linearGradient>
+  </defs>
+  <!-- outer flame -->
+  <path fill="url(#outer)" d="M80 8
+    C 92 34 122 50 128 86
+    C 134 122 110 152 80 152
+    C 50 152 26 124 32 92
+    C 36 70 50 60 54 40
+    C 64 52 66 64 64 76
+    C 76 60 82 40 80 8 Z"/>
+  <!-- inner flame -->
+  <path fill="url(#inner)" d="M82 62
+    C 90 78 108 90 108 112
+    C 108 130 96 142 80 142
+    C 64 142 52 130 54 112
+    C 55 100 62 94 64 84
+    C 70 92 72 98 72 104
+    C 80 94 84 80 82 62 Z"/>
+  <!-- check mark: the port matches the original -->
+  <path d="M64 114 L76 126 L98 100" fill="none" stroke="#7A1E0C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

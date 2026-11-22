@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" width="160" height="160" alt="The mojo-anything crab">
+  <img src="docs/assets/logo-mojo.svg" width="160" height="160" alt="mojo-anything: a flame with a check mark">
 </p>
 
 <h1 align="center">mojo-anything</h1>
