@@ -10,8 +10,8 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 
 | Language | Code | Functions | Recorded cases | Result |
 | --- | --- | ---: | ---: | --- |
-| Go | `path` from Go 1.24's standard library | 7 (+1 kept) | 2,642 (542 from Go's own test tables) | 2,642/2,642, gate passes |
-| Ruby | `shellwords.rb` from Ruby 3.3 | 3 | 1,617 (446 raise) | 1,617/1,617, gate passes |
+| Go | `path` from Go 1.24's standard library ([`go-path-mojo`](../demo/real-world/go-path-mojo/README.md)) | 7 (+1 kept) | 2,042, recorded again 2026-11-22 (2,642 on the Rust-era recording, whose extra cases came from generated inputs) | Mojo port: 2,042/2,042, and 2,642/2,642 on the Rust-era recording; gate passes |
+| Ruby | `shellwords.rb` from Ruby 3.3 ([`ruby-shellwords-mojo`](../demo/real-world/ruby-shellwords-mojo/README.md)) | 3 | 1,626 (449 raise), recorded again 2026-11-22 | Mojo port: 1,626/1,626, and 1,617/1,617 on the Rust-era recording; gate passes |
 | Python | `colorsys.py` from CPython 3.13 | 6 | 2,400 | 2,400/2,400, gate passes |
 | Java | JDK 21 behind a facade (`Integer`, `Long`, `Math`, `Double.toString`, `URLEncoder`, `Base64`, `toUpperCase`) | 11 | 4,492 (226 throw) | 4,492/4,492, gate passes |
 | C | glibc behind a facade (`strtol`, `atoi`, `strtod`, `strspn`, `strcmp`, ctype) | 9 | 2,488 (12 crash), recorded again 2026-11-21 | Mojo port: 2,488/2,488, and 1,859/1,859 on the Rust-era recording; gate passes |
@@ -19,6 +19,10 @@ The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/re
 | C | aklomp/base64 (vendored in mypyc's runtime) | 0 of 7 | - | plan only: every function takes output buffers or a state struct |
 
 ## Speed
+
+The Go and Ruby Mojo ports have not been benchmarked yet: on 2026-11-22 the machine was busy
+(load average 16 on 24 threads), and these numbers are only taken on a quiet one. The table below
+is the Rust-era measurement.
 
 The first bridges for Python, Go, Ruby and Java sent every argument and result through JSON
 text, which cost 10-50x more than the work in these functions. They were rebuilt to convert

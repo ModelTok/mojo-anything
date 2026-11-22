@@ -8,6 +8,8 @@ where used, `inputs.jsonl` (extra inputs passed to `mojo-anything record --input
 
 | Crate | Original | Where it came from |
 | --- | --- | --- |
+| `go-path-mojo` | Go's `path` package, ported to Mojo | the same tree as `go-path-rs`; build it in Linux or macOS (Mojo 1.2.0 and EmberJson 0.5.0 from its `pixi.toml`) |
+| `ruby-shellwords-mojo` | Ruby's `shellwords.rb`, ported to Mojo | the same project as `ruby-shellwords-rs`; build it in Linux or macOS (Mojo 1.2.0 and EmberJson 0.5.0 from its `pixi.toml`) |
 | `go-path-rs` | Go's `path` package | `$(go env GOROOT)/src/path` (Go 1.24), as module `example.com/gopath`, with `internal/bytealg` calls replaced by their `strings` equivalents |
 | `ruby-shellwords-rs` | Ruby's `shellwords.rb` | `RbConfig::CONFIG["rubylibdir"]/shellwords.rb` (Ruby 3.3), as `lib/shellwords.rb` of a project with a `Gemfile` |
 | `python-colorsys-mojo` | Python's `colorsys.py`, ported to Mojo | CPython 3.13's `Lib/colorsys.py`, as `src/colorsys_pkg/colorsys.py` of a project with a `pyproject.toml`; its `cases.jsonl` was recorded from CPython 3.13; build it in Linux or macOS (Mojo 1.2.0 from its `pixi.toml`) |

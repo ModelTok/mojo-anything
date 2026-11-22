@@ -647,7 +647,13 @@ pub fn unexplained_unsafe(port: &str) -> Vec<usize> {
         })
         .filter(|(i, l)| {
             let here = l.contains("# SAFETY:");
-            let above = *i > 0 && lines[i - 1].trim_start().starts_with("# SAFETY:");
+            // The comment block right above may spread its reason over several lines.
+            let above = lines[..*i]
+                .iter()
+                .rev()
+                .map(|l| l.trim_start())
+                .take_while(|l| l.starts_with('#'))
+                .any(|l| l.starts_with("# SAFETY:"));
             !here && !above
         })
         .map(|(i, _)| i + 1)
@@ -963,6 +969,27 @@ mod tests {
 "
             )
             .is_empty()
+        );
+        // A reason may take several comment lines, as long as they sit right above.
+        assert!(
+            unexplained_unsafe(
+                "def f():
+    # SAFETY: the bytes come from a String,
+    # cut only at ASCII.
+    return String(unsafe_from_utf8=b)
+"
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            unexplained_unsafe(
+                "def f():
+    # SAFETY: about something else
+    var x = 1
+    return String(unsafe_from_utf8=b)
+"
+            ),
+            [4]
         );
     }
 
