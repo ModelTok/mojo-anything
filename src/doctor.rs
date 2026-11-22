@@ -553,6 +553,11 @@ fn pinned_mojo(pixi: &Path, version: &str) -> Check {
     }
 }
 
+/// How mojo-anything itself is installed: the npm wrapper, which downloads the release binary,
+/// or that binary's archive from the GitHub release (`.github/workflows/release.yml`).
+const INSTALL: &str = "`npm install -g mojo-anything` (Linux x64/arm64, macOS arm64), \
+                       or the archive for your platform from https://github.com/ModelTok/mojo-anything/releases";
+
 /// Starts `<exe> mcp`, asks for `initialize` and `tools/list`, and expects both answers in 10 s.
 fn mcp_self_test(exe: &Path) -> Check {
     let (status, detail) = match talk_to_mcp(exe, Duration::from_secs(10)) {
@@ -569,7 +574,7 @@ fn mcp_self_test(exe: &Path) -> Check {
         detail,
         fix: (status != Status::Ok).then(|| {
             format!(
-                "run `{} mcp` by hand and look at what it prints; reinstall with `cargo install mojo-anything`",
+                "run `{} mcp` by hand and look at what it prints; reinstall with {INSTALL}",
                 quoted(exe)
             )
         }),
@@ -1187,5 +1192,18 @@ mod tests {
         let lines: Vec<_> = out.lines().collect();
         assert!(lines[1].trim_start().starts_with("fix: first"), "{out}");
         assert_eq!(lines[1].find("first"), lines[2].find("second"), "{out}");
+    }
+
+    #[test]
+    fn mcp_fix_points_at_the_npm_wrapper_and_the_release() {
+        let check = mcp_self_test(Path::new("/nonexistent/mojo-anything"));
+        assert_eq!(check.status, Status::Missing);
+        let fix = check.fix.unwrap();
+        assert!(fix.contains("npm install -g mojo-anything"), "{fix}");
+        assert!(
+            fix.contains("https://github.com/ModelTok/mojo-anything/releases"),
+            "{fix}"
+        );
+        assert!(!fix.contains("cargo"), "{fix}");
     }
 }
