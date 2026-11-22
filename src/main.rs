@@ -459,9 +459,9 @@ enum AppCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Scaffold `<repo>/mojo/app`, the Rust binary that owns the CLI's entry point: a clap parser
-    /// for the recorded commands and flags, every command running the original until a unit is
-    /// wired. Builds it and replays the cases (100% passed, 100% fallback).
+    /// Scaffold `<repo>/mojo/app`, the Mojo binary that owns the CLI's entry point: it routes the
+    /// recorded commands and options, every command running the original until a unit is wired.
+    /// Builds it and replays the cases (100% passed, 100% fallback).
     FrontDoor {
         /// Repository root.
         #[arg(default_value = ".")]

@@ -32,6 +32,7 @@ pub mod error_paths;
 pub mod from_tests;
 pub mod front_door;
 pub mod front_door_http;
+pub mod front_door_mojo;
 pub mod fuzz;
 pub mod gate;
 pub mod harness;

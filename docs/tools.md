@@ -252,7 +252,7 @@ Runs the original's code or commands.
 
 Tool `app_front_door` · CLI `mojo-anything app front-door`
 
-Scaffold <repo>/mojo/app, the Rust binary that owns the CLI's entry point: a clap parser for the recorded commands and flags, every command running the original with the same argv, stdin and env (each fallback counted). For a server: an axum app that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: 100% passed at 100% fallback. Needs app_record first; never overwrites mojo/app.
+Scaffold <repo>/mojo/app, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original with the same argv, stdin bytes, env and exit status (each fallback counted). For a server: an axum app that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: 100% passed at 100% fallback. Needs app_record first; never overwrites mojo/app.
 
 Runs the original's code or commands.
 

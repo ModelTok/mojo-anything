@@ -90,6 +90,43 @@ Units with structured values use `src/mojo/json.mojo`, a thin layer over EmberJs
   infinities and -0.0 first.
 - Mojo's `atof` read all 20,003 probe doubles exactly; `String(Float64)` failed to round-trip 7.
 
+## Processes and the environment (front door)
+
+Confirmed by building and running the generated front door (`src/mojo/original.mojo`,
+`tests/app.rs` `fallback_*`, `tests/app_fresh.rs` `front_door_found_through_symlink`,
+2026-11-22) and the spike before it.
+
+- `from std.subprocess import run`: `run(cmd)` runs a shell line and returns its stdout as a
+  `String`; the exit status is dropped (`run("echo hi; exit 3")` returns `"hi"`) and stdin is not
+  given. Not enough to stand in for the original.
+- Starting a child: `external_call["fork", Int32]()`, `external_call["execvp", Int32](file,
+  argv)` with `argv` a `Pointer[Optional[Pointer[UInt8, MutAnyOrigin]], MutAnyOrigin]` from
+  `malloc` (an `Optional[Pointer]` entry crosses as a plain pointer, `None` as the closing NULL),
+  `external_call["waitpid", Int32](pid, status_ptr, Int32(0))`, `external_call["_exit",
+  NoneType](Int32(127))`. `external_call` may declare `malloc`'s result as any pointer type.
+- Pipes and descriptors: `pipe`, `dup2`, `close`, `write` (`external_call["write", Int](fd,
+  p.unsafe_offset(done), n)`), `chdir`, `readlink("/proc/self/exe", buf, size)`, `perror`.
+- Signals: `external_call["signal", Int](Int32(13), Int(1))` ignores SIGPIPE (`SIG_IGN` is 1,
+  `SIG_DFL` 0 on Linux); `external_call["raise", Int32](Int32(sig))` raises on the process itself.
+  A wait status `s` exited when `s & 0x7F == 0` (code `(s >> 8) & 0xFF`), else was killed by
+  signal `s & 0x7F`.
+- `from std.sys import argv, exit, get_defined_string`: `argv()` (index 0 is the program; convert
+  each with `String(...)`), `exit(code)`, and `get_defined_string["NAME", ""]()` for a value passed
+  as `mojo build -D NAME=value` (bind it with `comptime`). There is no `std.sys.param_env` and no
+  `env_get_string` in 1.2.
+- `from std.os.path import exists, isfile`; `from std.os import getenv, listdir`.
+- Files: `open(path, "a")` appends; `f.write(text)`, `f.close()`.
+- Strings: `s.startswith("--")`, `s.find("=")` (-1 when absent), `String(s[byte=0:n])` for a
+  byte slice, `"x" in some_list` on `List[String]`, `s.as_bytes()[i]` for a byte;
+  `String(unsafe_from_utf8=Span[UInt8, ImmutAnyOrigin](unsafe_ptr=p, length=n))` from C memory.
+- `print("", end="", flush=True)` flushes stdout before a fork.
+- `comptime if FLAG:` compiles a branch only when the `comptime` Bool is true.
+- Modules beside `main.mojo` import as `import original` and are called as `original.run(...)`;
+  `mojo build main.mojo` finds them in the same folder.
+- Present in 1.2: `std.logger` (`Logger()`), `std.pathlib` (`Path`), `std.base64`
+  (`b64encode`), `std.collections` (`Dict`), `std.testing`, `std.time` (`perf_counter_ns`),
+  `std.random` (`random_float64`). `std.algorithm` has no `parallelize` in 1.2.
+
 ## Language
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.

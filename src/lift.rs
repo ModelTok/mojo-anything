@@ -16,7 +16,7 @@ use serde::Serialize;
 use toml_edit::{DocumentMut, Item as TomlItem, value};
 
 use crate::app::{self, ReplayOptions, ReplayOutcome};
-use crate::front_door::{self, APP_DIR, AppKind, MAIN_RS, STATE_FILE, State};
+use crate::front_door::{self, APP_DIR, AppKind, STATE_FILE, State};
 use crate::front_door_http as http_door;
 use crate::gate::{self, Check};
 
@@ -36,21 +36,6 @@ const ASSET_DIRS: [&str; 9] = [
     "share",
 ];
 const TARGET_TRIPLE: &str = r"\b(?:x86_64|aarch64|i686|i586|armv7|arm|thumbv7em|wasm32|wasm64|riscv64gc|powerpc64le|s390x|loongarch64)-[a-z0-9_]+(?:-[a-z0-9_]+){1,2}\b";
-
-const LIFTED_MAIN: &str = "mod cli;
-mod units;
-
-use std::process::ExitCode;
-
-fn main() -> ExitCode {
-    let matches = cli::command().get_matches();
-    let (command, sub) = matches.subcommand().unwrap_or((cli::ROOT, &matches));
-    units::dispatch(command, sub).unwrap_or_else(|| {
-        eprintln!(\"{}: no handler for `{command}`\", cli::ROOT);
-        ExitCode::from(2)
-    })
-}
-";
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -354,28 +339,6 @@ pub fn strip_unit(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(removed)
 }
 
-fn lifted_units_rs(state: &State) -> String {
-    let mut out = String::from(
-        "//! Written by `mojo-anything app lift`: every command is answered in Rust.\n\n\
-         use std::process::ExitCode;\n\n\
-         use clap::ArgMatches;\n\n",
-    );
-    for unit in &state.units {
-        out += &format!("mod {};\n", front_door::ident(&unit.name));
-    }
-    out += "\npub fn dispatch(command: &str, matches: &ArgMatches) -> Option<ExitCode> {\n    match command {\n";
-    for unit in &state.units {
-        let pattern: Vec<String> = unit.commands.iter().map(|c| format!("{c:?}")).collect();
-        out += &format!(
-            "        {} => Some({}::run(command, matches)),\n",
-            pattern.join(" | "),
-            front_door::ident(&unit.name)
-        );
-    }
-    out += "        _ => None,\n    }\n}\n";
-    out
-}
-
 fn cases_test_rs(case_bin: &str, binary: &str, unordered: &[&String]) -> String {
     let skips: String = unordered
         .iter()
@@ -401,7 +364,7 @@ fn same_code(a: &str, b: &str) -> bool {
 
 fn generated_mains(state: &State) -> Vec<String> {
     match state.kind {
-        AppKind::Cli => vec![MAIN_RS.to_string()],
+        AppKind::Cli => Vec::new(),
         AppKind::Http => http_door::main_rs_versions(),
         AppKind::Library => Vec::new(),
     }
@@ -462,12 +425,7 @@ fn lift_app(
     let http = state.kind == AppKind::Http;
     let main = stage_app.join("src/main.rs");
     if is_generated_main(&std::fs::read_to_string(&main)?, state) {
-        let lifted = if http {
-            http_door::lifted_main_rs()
-        } else {
-            LIFTED_MAIN.to_string()
-        };
-        std::fs::write(&main, lifted)?;
+        std::fs::write(&main, http_door::lifted_main_rs())?;
     }
     let _ = std::fs::remove_file(stage_app.join("src/original.rs"));
     let cli = stage_app.join("src/cli.rs");
@@ -482,12 +440,7 @@ fn lift_app(
     }
     state.lifted = true;
     let units = stage_app.join("src/units/mod.rs");
-    let routing = if http {
-        http_door::units_rs(state, true)
-    } else {
-        lifted_units_rs(state)
-    };
-    std::fs::write(&units, routing)?;
+    std::fs::write(&units, http_door::units_rs(state, true))?;
     front_door::rustfmt(&units);
     std::fs::write(
         stage_app.join(STATE_FILE),
@@ -661,6 +614,17 @@ pub fn lift(opts: &LiftOptions) -> Result<LiftOutcome> {
     let mut state = State::load(&repo)?;
     if state.lifted {
         bail!("{} is already lifted", repo.join(APP_DIR).display());
+    }
+    if state.kind == AppKind::Cli {
+        let mut blockers = Vec::new();
+        if state.units.is_empty() {
+            blockers.push("no unit is wired yet: run `mojo-anything app wire` first".to_string());
+        }
+        blockers.push(format!(
+            "{} is a Mojo front door: lifting it to a pure Mojo binary comes with M6 Task 4",
+            repo.join(APP_DIR).display()
+        ));
+        return Ok(LiftOutcome::refused(blockers, Vec::new(), None));
     }
     let library = state.kind == AppKind::Library;
     let config = app::Config::load(&repo)?;
@@ -1061,33 +1025,5 @@ mod tests {
         let keep: Vec<String> = port_modules(&src).into_iter().collect();
         assert_eq!(keep, ["deep", "helpers", "utf16"]);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn lifted_routing_has_no_kill_switch() {
-        let state = State {
-            schema: String::new(),
-            name: "tcli".into(),
-            commands: vec!["words".into()],
-            units: vec![front_door::WiredUnit {
-                name: "wordcount".into(),
-                crate_name: "wordcount-rs".into(),
-                path: "../wordcount-rs".into(),
-                commands: vec!["words".into(), "tcli".into()],
-                switch: "MOJO_ANYTHING_UNIT_WORDCOUNT".into(),
-                routes: Vec::new(),
-                unit: None,
-                shadow: None,
-                kept: Vec::new(),
-            }],
-            lifted: true,
-            kind: AppKind::Cli,
-            routes: Vec::new(),
-            api: Vec::new(),
-        };
-        let code = lifted_units_rs(&state);
-        assert!(code.contains("\"words\" | \"tcli\" => Some(wordcount::run(command, matches)),"));
-        assert!(!code.contains("MOJO_ANYTHING_UNIT"));
-        assert!(!LIFTED_MAIN.contains("original"));
     }
 }

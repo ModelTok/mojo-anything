@@ -1,6 +1,7 @@
-//! The front door: `mojo/app`, a binary that owns a CLI's entry point from day one and runs
-//! the original for every command not ported yet, and `wire`, which hands commands to a unit's
-//! `port.rs` behind a kill switch.
+//! The front door: `mojo/app`, which owns an app's entry point from day one and runs the original
+//! for everything not ported yet (a Mojo binary for a CLI, see `front_door_mojo`; still a Cargo
+//! project for a server or a library), and `wire`, which hands commands to a unit's port behind a
+//! kill switch.
 
 use crate::walk::Canonical;
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +14,7 @@ use toml_edit::{DocumentMut, InlineTable, value};
 
 use crate::app::{self, ReplayOptions, ReplayOutcome};
 use crate::front_door_http as http_door;
+use crate::front_door_mojo as mojo_door;
 
 pub const APP_DIR: &str = "mojo/app";
 pub const STATE_FILE: &str = "mojo-anything.json";
@@ -132,7 +134,7 @@ pub struct Flag {
     pub takes_value: bool,
 }
 
-fn package_name(name: &str) -> String {
+pub(crate) fn package_name(name: &str) -> String {
     let mut out: String = name
         .chars()
         .map(|c| {
@@ -258,271 +260,6 @@ fn infer_cli(
     (commands.into_iter().collect(), flags)
 }
 
-fn arg_lines(flags: Option<&BTreeMap<String, Flag>>, indent: &str) -> String {
-    let mut out = String::new();
-    for (id, flag) in flags.into_iter().flatten() {
-        let mut line = format!("{indent}.arg(Arg::new({id:?})");
-        if let Some(long) = &flag.long {
-            line += &format!(".long({long:?})");
-        }
-        if let Some(short) = flag.short {
-            line += &format!(".short({short:?})");
-        }
-        line += if flag.takes_value {
-            ".num_args(1).action(ArgAction::Append).value_parser(value_parser!(OsString)))"
-        } else {
-            ".action(ArgAction::Count))"
-        };
-        out += &line;
-        out.push('\n');
-    }
-    out += &format!("{indent}.arg(rest())\n");
-    out
-}
-
-fn cli_rs(
-    name: &str,
-    commands: &[String],
-    flags: &BTreeMap<String, BTreeMap<String, Flag>>,
-) -> String {
-    let any_flags = flags.values().any(|f| !f.is_empty());
-    let imports = if any_flags {
-        "Arg, ArgAction, Command, value_parser"
-    } else {
-        "Arg, Command, value_parser"
-    };
-    let mut out = format!(
-        "use std::ffi::OsString;\n\n\
-         use clap::{{{imports}}};\n\n\
-         /// The command `units::dispatch` gets when argv names no subcommand.\n\
-         pub const ROOT: &str = {name:?};\n\n\
-         fn rest() -> Arg {{\n    \
-             Arg::new(\"args\")\n        \
-                 .num_args(0..)\n        \
-                 .trailing_var_arg(true)\n        \
-                 .allow_hyphen_values(true)\n        \
-                 .value_parser(value_parser!(OsString))\n\
-         }}\n\n\
-         /// Routes argv to a command. Anything this parser rejects runs the original, so it never\n\
-         /// has to match every way the original accepts its arguments.\n\
-         pub fn command() -> Command {{\n    \
-             Command::new(ROOT)\n        \
-                 .disable_help_flag(true)\n        \
-                 .disable_version_flag(true)\n"
-    );
-    if commands.is_empty() {
-        out += &arg_lines(flags.get(""), "        ");
-    } else {
-        out += "        .disable_help_subcommand(true)\n        .args_conflicts_with_subcommands(true)\n        .arg(rest())\n";
-        for command in commands {
-            out += &format!(
-                "        .subcommand(\n            Command::new({command:?})\n                .disable_help_flag(true)\n"
-            );
-            out += &arg_lines(flags.get(command), "                ");
-            out += "        )\n";
-        }
-    }
-    out.truncate(out.trim_end().len());
-    out += "\n}\n";
-    out
-}
-
-pub(crate) const MAIN_RS: &str = "mod cli;
-mod original;
-mod units;
-
-use std::ffi::OsString;
-use std::process::ExitCode;
-
-fn main() -> ExitCode {
-    original::report_fallbacks();
-    let argv: Vec<OsString> = std::env::args_os().collect();
-    if let Ok(matches) = cli::command().try_get_matches_from(&argv) {
-        let (command, sub) = matches.subcommand().unwrap_or((cli::ROOT, &matches));
-        if let Some(code) = units::dispatch(command, sub) {
-            return code;
-        }
-    }
-    original::run(&argv[1..])
-}
-";
-
-fn original_rs(run: &[String]) -> String {
-    let words: Vec<String> = run.iter().map(|w| format!("{w:?}")).collect();
-    format!(
-        "use std::ffi::OsString;
-use std::io::Write;
-use std::path::Path;
-use std::process::{{Command, ExitCode, ExitStatus}};
-
-const ROOT: &str = match option_env!(\"MOJO_ANYTHING_REPO\") {{
-    Some(root) => root,
-    None => concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../..\"),
-}};
-const RUN: &[&str] = &[{}];
-const FALLBACK_LOG: &str = \"{}\";
-
-fn resolve(word: &str) -> OsString {{
-    if word.starts_with('-') {{
-        return word.into();
-    }}
-    let path = Path::new(ROOT).join(word);
-    let looks_like_path = word.contains('/') || word.contains('\\\\') || path.is_file();
-    if looks_like_path && path.exists() {{
-        return std::path::absolute(&path).unwrap_or(path).into_os_string();
-    }}
-    word.into()
-}}
-
-fn log() -> Option<std::fs::File> {{
-    let path = std::env::var_os(FALLBACK_LOG)?;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .ok()
-}}
-
-/// Tells `mojo-anything app replay` this build counts its fallbacks, even when it makes none.
-pub fn report_fallbacks() {{
-    let _ = log();
-}}
-
-/// Runs the original with the same arguments, stdin and environment, and passes its output and
-/// exit code through. Each call is one fallback.
-pub fn run(args: &[OsString]) -> ExitCode {{
-    run_with(args, None)
-}}
-
-/// For glue that read stdin and then declines the case: runs the original with `input` as its
-/// stdin. Each call is one fallback.
-#[allow(dead_code)]
-pub fn run_with_stdin(args: &[OsString], input: &[u8]) -> ExitCode {{
-    run_with(args, Some(input))
-}}
-
-fn run_with(args: &[OsString], input: Option<&[u8]>) -> ExitCode {{
-    if let Some(mut file) = log() {{
-        let line: Vec<String> = args
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        let _ = writeln!(file, \"{{}}\", line.join(\" \"));
-    }}
-    let Some((program, rest)) = RUN.split_first() else {{
-        return ExitCode::from(127);
-    }};
-    let mut command = Command::new(resolve(program));
-    command.args(rest.iter().map(|w| resolve(w))).args(args);
-    #[cfg(windows)]
-    if Path::new(program)
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| [\"python\", \"python3\", \"py\"]
-            .iter()
-            .any(|candidate| name.eq_ignore_ascii_case(candidate)))
-        && std::env::var_os(\"PYTHONIOENCODING\").is_none()
-    {{
-        command.env(\"PYTHONIOENCODING\", \"utf-8\");
-    }}
-    let status = match input {{
-        None => command.status(),
-        Some(input) => command
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {{
-                if let Some(mut pipe) = child.stdin.take() {{
-                    let _ = pipe.write_all(input);
-                }}
-                child.wait()
-            }}),
-    }};
-    match status {{
-        Ok(status) => ExitCode::from(exit_code(status)),
-        Err(e) => {{
-            eprintln!(\"front door: cannot run the original `{{}}`: {{e}}\", RUN.join(\" \"));
-            ExitCode::from(127)
-        }}
-    }}
-}}
-
-fn exit_code(status: ExitStatus) -> u8 {{
-    if let Some(code) = status.code() {{
-        return (code & 0xff) as u8;
-    }}
-    #[cfg(unix)]
-    {{
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {{
-            return (128 + signal) as u8;
-        }}
-    }}
-    1
-}}
-",
-        words.join(", "),
-        app::FALLBACK_ENV
-    )
-}
-
-fn units_rs(state: &State) -> String {
-    let mut out = format!(
-        "//! Generated by `mojo-anything app wire` from {STATE_FILE}; it is rewritten on every wire.\n\n\
-         use std::process::ExitCode;\n\n\
-         use clap::ArgMatches;\n\n"
-    );
-    if state.units.is_empty() {
-        out += "pub fn dispatch(_command: &str, _matches: &ArgMatches) -> Option<ExitCode> {\n    None\n}\n";
-        return out;
-    }
-    for unit in &state.units {
-        out += &format!("mod {};\n", ident(&unit.name));
-    }
-    out += &format!(
-        "\n/// `{KILL_SWITCH_PREFIX}<NAME>=original` sends that unit back to the original.\n\
-         fn sent_to_original(unit: &str) -> bool {{\n    \
-             std::env::var(format!(\"{KILL_SWITCH_PREFIX}{{unit}}\")).is_ok_and(|v| v == \"original\")\n\
-         }}\n\n\
-         pub fn dispatch(command: &str, matches: &ArgMatches) -> Option<ExitCode> {{\n    \
-             match command {{\n"
-    );
-    for unit in &state.units {
-        let pattern: Vec<String> = unit.commands.iter().map(|c| format!("{c:?}")).collect();
-        let switch = unit
-            .switch
-            .strip_prefix(KILL_SWITCH_PREFIX)
-            .unwrap_or(&unit.switch);
-        out += &format!(
-            "        {} if !sent_to_original({switch:?}) => Some({}::run(command, matches)),\n",
-            pattern.join(" | "),
-            ident(&unit.name)
-        );
-    }
-    out += "        _ => None,\n    }\n}\n";
-    out
-}
-
-fn glue_rs(crate_name: &str) -> String {
-    let krate = crate_name.replace('-', "_");
-    format!(
-        "//! Glue from the front door to `{crate_name}`: parse the arguments, call `{krate}::port`,\n\
-         //! print what the original prints and return its exit code. A case the port does not\n\
-         //! cover yet goes back with `crate::original::run(&argv[1..])`, or\n\
-         //! `crate::original::run_with_stdin(&argv[1..], &input)` once stdin was read.\n\n\
-         use std::ffi::OsString;\n\
-         use std::process::ExitCode;\n\n\
-         use clap::ArgMatches;\n\n\
-         pub fn run(command: &str, matches: &ArgMatches) -> ExitCode {{\n    \
-             let args: Vec<&OsString> = matches\n        \
-                 .get_many::<OsString>(\"args\")\n        \
-                 .into_iter()\n        \
-                 .flatten()\n        \
-                 .collect();\n    \
-             unimplemented!(\"glue for `{{command}}` {{args:?}}: call {krate}::port\")\n\
-         }}\n"
-    )
-}
-
 pub(crate) fn rustfmt(file: &Path) {
     let _ = Command::new("rustfmt")
         .args(["--edition", "2024"])
@@ -582,7 +319,11 @@ fn build_and_replay(repo: &Path, state: &State) -> Result<ReplayOutcome> {
         crate::library::cargo_build_lib(&app_dir, Some(&target_dir))?;
         return crate::library::replay(repo, state, None);
     }
-    let exe = cargo_build(&app_dir, Some(&target_dir))?;
+    let exe = if state.kind == AppKind::Cli {
+        mojo_door::mojo_build(&app_dir)?
+    } else {
+        cargo_build(&app_dir, Some(&target_dir))?
+    };
     app::replay(&ReplayOptions {
         case: None,
         repo,
@@ -678,23 +419,6 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         );
     }
     let (commands, flags) = infer_cli(&app::recorded_args(&repo)?);
-    let files: Vec<(&str, String)> = vec![
-        (
-            "Cargo.toml",
-            format!(
-                "[package]\nname = \"{binary}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\
-                 description = \"Front door for `{}`, generated by mojo-anything: Rust owns the entry point, the original answers what is not ported yet\"\n\n\
-                 [[bin]]\nname = \"{binary}\"\npath = \"src/main.rs\"\n\n\
-                 [dependencies]\nclap = \"4\"\n\n\
-                 [workspace]\n",
-                config.name
-            ),
-        ),
-        (".gitignore", "/target\n".to_string()),
-        ("src/main.rs", MAIN_RS.to_string()),
-        ("src/cli.rs", cli_rs(&config.name, &commands, &flags)),
-        ("src/original.rs", original_rs(&config.run)),
-    ];
     let state = State {
         schema: SCHEMA.to_string(),
         name: config.name.clone(),
@@ -705,8 +429,16 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         routes: Vec::new(),
         api: Vec::new(),
     };
-    let mut files = files;
-    files.push(("src/units/mod.rs", units_rs(&state)));
+    let files: Vec<(&str, String)> = vec![
+        ("pixi.toml", mojo_door::pixi_toml_app(&binary)),
+        (".gitignore", "/.pixi/\n/.mojo-anything/\n".to_string()),
+        ("main.mojo", mojo_door::main_mojo(&state, &flags)),
+        (
+            "original.mojo",
+            mojo_door::original_mojo(&config.run, false),
+        ),
+        ("units.mojo", mojo_door::units_mojo(&state, false)),
+    ];
     finish_front_door(
         &repo,
         opts,
@@ -718,7 +450,6 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         Vec::new(),
     )
 }
-
 #[allow(clippy::too_many_arguments)]
 fn finish_front_door(
     repo: &Path,
@@ -740,10 +471,10 @@ fn finish_front_door(
         }
         std::fs::write(&target, text).with_context(|| format!("writing {}", target.display()))?;
     }
-    if state.kind == AppKind::Library {
-        rustfmt(&dir.join("src/lib.rs"));
-    } else {
-        rustfmt(&dir.join("src/main.rs"));
+    match state.kind {
+        AppKind::Library => rustfmt(&dir.join("src/lib.rs")),
+        AppKind::Http => rustfmt(&dir.join("src/main.rs")),
+        AppKind::Cli => mojo_door::mojo_format(&dir, &mojo_door::SOURCES),
     }
     state.save(&repo)?;
     let replay = if opts.check {
@@ -983,6 +714,11 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         !state.lifted,
         "the app is lifted: there is no fallback left to wire around; call the crate from src/units directly"
     );
+    ensure!(
+        state.kind != AppKind::Cli,
+        "{} is a Mojo front door: wiring units into it comes with M6 Task 3 (`app wire` with Mojo units); until then every command runs the original",
+        repo.join(APP_DIR).display()
+    );
     let app_dir = repo.join(APP_DIR);
     let crate_dir = find_unit(&repo, opts.unit)?;
     let manifest_text = std::fs::read_to_string(crate_dir.join("Cargo.toml"))?;
@@ -1114,19 +850,12 @@ pub fn wire(opts: &WireOptions) -> Result<WireOutcome> {
         .join("src/units")
         .join(format!("{}.rs", ident(&name)));
     if !glue.exists() {
-        let stub = if http {
-            http_door::glue_rs(&crate_name)
-        } else {
-            glue_rs(&crate_name)
-        };
-        std::fs::write(&glue, stub)?;
+        std::fs::write(&glue, http_door::glue_rs(&crate_name))?;
     }
-    let units = if http {
-        http_door::units_rs(&state, false)
-    } else {
-        units_rs(&state)
-    };
-    std::fs::write(app_dir.join("src/units/mod.rs"), units)?;
+    std::fs::write(
+        app_dir.join("src/units/mod.rs"),
+        http_door::units_rs(&state, false),
+    )?;
     rustfmt(&app_dir.join("src/units/mod.rs"));
     state.save(&repo)?;
     let glue_pending = is_stub(&std::fs::read_to_string(&glue)?);
@@ -1245,52 +974,5 @@ mod tests {
         assert_eq!(package_name("7zip"), "app-7zip");
         assert_eq!(ident("text-kit"), "text_kit");
         assert_eq!(ident("mod"), "unit_mod");
-    }
-
-    #[test]
-    fn generated_fallback_matches_python_stems_case_insensitively() {
-        let code = original_rs(&["Python.EXE".to_string()]);
-        assert!(
-            code.contains(".any(|candidate| name.eq_ignore_ascii_case(candidate))"),
-            "{code}"
-        );
-        assert!(
-            code.contains("var_os(\"PYTHONIOENCODING\").is_none()"),
-            "{code}"
-        );
-    }
-
-    #[test]
-    fn units_route_commands_behind_kill_switches() {
-        let mut state = State {
-            schema: SCHEMA.to_string(),
-            name: "tcli".to_string(),
-            commands: vec!["div".into(), "words".into()],
-            units: Vec::new(),
-            lifted: false,
-            kind: AppKind::Cli,
-            routes: Vec::new(),
-            api: Vec::new(),
-        };
-        assert!(units_rs(&state).contains("None"));
-        state.units.push(WiredUnit {
-            name: "wordcount".into(),
-            crate_name: "wordcount-rs".into(),
-            path: "../wordcount-rs".into(),
-            commands: vec!["words".into()],
-            routes: Vec::new(),
-            switch: "MOJO_ANYTHING_UNIT_WORDCOUNT".into(),
-            unit: None,
-            shadow: None,
-            kept: Vec::new(),
-        });
-        let code = units_rs(&state);
-        assert!(code.contains("mod wordcount;"), "{code}");
-        assert!(
-            code.contains(
-                "\"words\" if !sent_to_original(\"WORDCOUNT\") => Some(wordcount::run(command, matches)),"
-            ),
-            "{code}"
-        );
     }
 }

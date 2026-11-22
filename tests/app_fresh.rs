@@ -136,10 +136,12 @@ fn replay_needs_the_snapshot() {
     let _ = std::fs::remove_dir_all(&repo);
 }
 
+/// `mojo/` is a symlink to a folder elsewhere: the front door built there still runs the original
+/// from the repository, also when started from outside it.
 #[cfg(unix)]
 #[test]
-fn a_front_door_in_a_symlinked_mojo_dir_finds_the_original() {
-    if Command::new("cargo").arg("--version").output().is_err() {
+fn front_door_found_through_symlink() {
+    if !mojo_anything::mojo::available() {
         return;
     }
     let repo = repo();
@@ -156,7 +158,48 @@ fn a_front_door_in_a_symlinked_mojo_dir_finds_the_original() {
     .unwrap();
     let replay = door.replay.unwrap();
     assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
-    assert_eq!(replay.fallback.unwrap().cases, replay.total);
+    assert_eq!(replay.fallback.as_ref().unwrap().cases, replay.total);
+    let exe = std::path::PathBuf::from(&replay.build[0]);
+    assert!(elsewhere.join("app/main.mojo").is_file());
+    assert!(
+        exe.starts_with(&elsewhere) || exe.starts_with(repo.join("mojo")),
+        "{}",
+        exe.display()
+    );
+
+    // Started from a folder outside the repository: the original it runs is the one in the
+    // repository built in, or the one `MOJO_ANYTHING_REPO` names when that is set.
+    let outside = repo.with_extension("outside");
+    let other = repo.with_extension("other");
+    for dir in [&outside, &other] {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(outside.join("config.txt"), "name = outside\n").unwrap();
+    std::fs::write(outside.join("keep.txt"), "same\n").unwrap();
+    std::fs::write(other.join("tool.sh"), "echo the other repository\n").unwrap();
+    let out = Command::new(&exe)
+        .current_dir(&outside)
+        .env_remove("MOJO_ANYTHING_REPO")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "name = outside\n");
+    assert!(
+        outside.join("out.txt").is_file(),
+        "the original ran in the working directory"
+    );
+    let out = Command::new(&exe)
+        .current_dir(&outside)
+        .env("MOJO_ANYTHING_REPO", &other)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "the other repository\n"
+    );
+    let _ = std::fs::remove_dir_all(&outside);
+    let _ = std::fs::remove_dir_all(&other);
     let _ = std::fs::remove_dir_all(&repo);
     let _ = std::fs::remove_dir_all(&elsewhere);
 }

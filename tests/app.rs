@@ -6,12 +6,12 @@
 
 mod common;
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mojo_anything::app::{self, RecordOptions, ReplayOptions};
 use mojo_anything::front_door::{self, FrontDoorOptions, WireOptions};
+use mojo_anything::front_door_mojo;
 use mojo_anything::lift::{self, LiftOptions};
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -174,8 +174,6 @@ fn record_then_replay(repo: &Path, run: &str, buggy: &str) {
         port: None,
     });
     assert!(missing.unwrap_err().to_string().contains("no case named"));
-
-    front_door_then_wire(repo);
     std::fs::remove_dir_all(repo).unwrap();
 }
 
@@ -220,117 +218,316 @@ pub fn run(_command: &str, _matches: &ArgMatches) -> ExitCode {
 }
 ";
 
-/// The front door answers everything through the original; then a unit takes over `words`.
-fn front_door_then_wire(repo: &Path) {
+/// The front door is a Mojo binary in `mojo/app` that answers every recorded case through the
+/// original, each one a fallback.
+fn front_door_falls_back(repo: &Path) -> app::ReplayOutcome {
     let door = front_door::front_door(&FrontDoorOptions {
         repo,
         library: false,
         check: true,
     })
     .unwrap();
-    assert_eq!(
-        door.commands,
-        ["copy", "div", "len", "now", "upper", "words"]
-    );
     let replay = door.replay.unwrap();
-    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
-    let fallback = replay.fallback.as_ref().unwrap();
-    assert_eq!(fallback.cases, replay.total);
-    let app_dir = repo.join(front_door::APP_DIR);
-    if common::have("cargo") {
-        sh(&app_dir, "cargo", &["fmt", "--check"]);
-    }
-
-    let unit = repo.join("rust/wordcount-rs");
-    std::fs::create_dir_all(unit.join("src")).unwrap();
-    std::fs::write(
-        unit.join("Cargo.toml"),
-        "[package]\nname = \"wordcount-rs\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n",
-    )
-    .unwrap();
-    std::fs::write(unit.join("src/lib.rs"), "pub mod port;\n").unwrap();
-    std::fs::write(unit.join("src/port.rs"), WORDCOUNT_PORT).unwrap();
-    let wire = |commands: &[String]| {
-        front_door::wire(&WireOptions {
-            repo,
-            unit: "wordcount-rs",
-            commands,
-            routes: &[],
-            skip_gate: true,
-            check: true,
-        })
-        .unwrap()
-    };
-
-    let stub = wire(&["words".to_string()]);
-    assert!(stub.glue_pending);
-    assert_eq!(stub.switch, "MOJO_ANYTHING_UNIT_WORDCOUNT");
-    let failing = stub.replay.unwrap();
-    assert!(!failing.failures.is_empty());
-    assert!(
-        failing.failures.iter().all(|f| f.args[0] == "words"),
-        "{:?}",
-        failing.failures
-    );
-
-    std::fs::write(&stub.glue, WORDCOUNT_DECLINING_GLUE).unwrap();
-    let wired = wire(&[]);
-    assert!(!wired.glue_pending);
-    assert_eq!(wired.commands, ["words"]);
-    let replay = wired.replay.unwrap();
     assert_eq!(
         replay.passed,
         replay.total,
         "{}",
         std::fs::read_to_string(&replay.report).unwrap()
     );
-    if common::have("cargo") {
-        sh(&app_dir, "cargo", &["fmt", "--check"]);
-        sh(
-            &app_dir,
-            "cargo",
-            &["clippy", "--all-targets", "--", "-D", "warnings"],
-        );
-    }
     let fallback = replay.fallback.as_ref().unwrap();
-    assert!(fallback.cases < fallback.total, "{fallback:?}");
-    assert!(fallback.cases >= fallback.total - 5, "{fallback:?}");
+    assert_eq!(fallback.cases, replay.total, "{fallback:?}");
+    let app_dir = repo.join(front_door::APP_DIR);
+    assert_eq!(app_dir, repo.join("mojo/app"));
+    for file in ["pixi.toml", "main.mojo", "original.mojo", "units.mojo"] {
+        assert!(app_dir.join(file).is_file(), "{file}");
+    }
+    assert!(!app_dir.join("Cargo.toml").exists());
+    let exe = Path::new(&replay.build[0]);
+    assert!(
+        exe.starts_with(app_dir.join(".mojo-anything/build")),
+        "{}",
+        exe.display()
+    );
+    // `mojo format` has no check mode: formatting again must change nothing.
+    let sources: Vec<String> = front_door_mojo::SOURCES
+        .iter()
+        .map(|f| std::fs::read_to_string(app_dir.join(f)).unwrap())
+        .collect();
+    let out = mojo_anything::mojo::command(&app_dir)
+        .unwrap()
+        .current_dir(&app_dir)
+        .arg("format")
+        .args(front_door_mojo::SOURCES)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    for (file, before) in front_door_mojo::SOURCES.iter().zip(&sources) {
+        let after = std::fs::read_to_string(app_dir.join(file)).unwrap();
+        assert_eq!(&after, before, "{file} is not as `mojo format` writes it");
+    }
+    replay
+}
 
+/// Records the CLI fixture without traps and checks its Mojo front door.
+fn cli_front_door_falls_back(repo: &Path, run: &str) {
+    app::record(&RecordOptions {
+        repo,
+        run: &words(run),
+        inputs: None,
+        normalize: &[],
+        name: None,
+        traps: false,
+        timeout_secs: None,
+        http: false,
+        server_args: &[],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    let door = front_door_falls_back(repo);
+    assert_eq!(door.total, 7, "{door:?}");
+    let state = front_door::State::load(repo).unwrap();
+    assert_eq!(
+        state.commands,
+        ["copy", "div", "len", "now", "upper", "words"]
+    );
+    // Wiring a unit into the Mojo front door comes with Task 3; until then it says so.
+    let refused = front_door::wire(&WireOptions {
+        repo,
+        unit: "wordcount",
+        commands: &["words".to_string()],
+        routes: &[],
+        skip_gate: true,
+        check: false,
+    })
+    .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("Mojo front door"),
+        "{refused:#}"
+    );
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+fn mojo() -> bool {
+    mojo_anything::mojo::available()
+}
+
+#[test]
+fn ts_cli_front_door_falls_back() {
+    if !common::have("node") || !mojo() {
+        return;
+    }
+    cli_front_door_falls_back(&fixture("ts"), "node tcli.js");
+}
+
+#[test]
+fn python_cli_front_door_falls_back() {
+    if !common::have("python3") || !mojo() {
+        return;
+    }
+    cli_front_door_falls_back(&fixture("python"), "python3 tcli.py");
+}
+
+#[test]
+fn c_cli_front_door_falls_back() {
+    if !common::have("cc") || !mojo() {
+        return;
+    }
+    let repo = fixture("c");
+    sh(&repo, "cc", &["-O1", "-o", "tcli", "tcli.c"]);
+    cli_front_door_falls_back(&repo, "./tcli");
+}
+
+#[test]
+fn go_cli_front_door_falls_back() {
+    if !common::have("go") || !mojo() {
+        return;
+    }
+    let repo = fixture("go");
+    sh(&repo, "go", &["build", "-o", "tcli", "."]);
+    cli_front_door_falls_back(&repo, "./tcli");
+}
+
+#[test]
+fn ruby_cli_front_door_falls_back() {
+    if !common::have("ruby") || !mojo() {
+        return;
+    }
+    cli_front_door_falls_back(&fixture("ruby"), "ruby tcli.rb");
+}
+
+#[test]
+fn java_cli_front_door_falls_back() {
+    if !common::have("javac") || !common::have("java") || !mojo() {
+        return;
+    }
+    let repo = fixture("java");
+    sh(&repo, "javac", &["-d", "classes", "Tcli.java"]);
+    cli_front_door_falls_back(&repo, "java -XX:-UsePerfData -cp ./classes Tcli");
+}
+
+#[test]
+fn php_cli_front_door_falls_back() {
+    if !common::have("php") || !mojo() {
+        return;
+    }
+    cli_front_door_falls_back(&fixture("php"), "php tcli.php");
+}
+
+#[test]
+fn csharp_cli_front_door_falls_back() {
+    if !common::have("dotnet") || !mojo() {
+        return;
+    }
+    let repo = fixture("csharp");
+    dotnet_build(&repo, "out");
+    cli_front_door_falls_back(&repo, "dotnet out/tcli.dll");
+}
+
+/// A CLI that copies stdin to stdout, exits with a given code, or kills itself.
+const BYTES_TOOL: &str = r#"#!/bin/sh
+case "$1" in
+  echo) cat ;;
+  exit) echo "leaving with $2"; echo "to stderr" >&2; exit "$2" ;;
+  term) echo "about to stop"; kill -TERM $$ ;;
+esac
+"#;
+
+fn bytes_tool_repo() -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let repo = std::env::temp_dir().join(format!(
+        "mojo-anything-app-bytes-{}-{n}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("tool.sh"), BYTES_TOOL).unwrap();
+    std::fs::write(
+        repo.join("inputs.jsonl"),
+        concat!(
+            r#"{"name": "bytes", "args": ["echo"], "stdin": "placeholder\n"}"#,
+            "\n",
+            r#"{"name": "exit-3", "args": ["exit", "3"]}"#,
+            "\n",
+            r#"{"name": "term", "args": ["term"]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let inputs = repo.join("inputs.jsonl");
+    let outcome = app::record(&RecordOptions {
+        repo: &repo,
+        run: &["sh".to_string(), "tool.sh".to_string()],
+        inputs: Some(&inputs),
+        normalize: &[],
+        name: Some("tool"),
+        traps: false,
+        timeout_secs: None,
+        http: false,
+        server_args: &[],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    assert_eq!(outcome.cases, 3, "{outcome:?}");
+    repo
+}
+
+fn replay_original(repo: &Path) -> app::ReplayOutcome {
+    app::replay(&ReplayOptions {
+        case: None,
+        repo,
+        build: None,
+        timeout_secs: None,
+        port: None,
+    })
+    .unwrap()
+}
+
+#[test]
+fn fallback_passes_bytes_through() {
+    if !mojo() {
+        return;
+    }
+    let repo = bytes_tool_repo();
+    // Recorded inputs are text; the case is made binary by hand: not UTF-8, and a NUL.
+    let dir = app::cases_dir(&repo);
+    let bytes = [0xff_u8, 0x00, 0xfe];
+    std::fs::write(dir.join("bytes.stdin"), bytes).unwrap();
+    std::fs::write(dir.join("bytes.stdout"), bytes).unwrap();
+    let toml = dir.join("bytes.toml");
+    let text = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(
+        &toml,
+        format!(
+            "binary = true
+{text}"
+        ),
+    )
+    .unwrap();
+    let original = replay_original(&repo);
+    assert_eq!(original.passed, original.total, "{:?}", original.failures);
+
+    let replay = front_door_falls_back(&repo);
+    assert_eq!(replay.total, 3);
+
+    // A byte changed in the expected output fails, so the case compares bytes.
+    std::fs::write(dir.join("bytes.stdout"), [0xff_u8, 0x00, 0xfd]).unwrap();
+    let changed = app::replay(&ReplayOptions {
+        case: Some("bytes"),
+        repo: &repo,
+        build: Some(&replay.build[0]),
+        timeout_secs: None,
+        port: None,
+    })
+    .unwrap();
+    assert_eq!(changed.passed, 0, "{changed:?}");
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn fallback_keeps_exit_status() {
+    if !mojo() {
+        return;
+    }
+    let repo = bytes_tool_repo();
+    let dir = app::cases_dir(&repo);
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    assert!(
+        read("exit-3.toml").contains("status.code = 3"),
+        "{}",
+        read("exit-3.toml")
+    );
+    assert!(
+        read("term.toml").contains("interrupted"),
+        "{}",
+        read("term.toml")
+    );
+    let replay = front_door_falls_back(&repo);
+    assert_eq!(replay.total, 3);
+
+    // Outside the replay: the same code, and the same signal, from the front door itself.
     let exe = &replay.build[0];
-    let log = repo.join("fallback.log");
-    let run = |switch: Option<&str>, input: &[u8]| {
-        let _ = std::fs::remove_file(&log);
-        let mut cmd = Command::new(exe);
-        cmd.arg("words")
-            .env(mojo_anything::app::FALLBACK_ENV, &log)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped());
-        if let Some(value) = switch {
-            cmd.env("MOJO_ANYTHING_UNIT_WORDCOUNT", value);
-        }
-        let mut child = cmd.spawn().unwrap();
-        child.stdin.take().unwrap().write_all(input).unwrap();
-        let out = child.wait_with_output().unwrap();
-        assert!(out.status.success());
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .collect::<Vec<_>>(),
-            ["3"]
-        );
-        std::fs::read_to_string(&log).unwrap()
-    };
-    assert_eq!(run(None, b"one two  three\n"), "", "Rust answered");
-    assert_eq!(
-        run(Some("original"), b"one two  three\n"),
-        "words\n",
-        "the kill switch fell back"
-    );
-    assert_eq!(
-        run(None, b"#original two three\n"),
-        "words\n",
-        "the glue declined and passed stdin on"
-    );
+    let three = Command::new(exe).args(["exit", "3"]).output().unwrap();
+    assert_eq!(three.status.code(), Some(3));
+    assert_eq!(String::from_utf8_lossy(&three.stdout), "leaving with 3\n");
+    assert_eq!(String::from_utf8_lossy(&three.stderr), "to stderr\n");
+    let term = Command::new(exe).arg("term").output().unwrap();
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(term.status.signal(), Some(15), "{:?}", term.status);
+    }
+    std::fs::remove_dir_all(&repo).unwrap();
 }
 
 #[test]
@@ -814,6 +1011,7 @@ fn lift_end_to_end(repo: &Path, run: &str, semantics: &Semantics, original: &str
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn ts_cli_lifts_to_pure_rust() {
     if !common::have("node") || !common::have("cargo") {
         return;
@@ -822,6 +1020,7 @@ fn ts_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn python_cli_lifts_to_pure_rust() {
     if !common::have("python3") || !common::have("cargo") {
         return;
@@ -830,6 +1029,7 @@ fn python_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn c_cli_lifts_to_pure_rust() {
     if !common::have("cc") || !common::have("cargo") {
         return;
@@ -845,6 +1045,7 @@ fn c_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn go_cli_lifts_to_pure_rust() {
     if !common::have("go") || !common::have("cargo") {
         return;
@@ -860,6 +1061,7 @@ fn go_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn php_cli_lifts_to_pure_rust() {
     if !common::have("php") || !common::have("cargo") {
         return;
@@ -868,6 +1070,7 @@ fn php_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn ruby_cli_lifts_to_pure_rust() {
     if !common::have("ruby") || !common::have("cargo") {
         return;
@@ -876,6 +1079,7 @@ fn ruby_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn java_cli_lifts_to_pure_rust() {
     if !common::have("javac") || !common::have("java") || !common::have("cargo") {
         return;
@@ -891,6 +1095,7 @@ fn java_cli_lifts_to_pure_rust() {
 }
 
 #[test]
+#[ignore = "the CLI front door is Mojo now; M6 Task 4 lifts it to pure Mojo"]
 fn csharp_cli_lifts_to_pure_rust() {
     if !common::have("dotnet") || !common::have("cargo") {
         return;

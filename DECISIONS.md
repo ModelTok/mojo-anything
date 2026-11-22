@@ -25,7 +25,7 @@ Choices made so far, with reasons. Each one can be revisited.
 | A6 | Risks are heuristics: method names like `slice` also match arrays. | False positives cost a look; false negatives cost silent bugs. Each risk lists its first lines so a human or agent can check quickly. |
 | A7 | Readiness = 100 - weighted risks (log of count) - size - fan-in - dependency penalties + test bonus. | Log keeps big files from drowning in counts; fan-in pushes widely-used units later, where a mistake costs more. |
 | A8 | Priority = half readiness, half value (loops and string work per line, tests, size between 80 and 600 lines). | Readiness alone picks trivial declaration files. A first port should be safe and worth the bridge. |
-| A9 | The library-to-crate table (`src/crates.toml`, every language) is hand-curated; unknown packages are reported as `unknown`, never guessed. | The prompt: flag missing equivalents instead of hand-rolling silently. |
+| A9 | The library table (`src/replacements.toml`, every language; `src/crates.toml` until M6) is hand-curated: each library maps to a Mojo stdlib module, a pixi package or `python:<module>` through CPython interop; unknown packages are reported as `unknown`, never guessed. | The prompt: flag missing equivalents instead of hand-rolling silently. |
 | A10 | JSON output carries `schema: mojo-anything/analyze@1`. | Agents read it; it is a wire contract and gets versioned. |
 
 ## The loop
@@ -92,6 +92,14 @@ Choices made so far, with reasons. Each one can be revisited.
 | S16 | `setup` writes each agent's own config (`~/.claude.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.gemini/settings.json`, `~/.config/opencode/opencode.json`) and skills folder, adding only the `mojo-anything` entries, keeping key order, writing through a temporary file, and refusing files that do not parse. The command is the running executable's absolute path. OpenCode reads `mcp.servers` and takes the whole argv in `command`, so its entry is an array and a server left `disabled` is turned back on. | One command to try it in any agent is what most people need first; a tool that rewrites someone's settings must never lose them. |
 | S17 | Mojo ports of TS/JS units batch through the dispatcher: the JS batch class checks and encodes its items once, each `run` sends them in one `<function>:batch` call that calls the port per item on one thread, and `rank` sorts `run`'s numbers in JS. No item table lives on the Mojo side, and there is no custom `Index` yet. | One crossing per run instead of one per item is where most of the win was; a table of handles in the library and `parallelize` wait until they are measured. |
 | S4 | `bench` ends with a verdict: ship, keep the slower functions, port a bigger unit, or (for C) optimize the port. Faster is 1.1x or more, slower under 0.9x. | Numbers alone left the decision to the reader; Go and Java leaf functions cannot win per call, and the tool should say so. |
+
+## Whole apps
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| W1 | The CLI front door is a Mojo binary in `mojo/app` (a pixi project: `main.mojo`, `original.mojo`, `units.mojo`), built with `mojo build --Werror` into `mojo/app/.mojo-anything/build`, with the repository passed as `-D MOJO_ANYTHING_REPO=<repo>` (read with `get_defined_string`); at run time `$MOJO_ANYTHING_REPO` wins, and without either the binary finds the repository five folders above itself. | Its own build folder keeps two front doors from overwriting each other's binary; the define and the variable find the original through a symlinked `mojo/` (pitfalls). |
+| W2 | The front door starts the original with `fork`, `execvp` and `waitpid` through `external_call`, not the stdlib's `subprocess.run` (which captures stdout and drops the exit status), `posix_spawn` (it needs `environ`, a C global `external_call` cannot read, and opaque file-action structs) or Python's `subprocess` (a CPython dependency in every front door). stdin and stdout stay the front door's own descriptors, so bytes pass untouched; `run_with_stdin` writes the bytes glue read into a pipe with SIGPIPE ignored; an original killed by a signal makes the front door raise the same signal on itself. | The spike (2026-11-22) passed all three checks on this route: `cat` with `ff 00 fe` on stdin, `exit 3`, and `kill -TERM $$` seen as signal 15 by the caller. |
+| W3 | `main.mojo` hands a command to its unit only when every option on the command line is one the recording saw for that command; anything else runs the original. | The Rust front door got this from clap rejecting unknown flags; the original defines what an option it was never recorded with means. |
 
 ## Known limits
 
