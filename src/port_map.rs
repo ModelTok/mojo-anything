@@ -9,7 +9,7 @@ use crate::front_door::APP_DIR;
 use crate::harness::CASES;
 use crate::recording;
 
-pub const MAP_FILE: &str = "rust/PORT_MAP.md";
+pub const MAP_FILE: &str = "mojo/PORT_MAP.md";
 
 #[derive(Debug, Serialize)]
 pub struct PortMap {
@@ -204,7 +204,7 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
     let total = map.ports.len() + map.not_ported.len();
     write!(
         out,
-        "{} of {} units have a Rust port",
+        "{} of {} units have a Mojo port",
         map.ports.len(),
         if map.analyze_error.is_some() {
             "the".to_string()
@@ -227,7 +227,7 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
     } else {
         writeln!(
             out,
-            "| Unit | Crate | In Rust | Kept in the original | Cases | Last diff | Original |"
+            "| Unit | Port | In Mojo | Kept in the original | Cases | Last diff | Original |"
         )?;
         writeln!(out, "| --- | --- | --- | --- | ---: | ---: | --- |")?;
         for p in &map.ports {

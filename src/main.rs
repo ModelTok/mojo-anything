@@ -310,7 +310,7 @@ enum Cmd {
         /// Also look for crates in this folder (crates kept outside the repository).
         #[arg(long = "crates")]
         crates: Vec<PathBuf>,
-        /// Write the map to rust/PORT_MAP.md in the repository instead of printing it.
+        /// Write the map to mojo/PORT_MAP.md in the repository instead of printing it.
         #[arg(long)]
         write: bool,
         /// Exit 1 when the original changed since any port was recorded.

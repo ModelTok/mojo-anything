@@ -285,22 +285,25 @@ pub fn stale(crate_dir: &Path, m: &Manifest) -> Option<String> {
 }
 
 const HISTORY: &str = ".mojo-anything/diff-history.jsonl";
-/// Changes to `port.rs` in a row that gain no matching case before `diff` calls the port stalled.
+/// Changes to the port in a row that gain no matching case before `diff` calls the port stalled.
 pub const STALL_AFTER: usize = 3;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Trend {
-    /// Cases matching after each change to `port.rs`, oldest first (the last ten).
+    /// Cases matching after each change to the port, oldest first (the last ten).
     pub passed: Vec<usize>,
     pub total: usize,
     /// The last `STALL_AFTER` changes gained nothing while cases still fail.
     pub stalled: bool,
 }
 
-/// Records this diff when `port.rs` changed since the last one, and returns the trend. Rerunning
-/// `diff` on an unchanged port is not another attempt, so it adds nothing.
+/// Records this diff when the port (`port.mojo`, or a Rust-era crate's `src/port.rs`) changed
+/// since the last one, and returns the trend. Rerunning `diff` on an unchanged port is not
+/// another attempt, so it adds nothing.
 pub fn track(crate_dir: &Path, passed: usize, total: usize) -> Option<Trend> {
-    let port = std::fs::read(crate_dir.join("src/port.rs")).ok()?;
+    let port = std::fs::read(crate_dir.join("port.mojo"))
+        .or_else(|_| std::fs::read(crate_dir.join("src/port.rs")))
+        .ok()?;
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in &port {
         hash ^= u64::from(*b);
@@ -479,6 +482,24 @@ mod tests {
         let last = last.unwrap();
         assert_eq!(last.passed, vec![2, 2, 2, 2, 2]);
         assert!(last.stalled);
+    }
+
+    #[test]
+    fn a_mojo_port_is_tracked_by_port_mojo() {
+        let dir = std::env::temp_dir().join(format!("ra-trend-mojo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut last = None;
+        for (port, passed) in [("a", 1), ("b", 2), ("c", 2), ("d", 2), ("e", 2)] {
+            std::fs::write(dir.join("port.mojo"), port).unwrap();
+            last = track(&dir, passed, 5);
+        }
+        let recorded = last_diff(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let last = last.expect("diff of a Mojo port has a trend");
+        assert_eq!(last.passed, vec![1, 2, 2, 2, 2]);
+        assert!(last.stalled);
+        assert_eq!(recorded, Some((2, 5)));
     }
 
     #[test]
