@@ -384,7 +384,8 @@ enum AppCmd {
         #[arg(long)]
         port: Option<u16>,
         /// An argument every server start gets after its command, the original's and every
-        /// build's, so the Rust binary is started as the original is (`--arg db.json`).
+        /// build's (`{port}` is the port each one is given: the front door's public port, and
+        /// its original's own), so a build is started as the original is (`--arg db.json`).
         /// Repeatable; implies --http; saved with the cases.
         #[arg(long = "arg", value_name = "ARG", allow_hyphen_values = true)]
         server_args: Vec<String>,

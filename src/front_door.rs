@@ -344,10 +344,10 @@ pub fn front_door(opts: &FrontDoorOptions) -> Result<FrontDoorOutcome> {
         let files: Vec<(&str, String)> = vec![
             ("pixi.toml", mojo_door::pixi_toml_app(&binary, false)),
             (".gitignore", "/.pixi/\n/.mojo-anything/\n".to_string()),
-            ("main.mojo", http_door::main_mojo_http(&state)),
+            ("main.mojo", http_door::main_mojo_http(&state, &http.args)),
             (
                 "original.mojo",
-                http_door::original_mojo_http(&config.run, http.fresh.is_empty()),
+                http_door::original_mojo_http(&config.run, &http.args, http.fresh.is_empty()),
             ),
             ("units.mojo", http_door::units_mojo_http(&state, false)),
             ("http.mojo", http_door::HTTP_MOJO.to_string()),

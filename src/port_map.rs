@@ -171,17 +171,18 @@ fn manifests(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The front door's glue, `mojo/app/glue/*.mojo`, and whether each still calls the original.
 fn glue(root: &Path) -> Vec<Glue> {
-    let units = root.join(APP_DIR).join("src/units");
-    let Ok(entries) = std::fs::read_dir(&units) else {
+    let Ok(entries) = std::fs::read_dir(root.join(APP_DIR).join("glue")) else {
         return Vec::new();
     };
     let mut glue: Vec<Glue> = entries
         .filter_map(Result::ok)
-        .filter(|e| e.path().extension().is_some_and(|x| x == "rs") && e.file_name() != "mod.rs")
+        .filter(|e| e.path().extension().is_some_and(|x| x == "mojo"))
         .map(|e| Glue {
-            file: format!("{APP_DIR}/src/units/{}", e.file_name().to_string_lossy()),
-            falls_back: std::fs::read_to_string(e.path()).is_ok_and(|t| t.contains("original::")),
+            file: format!("{APP_DIR}/glue/{}", e.file_name().to_string_lossy()),
+            falls_back: std::fs::read_to_string(e.path())
+                .is_ok_and(|t| crate::lift::calls_original(&t)),
         })
         .collect();
     glue.sort_by(|a, b| a.file.cmp(&b.file));
@@ -260,9 +261,9 @@ fn render(out: &mut String, map: &PortMap) -> std::fmt::Result {
                 "| `{}` | {} |",
                 g.file,
                 if g.falls_back {
-                    "Rust, handing some cases to the original"
+                    "Mojo, handing some cases to the original"
                 } else {
-                    "Rust only"
+                    "Mojo only"
                 }
             )?;
         }
@@ -303,5 +304,41 @@ fn list(items: &[String]) -> String {
             .map(|i| format!("`{i}`"))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glue_is_read_from_the_mojo_front_door() {
+        let root =
+            std::env::temp_dir().join(format!("mojo-anything-map-glue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(APP_DIR).join("glue");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("api.mojo"),
+            "import original\n\n\ndef get_x(req: http.Request) raises -> http.Response:\n    return original.proxy(req)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("words.mojo"),
+            "# no original. here: a comment\ndef words(args: List[String]) raises -> Int:\n    return 0\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("notes.txt"), "original.run").unwrap();
+        let found = glue(&root);
+        std::fs::remove_dir_all(&root).unwrap();
+        let found: Vec<(String, bool)> =
+            found.into_iter().map(|g| (g.file, g.falls_back)).collect();
+        assert_eq!(
+            found,
+            [
+                (format!("{APP_DIR}/glue/api.mojo"), true),
+                (format!("{APP_DIR}/glue/words.mojo"), false),
+            ]
+        );
     }
 }

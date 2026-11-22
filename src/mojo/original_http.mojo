@@ -10,7 +10,7 @@ from std.ffi import external_call
 from std.memory import Pointer
 from std.os import getenv, setenv, unsetenv
 from std.os.path import exists, isfile
-from std.sys import argv, get_defined_string
+from std.sys import get_defined_string
 from std.time import perf_counter_ns
 
 import http
@@ -30,6 +30,12 @@ comptime IN_ROOT = {{IN_ROOT}}
 def _run_words() -> List[String]:
     """The command line that runs the original, as recorded."""
     return {{RUN}}
+
+
+def _launch_args() -> List[String]:
+    """The arguments every start was recorded with, after the command; `{port}`
+    is the original's own port."""
+    return {{ARGS}}
 
 
 def _dirname(path: String) -> String:
@@ -128,8 +134,7 @@ def report_fallbacks():
         pass
 
 
-def _log(req: http.Request):
-    var path = getenv(FALLBACK_LOG)
+def _append(path: String, req: http.Request):
     if path.byte_length() == 0:
         return
     try:
@@ -138,6 +143,18 @@ def _log(req: http.Request):
         log.close()
     except:
         pass
+
+
+def _log(req: http.Request):
+    _append(getenv(FALLBACK_LOG), req)
+
+
+def served(req: http.Request):
+    """Tells `mojo-anything app replay` the front door itself read `req`, so a
+    replay that reached another process on the port fails."""
+    var path = getenv(FALLBACK_LOG)
+    if path.byte_length() > 0:
+        _append(path + ".served", req)
 
 
 def _exited(pid: Int32) -> Bool:
@@ -151,18 +168,19 @@ def _exited(pid: Int32) -> Bool:
 
 
 def start() raises:
-    """Starts the original on a free port with the front door's own arguments
-    and waits until it listens; `proxy` finds it through $MOJO_ANYTHING_ORIGINAL_PORT.
-    """
+    """Starts the original on a free port with the recorded arguments and waits
+    until it listens; `proxy` finds it through $MOJO_ANYTHING_ORIGINAL_PORT. The
+    front door's own arguments never reach the original: they carry the public
+    port, which is the front door's."""
     var repo = root()
     var port = http.free_port()
     var words = _run_words()
     var argv_ = List[String]()
     for i in range(len(words)):
         argv_.append(_resolve(words[i], repo, port))
-    var raw = argv()
-    for i in range(1, len(raw)):
-        argv_.append(String(raw[i]))
+    var args = _launch_args()
+    for i in range(len(args)):
+        argv_.append(args[i].replace("{port}", String(port)))
     var n = len(argv_)
     # SAFETY: room for `n` pointers and the NULL that ends execvp's argv.
     var cargv = external_call["malloc", Optional[_CStrs]]((n + 1) * 8).value()

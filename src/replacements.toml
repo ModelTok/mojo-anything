@@ -144,7 +144,7 @@ note = "No WebSocket client or server in Mojo: `websockets` through CPython inte
 names = ["express", "fastify", "h3", "hono", "koa"]
 replacement = "-"
 fit = "none"
-note = "Mojo has no HTTP server in its stdlib: keep the server in its language until the Mojo server front door exists."
+note = "Mojo has no HTTP server in its stdlib: keep the framework: `app front-door` puts a Mojo server in front of the original, and routes move to Mojo glue one at a time."
 
 [[ts]]
 names = ["fast-xml-parser", "xml2js", "sax"]
@@ -851,7 +851,7 @@ note = "Python's `uuid` through CPython interop."
 prefixes = ["github.com/gorilla/mux", "github.com/gin-gonic/gin", "github.com/labstack/echo/v4", "github.com/go-chi/chi"]
 replacement = "-"
 fit = "none"
-note = "Mojo has no HTTP server in its stdlib: keep the server in its language until the Mojo server front door exists."
+note = "Mojo has no HTTP server in its stdlib: keep the framework: `app front-door` puts a Mojo server in front of the original, and routes move to Mojo glue one at a time."
 
 [[go]]
 prefixes = ["gopkg.in/yaml.v3", "gopkg.in/yaml.v2", "sigs.k8s.io/yaml"]

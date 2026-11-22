@@ -209,7 +209,7 @@ so an upstream change cannot pass silently.
 
 `rust-anything map` shows the whole port at once: every unit of the original, the crate that
 ports it, the functions in Rust and kept in the original, the cases and the last `diff`, the
-whole app's glue (Rust only, or still handing cases to the original), the units not ported yet,
+whole app's glue (Mojo only, or still handing cases to the original), the units not ported yet,
 and every port whose original changed since it was recorded. `map --write` saves it as
 `rust/PORT_MAP.md`; committed, it shows each upstream change as a diff. `map --check` exits 1
 while any recording is stale, for CI.

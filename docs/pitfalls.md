@@ -153,6 +153,14 @@ around its input needs cases recorded with those files, or glue that sends such 
 recorded command (the Node CLI), passes everything, and prints no fallback rate; `app wire
 --no-check` replays nothing. Pass `--build <front door binary>` and read the fallback line.
 
+**A front door replay measured the original.** A server recorded with `--arg=--port
+--arg={port}` was replayed with `--port P`; the Mojo front door passed its own arguments on to
+the original, which then bound the public port P before the front door could, and the replay
+talked to the original directly: 100% passed at 0% fallback while the front door served nothing.
+The original gets only the recorded arguments with its own private port, and the front door logs
+every request it reads (`<fallback log>.served`): a replay fails each answer the front door did
+not read. A fallback rate means nothing unless the build being measured answered the requests.
+
 **`gate` checked less than it seemed for a split port.** Its unwrap, panic and size checks read
 `port.rs` only, and `size` counts the whole import closure (node_modules included). When the port
 lives in a dependency crate, run clippy with `-D warnings` on that crate and grep it for

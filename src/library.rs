@@ -49,7 +49,7 @@ fn exports_of(root: &Path, lang: Lang, files: &[String]) -> Vec<String> {
     out
 }
 
-/// The public API: every unit that moves to Rust, with its exports.
+/// The public API: every unit that moves to Mojo, with its exports.
 pub(crate) fn public_api(root: &Path, report: &crate::analyze::Report) -> Vec<ApiUnit> {
     let mut taken = BTreeMap::new();
     let mut out = Vec::new();
@@ -244,7 +244,7 @@ pub(crate) fn mojo_build_lib_in(app_dir: &Path, env_dir: &Path) -> Result<PathBu
     Ok(out)
 }
 
-/// The public API exports Rust does not answer yet: unwired units, and exports kept in the
+/// The public API exports no Mojo unit answers yet: unwired units, and exports kept in the
 /// original language.
 pub(crate) fn pending(state: &State) -> Vec<String> {
     let mut out = Vec::new();

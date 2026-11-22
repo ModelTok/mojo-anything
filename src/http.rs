@@ -436,6 +436,13 @@ impl Server {
             .map(|t| t.lines().count())
     }
 
+    /// Requests the front door says it read itself (`<fallback log>.served`).
+    fn served(&self) -> usize {
+        let mut path = self.log.clone().into_os_string();
+        path.push(".served");
+        std::fs::read_to_string(path).map_or(0, |t| t.lines().count())
+    }
+
     fn stop(&mut self) {
         if self.stopped {
             return;
@@ -494,11 +501,21 @@ fn run_all(
     let mut out = Vec::new();
     for req in reqs {
         let before = server.fallbacks().unwrap_or(0);
-        let resp = send(server.port, req, timeout).map_err(|e| format!("{e:#}"));
+        let served = server.served();
+        let mut resp = send(server.port, req, timeout).map_err(|e| format!("{e:#}"));
         if let Some(pace) = launch.pace {
             std::thread::sleep(pace);
         }
         let fell_back = server.fallbacks().map(|after| after > before);
+        // A build that counts fallbacks is a front door: an answer it did not read came from
+        // another process on the port (the original, given the public port), so no fallback
+        // rate is measured.
+        if fell_back.is_some() && resp.is_ok() && server.served() <= served {
+            resp = Err(format!(
+                "the front door did not answer: another process answered on port {}",
+                server.port
+            ));
+        }
         let effects = server.sinks.as_ref().map(|s| s.take(&server.cwd));
         out.push((resp, fell_back, effects));
     }

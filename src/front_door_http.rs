@@ -147,14 +147,64 @@ pub(crate) fn route_fns(routes: &[String]) -> Vec<(Route, String)> {
     out
 }
 
-/// The accept loop shared by the front door and the lifted server.
-fn main_source(state: &State, lifted: bool) -> String {
-    let (header, import_original, start) = if lifted {
+/// The environment variable that makes a server listen on every address instead of loopback.
+pub const HOST_ENV: &str = "MOJO_ANYTHING_HOST";
+
+/// `_port()` of `main.mojo`: the port given where the recording passed `{port}` among the
+/// arguments every start gets (`--port {port}`), then `$PORT`, then 8080.
+fn port_source(args: &[String]) -> (bool, String) {
+    let mut out = String::from(
+        "\n\ndef _port() raises -> Int:\n    \
+         \"\"\"The port to listen on: the one given where the recording passed\n    \
+         `{port}`, then $PORT, then 8080.\"\"\"\n",
+    );
+    let mut takes_argv = false;
+    for (i, word) in args.iter().enumerate() {
+        let Some((prefix, suffix)) = word.split_once("{port}") else {
+            continue;
+        };
+        if !takes_argv {
+            out += "    var raw = argv()\n";
+            takes_argv = true;
+        }
+        let mut test = format!("word.byte_length() > {}", prefix.len() + suffix.len());
+        if !prefix.is_empty() {
+            test += &format!(" and word.startswith({})", mojo_str(prefix));
+        }
+        if !suffix.is_empty() {
+            test += &format!(" and word.endswith({})", mojo_str(suffix));
+        }
+        let end = if suffix.is_empty() {
+            "word.byte_length()".to_string()
+        } else {
+            format!("word.byte_length() - {}", suffix.len())
+        };
+        out += &format!(
+            "    if len(raw) > {n}:\n        \
+             var word = String(raw[{n}])\n        \
+             if {test}:\n            \
+             return Int(String(word[byte = {start} : {end}]))\n",
+            n = i + 1,
+            start = prefix.len(),
+        );
+    }
+    out += "    var given = getenv(\"PORT\")\n    \
+            if given.byte_length() > 0:\n        \
+            return Int(given)\n    \
+            return 8080\n";
+    (takes_argv, out)
+}
+
+/// The accept loop shared by the front door and the lifted server. `args`: the arguments every
+/// start was recorded with, where `{port}` marks the port the server is given.
+fn main_source(state: &State, lifted: bool, args: &[String]) -> String {
+    let (header, import_original, start, served) = if lifted {
         (
             format!(
                 "`{}`, lifted by mojo-anything: every request is answered by a unit.",
                 state.name.replace('\n', " ")
             ),
+            "",
             "",
             "",
         )
@@ -167,24 +217,50 @@ fn main_source(state: &State, lifted: bool) -> String {
             ),
             "import original\n",
             "    original.report_fallbacks()\n    original.start()\n",
+            "            original.served(req)\n",
         )
     };
-    format!(
+    let (takes_argv, port) = port_source(args);
+    let argv_import = if takes_argv {
+        "from std.sys import argv\n"
+    } else {
+        ""
+    };
+    let mut out = format!(
         "# {header}
 
 from std.os import getenv
-
+{argv_import}
 import http
 {import_original}import units
+{port}
+
+def _loopback() raises -> Bool:
+    \"\"\"Whether to listen on 127.0.0.1 only, as by default, or on every
+    address ({host}=0.0.0.0, for a server that has to be reached from
+    other machines).\"\"\"
+    var host = getenv({host_env})
+    if host.byte_length() == 0 or host == \"127.0.0.1\":
+        return True
+    if host == \"0.0.0.0\":
+        return False
+    raise Error(
+        String(\"{host}: give 127.0.0.1 or 0.0.0.0, not \", host)
+    )
 
 
 def main() raises:
-{start}    var port = 8080
-    var given = getenv(\"PORT\")
-    if given.byte_length() > 0:
-        port = Int(given)
-    var listener = http.listen(port)
-    while True:
+{start}    var listener = http.listen(_port(), _loopback())
+    while True:",
+        host = HOST_ENV,
+        host_env = mojo_str(HOST_ENV),
+    );
+    out += &MAIN_LOOP.replace("{{served}}", served);
+    out
+}
+
+/// The rest of `main()`: one connection at a time, kept alive while the client wants.
+const MAIN_LOOP: &str = "
         var fd = http.accept(listener)
         if fd < 0:
             continue
@@ -201,7 +277,7 @@ def main() raises:
             if not next:
                 break
             var req = next.take()
-            var resp: http.Response
+{{served}}            var resp: http.Response
             try:
                 resp = units.handle(req)
             except e:
@@ -212,32 +288,35 @@ def main() raises:
             if not keep or not http.wait_readable(fd, listener, 5000):
                 break
         http.close(fd)
-"
-    )
-}
+";
 
 /// `main.mojo` of the front door: starts the original, then answers every request through
-/// `units.handle`.
-pub(crate) fn main_mojo_http(state: &State) -> String {
-    main_source(state, false)
+/// `units.handle`. `args`: the arguments every start was recorded with.
+pub(crate) fn main_mojo_http(state: &State, args: &[String]) -> String {
+    main_source(state, false, args)
 }
 
 /// `main.mojo` of a lifted server: no original left to start.
-pub(crate) fn lifted_main_mojo_http(state: &State) -> String {
-    main_source(state, true)
+pub(crate) fn lifted_main_mojo_http(state: &State, args: &[String]) -> String {
+    main_source(state, true, args)
 }
 
-/// `original.mojo` of a server. `in_root`: the original runs in the repository, as recorded;
+/// `original.mojo` of a server: `run` and then `args` (the arguments every start was recorded
+/// with, taken as they are, as `app replay` passes them) start the original, `{port}` in either
+/// being its own private port. `in_root`: the original runs in the repository, as recorded;
 /// otherwise in the front door's own working directory (the recording copies fresh files there).
-pub(crate) fn original_mojo_http(run: &[String], in_root: bool) -> String {
-    let words: Vec<String> = run.iter().map(|w| mojo_str(w)).collect();
-    let list = if words.is_empty() {
-        "List[String]()".to_string()
-    } else {
-        format!("[{}]", words.join(", "))
+pub(crate) fn original_mojo_http(run: &[String], args: &[String], in_root: bool) -> String {
+    let list = |items: &[String]| {
+        if items.is_empty() {
+            "List[String]()".to_string()
+        } else {
+            let words: Vec<String> = items.iter().map(|w| mojo_str(w)).collect();
+            format!("[{}]", words.join(", "))
+        }
     };
     ORIGINAL_HTTP_MOJO
-        .replace("{{RUN}}", &list)
+        .replace("{{RUN}}", &list(run))
+        .replace("{{ARGS}}", &list(args))
         .replace("{{IN_ROOT}}", if in_root { "True" } else { "False" })
         .replace("{{FALLBACK_ENV}}", crate::app::FALLBACK_ENV)
         .replace("{{REPO_ENV}}", crate::front_door::REPO_ENV)
@@ -445,11 +524,46 @@ mod tests {
             "accept and connect"
         );
         for code in [
-            main_mojo_http(&state(&[])),
-            lifted_main_mojo_http(&state(&[])),
+            main_mojo_http(&state(&[]), &[]),
+            lifted_main_mojo_http(&state(&[]), &[]),
         ] {
             assert!(code.contains("http.accept(listener)"), "{code}");
         }
+    }
+
+    #[test]
+    fn the_port_argument_is_the_front_doors_and_the_original_gets_its_own() {
+        let args = [
+            "--db".to_string(),
+            "--urls=http://127.0.0.1:{port}/".to_string(),
+        ];
+        let code = main_mojo_http(&state(&[]), &args);
+        assert!(code.contains("from std.sys import argv\n"), "{code}");
+        assert!(code.contains("    if len(raw) > 2:\n"), "{code}");
+        assert!(
+            code.contains(
+                "word.byte_length() > 25 and word.startswith(\"--urls=http://127.0.0.1:\") and word.endswith(\"/\")"
+            ),
+            "{code}"
+        );
+        assert!(
+            code.contains("return Int(String(word[byte = 24 : word.byte_length() - 1]))"),
+            "{code}"
+        );
+        assert!(code.contains("http.listen(_port(), _loopback())"), "{code}");
+        assert!(
+            code.contains("            original.served(req)\n"),
+            "{code}"
+        );
+        let lifted = lifted_main_mojo_http(&state(&[]), &[]);
+        assert!(!lifted.contains("argv"), "{lifted}");
+        assert!(!lifted.contains("served"), "{lifted}");
+        let original = original_mojo_http(&["python3".into(), "s.py".into()], &args, true);
+        assert!(
+            original.contains("return [\"--db\", \"--urls=http://127.0.0.1:{port}/\"]"),
+            "{original}"
+        );
+        assert!(!original.contains("argv()"), "{original}");
     }
 
     #[test]

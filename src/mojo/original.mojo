@@ -7,19 +7,34 @@
 # `subprocess.run` captures stdout and drops the exit status, and posix_spawn
 # needs `environ`, which `external_call` cannot read. stdin and stdout are the
 # front door's own file descriptors, so their bytes pass through untouched.
+#
+# On Linux the original ends with the front door: SIGTERM, SIGINT and SIGHUP
+# sent to the front door are passed on to it (they are blocked and taken with
+# sigtimedwait while it runs, as Mojo cannot install a signal handler), and it
+# gets PR_SET_PDEATHSIG for a front door killed any other way.
 
 from std.ffi import external_call
 from std.memory import Pointer
 from std.os import getenv
 from std.os.path import exists, isfile
-from std.sys import get_defined_string
+from std.sys import get_defined_string, stderr
+from std.sys.info import CompilationTarget
 
 comptime _Bytes = Pointer[UInt8, MutAnyOrigin]
 comptime _CStrs = Pointer[Optional[_Bytes], MutAnyOrigin]
 comptime _Ints = Pointer[Int32, MutAnyOrigin]
+comptime _Longs = Pointer[Int, MutAnyOrigin]
+comptime _SIGHUP = Int32(1)
+comptime _SIGINT = Int32(2)
 comptime _SIGPIPE = Int32(13)
+comptime _SIGTERM = Int32(15)
 comptime _SIG_DFL = Int(0)
 comptime _SIG_IGN = Int(1)
+comptime _SIG_BLOCK = Int32(0)
+comptime _SIG_SETMASK = Int32(2)
+comptime _PR_SET_PDEATHSIG = Int32(1)
+comptime _WNOHANG = Int32(1)
+comptime _EINTR = Int32(4)
 comptime FALLBACK_LOG = "{{FALLBACK_ENV}}"
 comptime REPO_ENV = "{{REPO_ENV}}"
 comptime IN_ROOT = {{IN_ROOT}}
@@ -156,6 +171,83 @@ def _exit_status(status: Int) -> Int:
     return 128 + signal
 
 
+def _errno() -> Int32:
+    comptime if CompilationTarget.is_linux():
+        # SAFETY: glibc's errno of this thread, always a valid int.
+        return external_call["__errno_location", _Ints]()[]
+    else:
+        # SAFETY: the C library's errno of this thread, always a valid int.
+        return external_call["__error", _Ints]()[]
+
+
+def _forwarded() -> _Bytes:
+    """The signals passed on to the original, as a `sigset_t` (128 bytes)."""
+    var set = _alloc(128)
+    comptime if CompilationTarget.is_linux():
+        # SAFETY: `set` holds 128 writable bytes, glibc's sigset_t.
+        _ = external_call["sigemptyset", Int32](set)
+        # SAFETY: `set` is an initialised sigset_t; 1 is SIGHUP.
+        _ = external_call["sigaddset", Int32](set, _SIGHUP)
+        # SAFETY: `set` is an initialised sigset_t; 2 is SIGINT.
+        _ = external_call["sigaddset", Int32](set, _SIGINT)
+        # SAFETY: `set` is an initialised sigset_t; 15 is SIGTERM.
+        _ = external_call["sigaddset", Int32](set, _SIGTERM)
+    return set
+
+
+def _set_mask(how: Int32, set: _Bytes, old: Optional[_Bytes]):
+    comptime if CompilationTarget.is_linux():
+        # SAFETY: `set` holds a sigset_t, and `old`, when given, 128 writable
+        # bytes for the mask before the call.
+        _ = external_call["sigprocmask", Int32](how, set, old)
+
+
+def _wait(pid: Int32, status: _Ints, forwarded: _Bytes) -> Bool:
+    """Waits for the original; True once its wait status is in `status`, False
+    when waitpid fails. On Linux a forwarded signal sent to the front door
+    meanwhile (blocked, so taken here) goes on to the original."""
+    comptime if CompilationTarget.is_linux():
+        # SAFETY: room for a `siginfo_t` (128 bytes); `value()` aborts on NULL.
+        var info = external_call["malloc", Optional[_Ints]](128).value()
+        # SAFETY: room for a `struct timespec`; `value()` aborts on NULL.
+        var ts = external_call["malloc", Optional[_Longs]](16).value()
+        ts[unsafe_offset=0] = 0
+        ts[unsafe_offset=1] = 50_000_000
+        var done = False
+        while True:
+            # SAFETY: `status` points at a writable int; WNOHANG never blocks.
+            var got = external_call["waitpid", Int32](pid, status, _WNOHANG)
+            if got == pid:
+                done = True
+                break
+            if got < 0:
+                if _errno() == _EINTR:
+                    continue
+                break
+            # SAFETY: `forwarded` holds a sigset_t, `info` room for a siginfo_t
+            # and `ts` a timespec of 50 ms.
+            var sig = external_call["sigtimedwait", Int32](forwarded, info, ts)
+            # si_code (the third int) is 0 or less when a process sent the
+            # signal; a terminal's ^C reaches the original's process group
+            # itself and is not sent twice.
+            if sig > 0 and info[unsafe_offset=2] <= 0:
+                # SAFETY: kill(2) takes a process id and a signal number.
+                _ = external_call["kill", Int32](pid, sig)
+        # SAFETY: `info` came from malloc above and is freed once.
+        external_call["free", NoneType](info)
+        # SAFETY: `ts` came from malloc above and is freed once.
+        external_call["free", NoneType](ts)
+        return done
+    else:
+        while True:
+            # SAFETY: `status` points at a writable int.
+            var got = external_call["waitpid", Int32](pid, status, Int32(0))
+            if got == pid:
+                return True
+            if got < 0 and _errno() != _EINTR:
+                return False
+
+
 def _spawn(args: List[String], input: Optional[List[UInt8]]) -> Int:
     var repo = root()
     var words = _run_words()
@@ -178,11 +270,25 @@ def _spawn(args: List[String], input: Optional[List[UInt8]]) -> Int:
     if input:
         # SAFETY: `fds` points at two writable ints.
         _ = external_call["pipe", Int32](fds)
+    var forwarded = _forwarded()
+    var saved = _alloc(128)
+    _set_mask(_SIG_BLOCK, forwarded, saved)
+    # SAFETY: getpid(2) takes no arguments.
+    var parent = external_call["getpid", Int32]()
     print("", end="", flush=True)
-    # SAFETY: fork(2) takes no arguments. The child below only calls dup2,
-    # close, chdir, execvp, perror and _exit, which are async-signal-safe.
+    # SAFETY: fork(2) takes no arguments. The child below only calls
+    # sigprocmask, prctl, getppid, dup2, close, chdir, execvp, perror and _exit.
     var pid = external_call["fork", Int32]()
     if pid == 0:
+        _set_mask(_SIG_SETMASK, saved, None)
+        comptime if CompilationTarget.is_linux():
+            # SAFETY: asks the kernel to send SIGTERM when the front door ends.
+            _ = external_call["prctl", Int32](_PR_SET_PDEATHSIG, _SIGTERM)
+            # SAFETY: getppid(2) takes no arguments. A front door gone before
+            # the prctl above would never send the signal.
+            if external_call["getppid", Int32]() != parent:
+                # SAFETY: leaves the child without running any cleanup.
+                external_call["_exit", NoneType](Int32(1))
         if input:
             # SAFETY: plain file descriptor calls on the pipe's two ends.
             _ = external_call["dup2", Int32](fds[unsafe_offset=0], Int32(0))
@@ -208,9 +314,12 @@ def _spawn(args: List[String], input: Optional[List[UInt8]]) -> Int:
     external_call["free", NoneType](cargv)
     _free(croot)
     if pid < 0:
+        _set_mask(_SIG_SETMASK, saved, None)
+        _free(saved)
+        _free(forwarded)
         # SAFETY: `fds` came from malloc above.
         external_call["free", NoneType](fds)
-        print("front door: cannot start the original")
+        print("front door: cannot start the original", file=stderr)
         return 127
     if input:
         # SAFETY: closes the read end, which the child holds.
@@ -242,14 +351,24 @@ def _spawn(args: List[String], input: Optional[List[UInt8]]) -> Int:
     # SAFETY: one int for waitpid's status; `value()` aborts on NULL.
     var status = external_call["malloc", Optional[_Ints]](4).value()
     status[] = 0
-    while True:
-        # SAFETY: `status` points at a writable int.
-        var got = external_call["waitpid", Int32](pid, status, Int32(0))
-        if got == pid or got < 0:
-            break
+    var waited = _wait(pid, status, forwarded)
+    var errno = _errno()
+    _set_mask(_SIG_SETMASK, saved, None)
+    _free(saved)
+    _free(forwarded)
     var code = Int(status[])
     # SAFETY: `status` came from malloc above.
     external_call["free", NoneType](status)
+    if not waited:
+        print(
+            String(
+                "front door: cannot wait for the original (errno ",
+                errno,
+                "); its exit status is lost",
+            ),
+            file=stderr,
+        )
+        return 125
     return _exit_status(code)
 
 

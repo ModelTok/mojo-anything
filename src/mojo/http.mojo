@@ -8,10 +8,13 @@ from std.memory import Pointer
 
 comptime _Bytes = Pointer[UInt8, MutAnyOrigin]
 comptime _Ints = Pointer[Int32, MutAnyOrigin]
+comptime _Longs = Pointer[Int, MutAnyOrigin]
 comptime _AF_INET = Int32(2)
 comptime _SOCK_STREAM = Int32(1)
 comptime _SOL_SOCKET = Int32(1)
 comptime _SO_REUSEADDR = Int32(2)
+comptime _SO_RCVTIMEO = Int32(20)
+comptime IDLE_SECONDS = 5
 comptime _IPPROTO_TCP = Int32(6)
 comptime _TCP_NODELAY = Int32(1)
 comptime _MSG_NOSIGNAL = Int32(0x4000)
@@ -205,8 +208,9 @@ def close(fd: Int32):
     _ = external_call["close", Int32](fd)
 
 
-def listen(port: Int, loopback: Bool = False) raises -> Int32:
-    """A listening socket on `port` (0: any free port)."""
+def listen(port: Int, loopback: Bool = True) raises -> Int32:
+    """A listening socket on `port` (0: any free port), on 127.0.0.1 unless
+    `loopback` is False (every address)."""
     # SAFETY: socket(2) takes three ints.
     var fd = external_call["socket", Int32](_AF_INET, _SOCK_STREAM, Int32(0))
     if fd < 0:
@@ -249,14 +253,30 @@ def free_port() raises -> Int:
     return port
 
 
+def _set_read_timeout(fd: Int32, seconds: Int):
+    # SAFETY: room for a `struct timeval` (two longs); `value()` aborts on NULL.
+    var tv = external_call["malloc", Optional[_Longs]](16).value()
+    tv[unsafe_offset=0] = seconds
+    tv[unsafe_offset=1] = 0
+    # SAFETY: `tv` holds one `struct timeval`, and setsockopt reads 16 bytes.
+    _ = external_call["setsockopt", Int32](
+        fd, _SOL_SOCKET, _SO_RCVTIMEO, tv, Int32(16)
+    )
+    # SAFETY: `tv` came from malloc above.
+    external_call["free", NoneType](tv)
+
+
 def accept(listener: Int32) -> Int32:
-    """The next connection, with TCP_NODELAY set; -1 when accept failed."""
+    """The next connection, with TCP_NODELAY set and reads that give up after
+    IDLE_SECONDS, so a client that sends nothing never holds the next one up;
+    -1 when accept failed."""
     # SAFETY: NULL address arguments: the peer's address is not wanted.
     var fd = external_call["accept", Int32](
         listener, Optional[_Bytes](None), Optional[_Ints](None)
     )
     if fd >= 0:
         _set_int(fd, _IPPROTO_TCP, _TCP_NODELAY, 1)
+        _set_read_timeout(fd, IDLE_SECONDS)
     return fd
 
 

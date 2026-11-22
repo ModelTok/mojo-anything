@@ -594,7 +594,40 @@ fn http_wire_route_in_mojo() {
     assert_eq!(before.fallback.unwrap().cases, total);
     std::fs::write(&stub.glue, HELLO_GLUE_MOJO).unwrap();
     let after = wire(&repo, &[], true).replay.unwrap();
+    // The kill switch sends the wired route back to the original, end to end.
+    let log = repo.join("switch.log");
+    let log_text = log.to_string_lossy().into_owned();
+    let mut switched = Vec::new();
+    for value in ["original", ""] {
+        let _ = std::fs::remove_file(&log);
+        let port = mojo_anything::http::free_port().unwrap();
+        let port_text = port.to_string();
+        let mut child = start_listening(
+            &after.build[0],
+            &[],
+            &[
+                ("PORT", &port_text),
+                ("MOJO_ANYTHING_UNIT_API", value),
+                (app::FALLBACK_ENV, &log_text),
+            ],
+            port,
+        );
+        let answer = get(port, "/hello");
+        let _ = child.kill();
+        let _ = child.wait();
+        switched.push((answer, std::fs::read_to_string(&log).unwrap_or_default()));
+    }
     std::fs::remove_dir_all(&repo).unwrap();
+    for (answer, _) in &switched {
+        let (status, body) = answer.as_ref().unwrap();
+        assert!(status.contains(" 200 "), "{status}");
+        assert!(body.contains("hello"), "{body}");
+    }
+    assert_eq!(
+        switched[0].1, "GET /hello\n",
+        "the switch proxied the route"
+    );
+    assert_eq!(switched[1].1, "", "without the switch the glue answered");
     assert_eq!(after.passed, total, "{:?}", after.failures);
     let fallback = after.fallback.unwrap();
     assert_eq!(fallback.cases, total - 1, "{fallback:?}");
@@ -780,4 +813,193 @@ fn csharp_server() {
         run: |s| format!("dotnet {s}/server.dll --urls http://127.0.0.1:{{port}}"),
         original: "server",
     });
+}
+
+/// A server that takes its port only from `--port N` (the last one given, as argparse does).
+const PORT_ARG_SERVER: &str = r#"import argparse
+import http.server
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--port", type=int, required=True)
+args = parser.parse_args()
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"hello\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+http.server.HTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
+"#;
+
+/// Starts `program args` with `envs` and waits until something listens on `port`.
+fn start_listening(
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    port: u16,
+) -> std::process::Child {
+    let mut child = Command::new(program)
+        .args(args)
+        .env_remove("PORT")
+        .envs(envs.iter().copied())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("`{program}` exited ({status}) before listening on {port}");
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "nothing listened on {port}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    child
+}
+
+/// `GET path` on a connection of its own: the status line and the body.
+fn get(port: u16, path: &str) -> std::io::Result<(String, String)> {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(20)))?;
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+    )?;
+    let mut text = String::new();
+    stream.read_to_string(&mut text)?;
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    Ok((
+        head.lines().next().unwrap_or_default().to_string(),
+        body.to_string(),
+    ))
+}
+
+/// The lines `ss` prints for the sockets listening on TCP `port`, with their processes.
+fn listeners(port: u16) -> String {
+    let out = Command::new("ss")
+        .args(["-Hltnp", &format!("sport = :{port}")])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn http_port_argument_reaches_the_front_door_not_the_original() {
+    if !common::have("python3") || !common::have_mojo() || !common::have("ss") {
+        return;
+    }
+    let repo = fixture("python", "port-arg");
+    std::fs::remove_file(repo.join("README.md")).unwrap();
+    std::fs::write(repo.join("port_server.py"), PORT_ARG_SERVER).unwrap();
+    let inputs = repo.join("inputs.jsonl");
+    std::fs::write(
+        &inputs,
+        "{\"name\":\"hello\",\"path\":\"/hello\"}\n{\"name\":\"again\",\"path\":\"/again\"}\n",
+    )
+    .unwrap();
+    app::record(&RecordOptions {
+        repo: &repo,
+        run: &words("python3 port_server.py"),
+        inputs: Some(&inputs),
+        normalize: &[],
+        name: None,
+        traps: false,
+        timeout_secs: None,
+        http: true,
+        server_args: &["--port".to_string(), "{port}".to_string()],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo: &repo,
+        library: false,
+        check: true,
+    })
+    .unwrap();
+    let replayed = door.replay.unwrap();
+    let binary = replayed.build[0].clone();
+
+    // Started by hand with the recorded arguments, the front door owns the public port, on
+    // loopback only, and answers a client while another connection sends nothing.
+    let port = mojo_anything::http::free_port().unwrap();
+    let mut child = start_listening(&binary, &["--port", &port.to_string()], &[], port);
+    let listening = listeners(port);
+    let idle = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let started = std::time::Instant::now();
+    let answer = get(port, "/hello");
+    let waited = started.elapsed();
+    drop(idle);
+    let _ = child.kill();
+    let _ = child.wait();
+    std::fs::remove_dir_all(&repo).unwrap();
+
+    eprintln!("replay: {replayed:?}\nss: {listening}\nanswer: {answer:?} after {waited:?}");
+    assert_eq!(replayed.passed, 2, "{:?}", replayed.failures);
+    assert_eq!(
+        replayed.fallback.as_ref().map(|f| f.cases),
+        Some(2),
+        "every request went through the front door to the original"
+    );
+    assert!(
+        listening.contains(&format!("pid={},", child.id())),
+        "the front door listens on the public port: {listening}"
+    );
+    assert_eq!(listening.lines().count(), 1, "{listening}");
+    assert!(
+        listening.contains(&format!("127.0.0.1:{port} ")),
+        "loopback only: {listening}"
+    );
+    let (status, body) = answer.unwrap();
+    assert!(status.contains(" 200 "), "{status}");
+    assert_eq!(body, "hello\n");
+    assert!(
+        waited < std::time::Duration::from_secs(8),
+        "a silent connection held the next client up for {waited:?}"
+    );
+}
+
+#[test]
+fn http_replay_fails_when_the_front_door_answers_nothing() {
+    if !common::have("python3") {
+        return;
+    }
+    // A build that says it counts fallbacks but leaves every request to another process: the
+    // replay must not report it as a front door that fell back on nothing.
+    let repo = fixture("python", "door-absent");
+    record(&repo, "python3 server.py", false);
+    std::fs::write(
+        repo.join("absent.sh"),
+        ": >> \"$MOJO_ANYTHING_FALLBACK_LOG\"\nunset MOJO_ANYTHING_FALLBACK_LOG\nexec python3 server.py \"$@\"\n",
+    )
+    .unwrap();
+    let absent = replay(&repo, Some("sh absent.sh"));
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert!(absent.total > 0);
+    assert_eq!(absent.passed, 0, "{absent:?}");
+    assert!(
+        absent.failures.iter().all(|f| f
+            .problems
+            .iter()
+            .any(|p| p.detail.contains("the front door did not answer"))),
+        "{:?}",
+        absent.failures
+    );
 }

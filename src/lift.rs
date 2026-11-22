@@ -307,11 +307,19 @@ fn unformatted(scratch: &Path, env_dir: &Path, files: &[(String, String)]) -> Re
     Ok(differ)
 }
 
+/// The arguments every start of a recorded server gets (`--port {port}`); none for a CLI.
+fn server_args(repo: &Path) -> Result<Vec<String>> {
+    Ok(app::Config::load(repo)?
+        .and_then(|c| c.http)
+        .map(|h| h.args)
+        .unwrap_or_default())
+}
+
 /// Whether `main.mojo` is still the one `app front-door` wrote (as `mojo format` left it).
 fn generated_main_mojo(repo: &Path, app_dir: &Path, state: &State) -> Result<bool> {
     let main = std::fs::read_to_string(app_dir.join("main.mojo"))?;
     let generated = if state.kind == AppKind::Http {
-        http_door::main_mojo_http(state)
+        http_door::main_mojo_http(state, &server_args(repo)?)
     } else {
         let (_, flags) = front_door::infer_cli(&app::recorded_args(repo)?);
         crate::front_door_mojo::main_mojo(state, &flags)
@@ -517,7 +525,7 @@ fn lift_binary(repo: &Path, mut state: State) -> Result<LiftOutcome> {
         std::fs::write(
             stage_app.join("main.mojo"),
             if server {
-                http_door::lifted_main_mojo_http(&state)
+                http_door::lifted_main_mojo_http(&state, &server_args(repo)?)
             } else {
                 crate::front_door_mojo::lifted_main_mojo(&state)
             },
@@ -908,7 +916,7 @@ fn lift_library(repo: &Path, mut state: State) -> Result<LiftOutcome> {
 
 /// Whether Mojo source calls into the original's module (`original.run(...)`); prose that
 /// ends a sentence with "original." does not count.
-fn calls_original(text: &str) -> bool {
+pub(crate) fn calls_original(text: &str) -> bool {
     Regex::new(r"(?:^|[^A-Za-z0-9_])original\.[A-Za-z_]")
         .expect("valid regex")
         .is_match(text)

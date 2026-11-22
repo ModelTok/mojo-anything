@@ -663,6 +663,7 @@ case "$1" in
   echo) cat ;;
   exit) echo "leaving with $2"; echo "to stderr" >&2; exit "$2" ;;
   term) echo "about to stop"; kill -TERM $$ ;;
+  sleep) echo $$ > "$2"; exec sleep 30 ;;
 esac
 "#;
 
@@ -796,7 +797,93 @@ fn fallback_keeps_exit_status() {
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(term.status.signal(), Some(15), "{:?}", term.status);
     }
+
+    // A parent that ignores SIGCHLD makes waitpid fail: the front door says so and exits
+    // non-zero instead of reporting success.
+    let ignored = Command::new("python3")
+        .args([
+            "-c",
+            "import os, signal, sys\nsignal.signal(signal.SIGCHLD, signal.SIG_IGN)\nos.execv(sys.argv[1], sys.argv[1:])",
+            exe,
+            "exit",
+            "3",
+        ])
+        .output()
+        .unwrap();
     std::fs::remove_dir_all(&repo).unwrap();
+    let stderr = String::from_utf8_lossy(&ignored.stderr);
+    assert_ne!(ignored.status.code(), Some(0), "{ignored:?}");
+    assert!(stderr.contains("cannot wait for the original"), "{stderr}");
+}
+
+/// Whether process `pid` is gone (or a zombie nobody has reaped yet).
+#[cfg(target_os = "linux")]
+fn gone(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
+        stat.rsplit(')')
+            .next()
+            .is_some_and(|s| s.trim_start().starts_with('Z'))
+    })
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn killing_the_front_door_stops_the_original() {
+    if !mojo() {
+        return;
+    }
+    let repo = bytes_tool_repo();
+    let replay = front_door_falls_back(&repo);
+    let exe = &replay.build[0];
+    let mut seen = Vec::new();
+    for signal in ["-TERM", "-KILL"] {
+        let pid_file = repo.join(format!("original{signal}.pid"));
+        let mut door = Command::new(exe)
+            .args(["sleep", &pid_file.to_string_lossy()])
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let original: u32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|t| t.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the original never started"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        sh(&repo, "kill", &[signal, &door.id().to_string()]);
+        let status = door.wait().unwrap();
+        let stopped = std::time::Instant::now();
+        while !gone(original) && stopped.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let left = !gone(original);
+        if left {
+            let _ = Command::new("kill")
+                .args(["-KILL", &original.to_string()])
+                .status();
+        }
+        seen.push((signal, status, left, stopped.elapsed()));
+    }
+    std::fs::remove_dir_all(&repo).unwrap();
+    use std::os::unix::process::ExitStatusExt;
+    for (signal, status, left, after) in &seen {
+        assert!(
+            !left,
+            "{signal}: the original outlived the front door: {seen:?}"
+        );
+        assert!(
+            *after < std::time::Duration::from_secs(1),
+            "{signal}: the original took {after:?} to stop"
+        );
+        let expected = if *signal == "-TERM" { 15 } else { 9 };
+        assert_eq!(status.signal(), Some(expected), "{signal}: {status:?}");
+    }
 }
 
 #[test]

@@ -119,7 +119,9 @@ mojo-anything app wire . textops-mojo                     # 100% again, lower fa
 - `app front-door` scaffolds `mojo/app`, a pixi project with a Mojo binary named after the app:
   `main.mojo` picks the command from argv, `original.mojo` runs the original with the same argv,
   stdin and environment (through `fork`, `execvp` and `waitpid`, so stdin and stdout bytes pass
-  through untouched and the exit code, or the signal that killed it, comes back the same), and
+  through untouched and the exit code, or the signal that killed it, comes back the same; on
+  Linux SIGTERM, SIGINT and SIGHUP sent to the front door are passed on to the original, which
+  also gets SIGTERM if the front door is killed any other way), and
   `units.mojo` routes wired commands. It builds with `mojo build --Werror` into
   `mojo/app/.mojo-anything/build/<binary>`, with the repository built in; at run time
   `MOJO_ANYTHING_REPO` wins, so a front door started from elsewhere, or through a symlinked
@@ -208,8 +210,14 @@ mojo-anything app lift .
   `TCP_NODELAY`, keep-alive and chunked bodies, `original.mojo` starts the original on a free port
   of its own and proxies to it, `units.mojo` routes), built with `mojo build --Werror` into
   `mojo/app/.mojo-anything/build`. It answers one request at a time; an idle keep-alive
-  connection is closed as soon as another client waits. The original gets SIGTERM when the front
-  door ends (Linux). Why sockets and not Python's `http.server`:
+  connection is closed as soon as another client waits, and a connection that sends nothing for
+  5 s is closed. It listens on 127.0.0.1 only (`MOJO_ANYTHING_HOST=0.0.0.0` listens on every
+  address, for an original that did; IPv6 is not served). It takes its port where the recording
+  passed `{port}` (`--arg=--port --arg={port}`), else from `PORT`, else 8080; the original gets
+  the recorded arguments with its own private port, never the front door's arguments. A replay
+  fails any request the front door did not read itself, so a fallback rate is always the front
+  door's. The original gets SIGTERM when the front door ends (Linux). Why sockets and not
+  Python's `http.server`:
   [the route decision](superpowers/specs/2026-11-21-mojo-server-route.md).
 - `wire --route` takes a Mojo unit (`mojo/<name>` with `port.mojo`) and routes `METHOD
   /path/{param}`, `/files/{*rest}`, `/path` for any method, `*` for everything else. Each route
