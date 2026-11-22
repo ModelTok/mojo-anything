@@ -221,10 +221,7 @@ pub struct GateOutcome {
 
 pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     let manifest = Manifest::load(crate_dir)?;
-    let mojo = matches!(
-        manifest.kind,
-        crate::bridge::Kind::MojoPy | crate::bridge::Kind::CAbi
-    );
+    let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
     let mut checks = if mojo {
         let mut checks = mojo_checks(crate_dir);
         if manifest.kind == crate::bridge::Kind::CAbi {

@@ -135,14 +135,11 @@ fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
         std::fs::write(dir.join("go.sum"), sum)?;
     }
     std::fs::write(dir.join("main.go"), crate::codegen_go::driver(m, &import))?;
-    if rust {
-        let stale = crate_dir
-            .join("target/release")
-            .join(format!("lib{}.a", m.lib_name()));
-        if stale.is_file() {
-            std::fs::remove_file(&stale)
-                .with_context(|| format!("removing {}", stale.display()))?;
-        }
+    if rust && !crate::harness_mojo_c::library_path(crate_dir, m, false).is_file() {
+        bail!(
+            "no built library in {} (run `mojo-anything build` first)",
+            crate_dir.join(crate::harness_mojo_c::BUILD_DIR).display()
+        );
     }
     let bin = dir.join("driver");
     let mut command = go();
@@ -157,7 +154,7 @@ fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
     run(
         &mut command,
         if rust {
-            "go build (driver over the Rust wrapper)"
+            "go build (driver over the Mojo wrapper)"
         } else {
             "go build (driver over the original package)"
         },
@@ -165,20 +162,20 @@ fn build_driver(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<PathBuf> {
     Ok(bin)
 }
 
-/// The driver built over the Rust wrapper loads the port's shared library. Windows finds a DLL
-/// through `PATH`, not a path recorded in the binary, so its folder goes first there.
-fn driver_command(crate_dir: &Path, bin: &Path) -> Command {
-    let mut cmd = Command::new(bin);
-    if cfg!(windows) {
-        let mut dirs = vec![crate_dir.join("target").join("release")];
-        dirs.extend(std::env::split_paths(
-            &std::env::var_os("PATH").unwrap_or_default(),
-        ));
-        if let Ok(path) = std::env::join_paths(dirs) {
-            cmd.env("PATH", path);
-        }
-    }
-    cmd
+/// Builds the unit's Mojo library from `exports.mojo` into `.mojo-anything/build`, where the
+/// wrapper's cgo flags look for it.
+pub fn build(crate_dir: &Path, m: &Manifest) -> Result<PathBuf> {
+    let unit_dir = std::path::absolute(crate_dir)?;
+    std::fs::create_dir_all(unit_dir.join(crate::harness_mojo_c::BUILD_DIR))?;
+    let lib = crate::harness_mojo_c::library_path(&unit_dir, m, false);
+    crate::harness_mojo_c::build_one(&unit_dir, crate::codegen_go::EXPORTS, &lib)?;
+    Ok(lib)
+}
+
+/// The driver built over the Mojo wrapper loads the port's shared library through the rpath
+/// its cgo flags record (Mojo builds only on Linux and macOS).
+fn driver_command(_crate_dir: &Path, bin: &Path) -> Command {
+    Command::new(bin)
 }
 
 pub fn record(crate_dir: &Path, m: &Manifest, cases: &[Value]) -> Result<PathBuf> {

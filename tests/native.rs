@@ -123,6 +123,10 @@ fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
     if !common::have(program) {
         return;
     }
+    // Go units are Mojo ports.
+    if program == "go" && !common::have_mojo() {
+        return;
+    }
     let dir = std::env::temp_dir().join(format!(
         "mojo-anything-stubs-{}-{}",
         root.file_name().unwrap().to_string_lossy(),

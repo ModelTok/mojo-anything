@@ -910,6 +910,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let base = std::env::temp_dir().join(format!("mojo-anything-strip-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
+    // Go units are Mojo ports: lifting them comes with the Mojo front door.
     let units = [
         ("mini", "packages/a/src/util.ts", "ts"),
         ("go", "strkit/", "go"),
@@ -917,6 +918,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         ("java", "src/main/java/com/example/text/", "java"),
     ];
     for (fixture, unit, lang) in units {
+        let mojo = lang == "go";
         let dir = base.join(lang);
         mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
             root: &fixtures.join(fixture),
@@ -939,6 +941,11 @@ fn lift_strips_bridge_bindings_in_every_language() {
                 format!("{port}\n#[allow(unused_imports)]\nuse crate::utf16;\n"),
             )
             .unwrap();
+        }
+        if mojo {
+            let err = lift::strip_unit(&dir).unwrap_err().to_string();
+            assert!(err.contains("Mojo front door"), "{lang}: {err}");
+            continue;
         }
         let removed = lift::strip_unit(&dir).unwrap();
         assert!(!removed.is_empty(), "{lang}");

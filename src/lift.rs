@@ -284,6 +284,14 @@ fn stripped_lib_rs(keep: &[String]) -> String {
 }
 
 pub fn strip_unit(dir: &Path) -> Result<Vec<PathBuf>> {
+    if let Ok(m) = crate::bridge::Manifest::load(dir)
+        && crate::bridge::mojo_unit(m.kind, m.language)
+    {
+        anyhow::bail!(
+            "{} is a Mojo port: lifting Mojo units comes with the Mojo front door",
+            dir.display()
+        );
+    }
     let cargo = dir.join("Cargo.toml");
     let mut doc: DocumentMut = std::fs::read_to_string(&cargo)
         .with_context(|| format!("reading {}", cargo.display()))?

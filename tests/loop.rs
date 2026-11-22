@@ -908,9 +908,13 @@ fn go_packages_bridge_record_and_diff() {
     let manifest = Manifest::load(&dir).unwrap();
     let kept: Vec<&str> = manifest.js_only.iter().map(|j| j.name.as_str()).collect();
     assert_eq!(kept, ["Join"]);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
     assert!(
-        port.contains("pub fn parse_port(s: String) -> Result<i64, String>"),
+        port.contains("def parse_port(s: String) raises -> Int:"),
+        "{port}"
+    );
+    assert!(
+        port.contains("def midpoint(a: JsonValue, b: JsonValue) raises -> JsonValue:"),
         "{port}"
     );
     let wrapper = std::fs::read_to_string(dir.join("go/strkit.go")).unwrap();
@@ -919,27 +923,14 @@ fn go_packages_bridge_record_and_diff() {
         "{wrapper}"
     );
     assert!(wrapper.contains("type Point struct"), "{wrapper}");
-    // Batches: a map result cannot be batched; the others get a handle type in the package.
-    assert!(bridge::add_batches(&dir, &["WordFreq:text".into()]).is_err());
-    bridge::add_batches(&dir, &["Slugify:s".into(), "ParsePort:s".into()]).unwrap();
-    let wrapper = std::fs::read_to_string(dir.join("go/strkit.go")).unwrap();
-    assert!(
-        wrapper.contains("func NewSlugifyBatch(items []string) *SlugifyBatch {"),
-        "{wrapper}"
-    );
-    assert!(
-        wrapper.contains("func (b *SlugifyBatch) Run(max int) []string {"),
-        "{wrapper}"
-    );
-    assert!(
-        wrapper.contains("func (b *ParsePortBatch) Rank(min float64) ([]int, error) {"),
-        "{wrapper}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("static GLOBAL: mimalloc::MiMalloc"), "{lib}");
-    let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-    assert!(!cargo.contains("staticlib"), "{cargo}");
-    if !common::have("go") {
+    assert!(!dir.join("Cargo.toml").exists());
+    // Batches for Go come after correctness, and a refused batch leaves the unit as it was.
+    let err = bridge::add_batches(&dir, &["Slugify:s".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("not yet"), "{err}");
+    assert!(Manifest::load(&dir).unwrap().batches.is_empty());
+    if !common::have("go") || !common::have_mojo() {
         return;
     }
     let recorded = harness::record(&RecordOptions {

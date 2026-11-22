@@ -33,7 +33,8 @@ pub fn library_path(unit_dir: &Path, manifest: &Manifest, shadow: bool) -> PathB
         .join(library_name(manifest, shadow))
 }
 
-fn build_one(unit_dir: &Path, source: &str, target: &Path) -> Result<()> {
+/// Builds `source` in `unit_dir` into the shared library `target` (warnings are errors).
+pub fn build_one(unit_dir: &Path, source: &str, target: &Path) -> Result<()> {
     let mut cmd = crate::mojo::command(unit_dir)?;
     cmd.current_dir(unit_dir)
         .args(["build", "--Werror", source])
