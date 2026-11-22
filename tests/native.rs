@@ -26,11 +26,11 @@ fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
 /// A freshly bridged crate is all `unimplemented!` stubs: replaying it must pass no case, even
 /// where the original throws the same kind of error a panic turns into.
 fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
-    if !common::have(program) {
+    if !common::have(program) || (program == "java" && !common::have_java()) {
         return;
     }
-    // Go, Ruby and TS/JS units are Mojo ports.
-    if matches!(program, "go" | "ruby" | "node") && !common::have_mojo() {
+    // Go, Ruby, Java and TS/JS units are Mojo ports.
+    if matches!(program, "go" | "ruby" | "node" | "java") && !common::have_mojo() {
         return;
     }
     let dir = std::env::temp_dir().join(format!(
@@ -166,7 +166,7 @@ fn unported_stubs_never_match_a_go_panic() {
 
 #[test]
 fn java_records_with_the_bridge_crate_inside_the_project() {
-    if !common::have("javac") {
+    if !common::have_java() {
         return;
     }
     let root = project(
@@ -195,7 +195,10 @@ fn java_records_with_the_bridge_crate_inside_the_project() {
         as_json: Vec::new(),
     })
     .unwrap();
-    assert!(outcome.crate_dir.ends_with("rust/smoke-rs"), "{outcome:?}");
+    assert!(
+        outcome.crate_dir.ends_with("mojo/smoke-mojo"),
+        "{outcome:?}"
+    );
     let recorded = harness::record(&RecordOptions {
         crate_dir: &outcome.crate_dir,
         count: 10,

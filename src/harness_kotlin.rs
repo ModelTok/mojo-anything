@@ -2,12 +2,12 @@
 //!
 //! Mirrors the Java harness, but compiles the original Kotlin sources with `kotlinc` into a
 //! fat jar (`-include-runtime`, so the Kotlin stdlib is on the runtime classpath) and then
-//! compiles the generated Java reflection driver and wrappers against that jar. Kotlin
-//! static methods are callable from Java, so the same `mojoanything.MojoAnythingDriver`
-//! is used for record, diff and bench.
+//! compiles the generated Java reflection driver against that jar. Kotlin static methods are
+//! callable from Java, so the same `mojoanything.MojoAnythingDriver` is used for record, diff
+//! and bench; against the port it is compiled with the generated Java wrappers, which need no
+//! Kotlin at all.
 
 use crate::walk::Canonical;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use crate::bridge::Manifest;
 use crate::harness::{BenchRow, CASES, DiffOutcome};
+use crate::harness_mojo_jvm::Against;
 
 const WORK_DIR: &str = ".mojo-anything";
 
@@ -44,53 +45,19 @@ fn run(cmd: &mut Command, what: &str) -> Result<()> {
 }
 
 fn java_files(dir: &Path) -> Vec<PathBuf> {
-    files_with_ext(dir, "java")
-}
-
-fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     crate::walk::builder(dir)
         .require_git(false)
         .build()
         .flatten()
         .map(|e| e.into_path())
-        .filter(|p| p.extension().is_some_and(|e| e == ext))
+        .filter(|p| p.extension().is_some_and(|e| e == "java"))
         .collect()
 }
 
-/// Classpath for a generated driver run: generated classes, plus the original Kotlin
-/// fat jar when recording (the Rust side needs no Kotlin sources).
-struct Classpath {
-    classes: PathBuf,
-    original_jar: Option<PathBuf>,
-}
-
-impl Classpath {
-    fn value(&self) -> Result<OsString> {
-        let mut parts = vec![self.classes.as_path()];
-        if let Some(jar) = &self.original_jar {
-            parts.push(jar.as_path());
-        }
-        std::env::join_paths(parts).context("building Java classpath")
-    }
-}
-
-fn needs_android_sdk(path: &Path) -> bool {
-    path.components()
-        .any(|c| c.as_os_str() == std::ffi::OsStr::new("androidTest"))
-        || std::fs::read_to_string(path).is_ok_and(|text| {
-            text.lines().any(|line| {
-                let line = line.trim_start();
-                line.starts_with("import android.")
-                    || line.starts_with("import androidx.")
-                    || line.starts_with("import com.google.android.")
-            })
-        })
-}
-
-/// Compiles the support driver and either the original Kotlin sources (`rust: false`) or
-/// the generated Java JNI wrappers (`rust: true`).
-fn compile(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<Classpath> {
-    let work = crate_dir.canonical()?.join(WORK_DIR);
+/// Compiles the support driver with the original Kotlin sources (a fat jar) or with the unit's
+/// generated Java wrappers, and returns the classpath: the compiled classes, then the jar.
+pub(crate) fn classpath(unit_dir: &Path, m: &Manifest, against: Against) -> Result<Vec<PathBuf>> {
+    let work = unit_dir.canonical()?.join(WORK_DIR);
     let support = work.join("kotlin-support/mojo-anything");
     std::fs::create_dir_all(&support)?;
     std::fs::write(
@@ -102,114 +69,72 @@ fn compile(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<Classpath> {
         crate::codegen_kotlin::DRIVER_JAVA,
     )?;
 
-    let classes = work.join(if rust {
-        "kotlin-rust"
-    } else {
-        "kotlin-original"
+    let classes = work.join(match against {
+        Against::Port => "kotlin-port",
+        Against::Original => "kotlin-original",
     });
     if classes.exists() {
         std::fs::remove_dir_all(&classes)?;
     }
     std::fs::create_dir_all(&classes)?;
 
-    let mut original_jar = None;
-    let mut cp = Vec::new();
-    if !rust {
-        let jar = work.join("kotlin-original.jar");
-        let ws = crate::lang::kotlin::discover(&m.root)?;
-        let all: Vec<PathBuf> = ws
-            .files
-            .iter()
-            .filter(|f| f.kind == crate::ts::discover::FileKind::Source)
-            .map(|f| m.root.join(&f.path))
-            .collect();
-        // Compile the unit being ported plus its local dependencies: an `app/Api.kt` may
-        // import `util/Helpers.kt` outside the unit. Keep Android-only sources (Activities,
-        // Compose, androidx imports) out, since they need an SDK classpath the host lacks.
-        let unit = m.root.join(&m.unit);
-        let sources: Vec<PathBuf> = all
-            .iter()
-            .filter(|p| p.starts_with(&unit) || !needs_android_sdk(p))
-            .cloned()
-            .collect();
-        let sources = if sources.is_empty() { all } else { sources };
-        let mut cmd = Command::new("kotlinc");
-        cmd.arg("-include-runtime")
-            .arg("-d")
-            .arg(&jar)
-            .args(&sources);
-        run(&mut cmd, "kotlinc (original sources)")?;
-        original_jar = Some(jar.clone());
-        cp.push(jar);
-    }
-
+    let mut jar = None;
     let mut sources = java_files(&work.join("kotlin-support"));
-    if rust {
-        sources.extend(
-            java_files(&crate_dir.join("java"))
+    match against {
+        Against::Original => {
+            // The whole source tree: the unit may call other files of the module.
+            let out = work.join("kotlin-original.jar");
+            let ws = crate::lang::kotlin::discover(&m.root)?;
+            let all: Vec<PathBuf> = ws
+                .files
+                .iter()
+                .filter(|f| f.kind == crate::ts::discover::FileKind::Source)
+                .map(|f| m.root.join(&f.path))
+                .collect();
+            let mut cmd = Command::new("kotlinc");
+            cmd.arg("-include-runtime").arg("-d").arg(&out).args(&all);
+            run(&mut cmd, "kotlinc (original sources)")?;
+            jar = Some(out);
+        }
+        Against::Port => sources.extend(
+            java_files(&unit_dir.join("java"))
                 .into_iter()
                 .filter(|p| !p.ends_with("mojoanything/MojoAnythingJson.java")),
-        );
+        ),
     }
     let mut javac = Command::new("javac");
     javac.arg("-encoding").arg("UTF-8").arg("-nowarn");
-    if !cp.is_empty() {
-        javac
-            .arg("-cp")
-            .arg(std::env::join_paths(&cp).context("building Java classpath")?);
+    if let Some(jar) = &jar {
+        javac.arg("-cp").arg(jar);
     }
     javac.arg("-d").arg(&classes).args(&sources);
     run(
         &mut javac,
-        if rust {
-            "javac (driver and wrapper classes)"
-        } else {
-            "javac (driver against original Kotlin classes)"
+        match against {
+            Against::Port => "javac (driver and wrapper classes)",
+            Against::Original => "javac (driver against original Kotlin classes)",
         },
     )?;
-    Ok(Classpath {
-        classes,
-        original_jar,
-    })
-}
-
-/// Java class files for a dexed on-device run: the support driver plus either the original
-/// Kotlin fat jar (`rust: false`) or the generated JNI wrappers (`rust: true`).
-pub(crate) fn android_classes(crate_dir: &Path, m: &Manifest, rust: bool) -> Result<Vec<PathBuf>> {
-    let cp = compile(crate_dir, m, rust)?;
-    let mut files = files_with_ext(&cp.classes, "class");
-    if let Some(jar) = cp.original_jar {
-        files.push(jar);
-    }
-    Ok(files)
+    Ok(std::iter::once(classes).chain(jar).collect())
 }
 
 fn driver_command(
-    crate_dir: &Path,
+    unit_dir: &Path,
     m: &Manifest,
     mode: &str,
     cases: &Path,
     out: &Path,
     min_ms: u64,
-    rust: bool,
+    against: Against,
 ) -> Result<Command> {
-    let cp = compile(crate_dir, m, rust)?;
-    let work = crate_dir.join(WORK_DIR);
+    let cp = classpath(unit_dir, m, against)?;
+    let work = unit_dir.join(WORK_DIR);
     let targets = work.join("targets.json");
     std::fs::write(&targets, crate::codegen_kotlin::targets(m).to_string())?;
     let mut cmd = Command::new("java");
-    cmd.arg("-XX:-UsePerfData");
-    cmd.arg("-Dfile.encoding=UTF-8");
-    if rust {
-        let lib = crate::harness_cargo::built_library(crate_dir, m)?;
-        cmd.arg(format!(
-            "-Dmojo-anything.lib.{}={}",
-            m.lib_name(),
-            lib.canonical()?.display()
-        ));
-    }
-    cmd.arg("-cp")
-        .arg(cp.value()?)
+    cmd.args(crate::harness_java::jvm_args(unit_dir, m, against)?)
+        .arg("-cp")
+        .arg(std::env::join_paths(&cp).context("building Java classpath")?)
         .arg("mojoanything.MojoAnythingDriver")
         .arg(mode)
         .arg(&targets)
@@ -220,60 +145,59 @@ fn driver_command(
 }
 
 fn driver(
-    crate_dir: &Path,
+    unit_dir: &Path,
     m: &Manifest,
     mode: &str,
     cases: &Path,
     out: &Path,
     min_ms: u64,
-    rust: bool,
+    against: Against,
 ) -> Result<()> {
-    let mut cmd = driver_command(crate_dir, m, mode, cases, out, min_ms, rust)?;
+    let mut cmd = driver_command(unit_dir, m, mode, cases, out, min_ms, against)?;
     run(&mut cmd, &format!("java driver ({mode})"))
 }
 
-pub fn record(crate_dir: &Path, m: &Manifest, cases: &[Value]) -> Result<PathBuf> {
-    std::fs::create_dir_all(crate_dir.join(WORK_DIR))?;
-    let out = crate_dir.join(CASES);
+pub fn record(unit_dir: &Path, m: &Manifest, cases: &[Value]) -> Result<PathBuf> {
+    std::fs::create_dir_all(unit_dir.join(WORK_DIR))?;
+    let out = unit_dir.join(CASES);
     crate::harness::record_cases(
         cases,
-        &crate_dir.join(WORK_DIR),
+        &unit_dir.join(WORK_DIR),
         &out,
         "java driver (record)",
-        |inputs, part| driver_command(crate_dir, m, "record", inputs, part, 0, false),
+        |inputs, part| driver_command(unit_dir, m, "record", inputs, part, 0, Against::Original),
     )?;
     Ok(out)
 }
 
-pub fn diff(crate_dir: &Path, m: &Manifest) -> Result<DiffOutcome> {
-    let cases = crate_dir.join(CASES);
+pub fn diff(unit_dir: &Path, m: &Manifest) -> Result<DiffOutcome> {
+    let cases = unit_dir.join(CASES);
     if !cases.exists() {
         bail!(
             "no {CASES} in {} (run `mojo-anything record` first)",
-            crate_dir.display()
+            unit_dir.display()
         );
     }
-    let out = crate_dir.join(WORK_DIR).join("diff.json");
-    driver(crate_dir, m, "diff", &cases, &out, 0, true)?;
+    let out = unit_dir.join(WORK_DIR).join("diff.json");
+    driver(unit_dir, m, "diff", &cases, &out, 0, Against::Port)?;
     Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
 }
 
-pub fn bench(crate_dir: &Path, m: &Manifest, min_ms: u64) -> Result<Vec<BenchRow>> {
-    let cases = crate_dir.join(CASES);
+pub fn bench(unit_dir: &Path, m: &Manifest, min_ms: u64) -> Result<Vec<BenchRow>> {
+    let cases = unit_dir.join(CASES);
     if !cases.exists() {
         bail!(
             "no {CASES} in {} (run `mojo-anything record` first)",
-            crate_dir.display()
+            unit_dir.display()
         );
     }
     let mut timings = Vec::new();
-    for rust in [false, true] {
-        let out = crate_dir.join(WORK_DIR).join(if rust {
-            "bench-rust.json"
-        } else {
-            "bench-original.json"
+    for against in [Against::Original, Against::Port] {
+        let out = unit_dir.join(WORK_DIR).join(match against {
+            Against::Port => "bench-port.json",
+            Against::Original => "bench-original.json",
         });
-        driver(crate_dir, m, "bench", &cases, &out, min_ms, rust)?;
+        driver(unit_dir, m, "bench", &cases, &out, min_ms, against)?;
         timings.push(serde_json::from_str(&std::fs::read_to_string(&out)?)?);
     }
     Ok(crate::harness::bench_rows(m, &timings[0], &timings[1]))

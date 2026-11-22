@@ -3,9 +3,9 @@
 //!
 //! Kotlin has no `static` keyword, but it has two ways to produce a JVM static method:
 //! a top-level function (compiled into `<File>Kt`) and `@JvmStatic` in an `object` or a
-//! `companion object`. Both are exported here with a Java-shaped `prototype`, so the
-//! existing Java JNI codegen, batch codegen, reflection driver and shadow generation can
-//! be reused without changes. A Java wrapper can call a Kotlin static method directly.
+//! `companion object`. Both are exported here with a Java-shaped `prototype`, so the Java
+//! wrappers over the Mojo port, the reflection driver and shadow generation are reused without
+//! changes. A Java wrapper can call a Kotlin static method directly.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,6 +14,7 @@ use anyhow::Result;
 use tree_sitter::Node;
 
 use super::syntax::{self, named_children, text};
+use crate::jvm::Holder;
 use crate::risks::{Risk, regex_needs_fancy};
 use crate::ts::deps::CrateMatch;
 use crate::ts::discover::{FileKind, Package, SourceFile, Workspace};
@@ -538,6 +539,7 @@ fn collect(
     owner: &str,
     path: &str,
     default_static: bool,
+    holder: Option<Holder>,
     out: &mut Vec<ExportedFn>,
 ) {
     let children = named_children(container);
@@ -593,7 +595,7 @@ fn collect(
             blocker = Some("suspend functions keep their continuation in Kotlin".into());
         }
         if mods.split_whitespace().any(|w| w == "inline") {
-            blocker.get_or_insert_with(|| "inline functions are not callable over JNI".into());
+            blocker.get_or_insert_with(|| "inline functions are copied into their callers".into());
         }
         if mods.contains("JvmName") {
             blocker.get_or_insert_with(|| "renames the JVM method with `@JvmName`".into());
@@ -690,9 +692,23 @@ fn collect(
                 signature.join(", ")
             )),
             blocker,
+            jvm_holder: holder.clone(),
             ..Default::default()
         });
     }
+}
+
+/// A companion object's name: `Companion` unless it is named (`companion object Factory`).
+fn companion_name(companion: Node<'_>, source: &str) -> String {
+    named_children(companion)
+        .into_iter()
+        .find(|n| {
+            matches!(
+                n.kind(),
+                "identifier" | "type_identifier" | "simple_identifier"
+            )
+        })
+        .map_or_else(|| "Companion".to_string(), |n| text(n, source).to_string())
 }
 
 /// `@file:JvmName("Utils")`, which renames the class a file's top-level functions live on.
@@ -718,8 +734,8 @@ fn is_java_identifier(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-/// JVM-visible functions of a Kotlin file, with Java-shaped prototypes so the Java JNI
-/// codegen can be reused unchanged.
+/// JVM-visible functions of a Kotlin file, with Java-shaped prototypes so the Java codegen
+/// can be reused unchanged.
 pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
     if !path.ends_with(".kt") {
         return Vec::new();
@@ -753,7 +769,15 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
         match child.kind() {
             "function_declaration" => {
                 // Top-level function: JVM owner is `<File>Kt`, or `@file:JvmName`.
-                collect(child, source, &owner(&top_class), path, true, &mut out);
+                collect(
+                    child,
+                    source,
+                    &owner(&top_class),
+                    path,
+                    true,
+                    None,
+                    &mut out,
+                );
             }
             "object_declaration" => {
                 let Some(name) = child.child_by_field_name("name") else {
@@ -765,6 +789,7 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                     &owner(text(name, source)),
                     path,
                     false,
+                    Some(Holder::Object),
                     &mut out,
                 );
             }
@@ -786,11 +811,21 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
                                         &owner(text(nested, source)),
                                         path,
                                         false,
+                                        Some(Holder::Object),
                                         &mut out,
                                     );
                                 }
                             } else if decl.kind() == "companion_object" {
-                                collect(decl, source, &class_owner, path, false, &mut out);
+                                let holder = Holder::Companion(companion_name(decl, source));
+                                collect(
+                                    decl,
+                                    source,
+                                    &class_owner,
+                                    path,
+                                    false,
+                                    Some(holder),
+                                    &mut out,
+                                );
                             }
                         }
                     }
@@ -906,6 +941,31 @@ mod tests {
         let fns = exports("src/main/kotlin/com/example/Math.kt", src);
         assert_eq!(fns.len(), 1, "{fns:?}");
         assert_eq!(receiver(&fns[0]).0, "com.example.Math");
+        assert_eq!(
+            fns[0].jvm_holder,
+            Some(Holder::Companion("Companion".into()))
+        );
+    }
+
+    #[test]
+    fn exports_keep_the_object_kotlin_callers_go_through() {
+        let src = "package com.example
+
+class Units {
+  companion object Factory {
+                       @JvmStatic fun make(s: String): String = s
+  }
+}
+                   object Nums {
+  @JvmStatic fun gcd(a: Long, b: Long): Long = a
+}
+                   fun top(s: String): String = s
+";
+        let fns = exports("src/main/kotlin/com/example/Units.kt", src);
+        let holder = |n: &str| fns.iter().find(|f| f.name == n).unwrap().jvm_holder.clone();
+        assert_eq!(holder("make"), Some(Holder::Companion("Factory".into())));
+        assert_eq!(holder("gcd"), Some(Holder::Object));
+        assert_eq!(holder("top"), None);
     }
 
     #[test]

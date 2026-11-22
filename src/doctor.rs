@@ -187,19 +187,11 @@ pub fn run() -> Report {
         .unwrap_or_else(|_| PathBuf::from(NAME));
     let mut checks: Vec<Check> = std::thread::scope(|s| {
         let probes: Vec<_> = RUNTIMES.iter().map(|r| s.spawn(|| runtime(r))).collect();
-        let ndk = s.spawn(android_ndk);
-        let android_targets = s.spawn(android_targets);
         let mcp = s.spawn(|| mcp_self_test(&exe));
         let mut checks: Vec<Check> = probes
             .into_iter()
             .map(|p| p.join().expect("a runtime probe panicked"))
             .collect();
-        checks.push(ndk.join().expect("the NDK probe panicked"));
-        checks.push(
-            android_targets
-                .join()
-                .expect("the Android targets probe panicked"),
-        );
         checks.push(mcp.join().expect("the MCP self-test panicked"));
         checks
     });
@@ -314,26 +306,26 @@ const RUNTIMES: &[Runtime] = &[
         name: "java",
         program: "java",
         args: &["-version"],
-        minimum: Some(Version(17, 0, 0)),
+        minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
         required: false,
         java: true,
         fix: [
-            "brew install openjdk@21",
-            "winget install EclipseAdoptium.Temurin.21.JDK",
-            "sudo apt install openjdk-21-jdk",
+            "brew install openjdk",
+            "winget install EclipseAdoptium.Temurin.25.JDK",
+            "sudo apt install openjdk-25-jdk",
         ],
     },
     Runtime {
         name: "javac",
         program: "javac",
         args: &["-version"],
-        minimum: Some(Version(17, 0, 0)),
+        minimum: Some(Version(crate::jvm::MIN_JAVA, 0, 0)),
         required: false,
         java: true,
         fix: [
-            "brew install openjdk@21",
-            "winget install EclipseAdoptium.Temurin.21.JDK",
-            "sudo apt install openjdk-21-jdk",
+            "brew install openjdk",
+            "winget install EclipseAdoptium.Temurin.25.JDK",
+            "sudo apt install openjdk-25-jdk",
         ],
     },
     Runtime {
@@ -455,9 +447,14 @@ fn runtime(r: &Runtime) -> Check {
     let status = grade(banner.is_some(), version, r.minimum);
     let mut detail = match (&banner, r.minimum) {
         (None, _) => format!("`{}` not found or did not run", r.program),
+        (Some(b), Some(min)) if status == Status::Outdated && r.java => format!(
+            "{b}; Java and Kotlin units need Java {}+ (the Foreign Function & Memory API)",
+            min.0
+        ),
         (Some(b), Some(min)) if status == Status::Outdated => {
             format!("{b}; mojo-anything needs {}.{}+", min.0, min.1)
         }
+        (Some(b), Some(min)) if r.java => format!("{b} (Java and Kotlin units need {}+)", min.0),
         (Some(b), _) => b.clone(),
     };
     if r.name == "node" && status == Status::Ok && version.is_some_and(|v| v.0 < 24) {
@@ -476,73 +473,6 @@ fn runtime(r: &Runtime) -> Check {
         required: r.required,
         detail,
         fix: runtime_fix(r, status, Platform::HERE),
-    }
-}
-
-/// The Android NDK `build --profile android` links with.
-fn android_ndk() -> Check {
-    let (status, detail) = match crate::android::ndk_root(None) {
-        Ok(path) => (Status::Ok, path.display().to_string()),
-        Err(e) => (Status::Missing, format!("{e:#}")),
-    };
-    Check {
-        name: "Android NDK".into(),
-        status,
-        required: false,
-        detail,
-        fix: (status != Status::Ok).then(|| {
-            "sdkmanager \"ndk;28.0.13004108\"  (or set ANDROID_NDK_HOME to an installed NDK)"
-                .to_string()
-        }),
-    }
-}
-
-/// The Rust targets `build --profile android` needs.
-fn android_targets() -> Check {
-    let wanted: Vec<&str> = crate::android::DEFAULT_ABIS
-        .iter()
-        .map(|a| a.triple())
-        .collect();
-    let installed = crate::process::output(
-        Command::new("rustup").args(["target", "list", "--installed"]),
-        crate::process::QUICK,
-    )
-    .ok()
-    .filter(|o| o.success())
-    .map(|o| o.stdout_text());
-    let (status, detail, fix) = match installed {
-        None => (
-            Status::Missing,
-            "`rustup` not found or did not run".into(),
-            "install Rust with rustup (https://rustup.rs) to add Android targets".to_string(),
-        ),
-        Some(list) => {
-            let missing: Vec<&str> = wanted
-                .iter()
-                .copied()
-                .filter(|t| !list.lines().any(|l| l.trim() == *t))
-                .collect();
-            if missing.is_empty() {
-                (
-                    Status::Ok,
-                    format!("{} installed", wanted.join(", ")),
-                    String::new(),
-                )
-            } else {
-                (
-                    Status::Missing,
-                    format!("not installed: {}", missing.join(", ")),
-                    format!("rustup target add {}", missing.join(" ")),
-                )
-            }
-        }
-    };
-    Check {
-        name: "Android Rust targets".into(),
-        status,
-        required: false,
-        detail,
-        fix: (status != Status::Ok).then_some(fix),
     }
 }
 
@@ -912,6 +842,16 @@ mod tests {
             parse_java_version("openjdk version \"17.0.2\""),
             Some(Version(17, 0, 2))
         );
+    }
+
+    #[test]
+    fn java_and_javac_need_java_22() {
+        for name in ["java", "javac"] {
+            let r = RUNTIMES.iter().find(|r| r.name == name).unwrap();
+            assert_eq!(r.minimum, Some(Version(22, 0, 0)), "{name}");
+            let banner = Some(Version(21, 0, 2));
+            assert_eq!(grade(true, banner, r.minimum), Status::Outdated, "{name}");
+        }
     }
 
     #[test]

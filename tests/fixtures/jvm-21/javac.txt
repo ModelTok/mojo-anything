@@ -1,0 +1,3 @@
+#!/bin/sh
+# A JDK 21 `javac` for tests/jvm_version.rs: prints the version and nothing else.
+echo 'javac 21.0.2'

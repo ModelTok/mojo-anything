@@ -3,16 +3,11 @@
 //! The steps (`analyze`, `bridge`, `harness`, `shadow`, `gate`) are language-neutral in shape;
 //! each source language is a plugin module. TypeScript/JavaScript (`ts`) is the first.
 
-pub(crate) const MIN_RUST: &str = env!("CARGO_PKG_RUST_VERSION");
-
 pub mod analyze;
-pub mod android;
-pub mod android_device;
 pub mod app;
 pub mod bridge;
 pub mod codegen;
 pub mod codegen_batch;
-pub mod codegen_batch_native;
 pub mod codegen_c;
 pub mod codegen_ffi;
 pub mod codegen_go;
@@ -21,6 +16,7 @@ pub mod codegen_js;
 pub mod codegen_kotlin;
 pub mod codegen_mojo;
 pub mod codegen_mojo_c;
+pub mod codegen_mojo_jvm;
 pub mod codegen_mojo_node;
 pub mod codegen_mojo_py;
 pub mod codegen_py;
@@ -42,6 +38,7 @@ pub mod harness_go;
 pub mod harness_java;
 pub mod harness_kotlin;
 pub mod harness_mojo_c;
+pub mod harness_mojo_jvm;
 pub mod harness_mojo_node;
 pub mod harness_mojo_py;
 pub mod harness_mojo_wasm;
@@ -50,6 +47,7 @@ pub mod harness_ruby;
 pub mod http;
 #[cfg(test)]
 mod js_number;
+pub mod jvm;
 pub mod lang;
 pub mod library;
 pub mod lift;
@@ -70,4 +68,3 @@ pub mod tolerance;
 pub mod ts;
 pub mod walk;
 pub mod whole_app;
-pub mod wire;

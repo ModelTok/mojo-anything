@@ -1,0 +1,4 @@
+#!/bin/sh
+# A JDK 21 `java` for tests/jvm_version.rs: prints the version banner and nothing else.
+echo 'openjdk version "21.0.2" 2024-01-16' >&2
+echo 'OpenJDK Runtime Environment (build 21.0.2+13)' >&2

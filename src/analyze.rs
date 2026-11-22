@@ -53,7 +53,9 @@ pub enum Bridge {
     Cgo,
     /// Ruby through Fiddle over a C ABI.
     Fiddle,
-    Jni,
+    /// Java and Kotlin through the Foreign Function & Memory API (Java 22+) over the JSON
+    /// dispatcher.
+    MojoJvm,
     /// PHP through its FFI extension over a C ABI.
     PhpFfi,
     DotnetFfi,
@@ -69,7 +71,7 @@ impl Bridge {
             Self::CAbi => "C ABI",
             Self::Cgo => "cgo",
             Self::Fiddle => "Fiddle (C ABI)",
-            Self::Jni => "JNI",
+            Self::MojoJvm => "Mojo (Java FFM)",
             Self::PhpFfi => "PHP FFI (C ABI)",
             Self::DotnetFfi => "P/Invoke (C ABI)",
         }
@@ -83,7 +85,7 @@ impl Bridge {
             Lang::C => Self::CAbi,
             Lang::Go => Self::Cgo,
             Lang::Ruby => Self::Fiddle,
-            Lang::Java | Lang::Kotlin => Self::Jni,
+            Lang::Java | Lang::Kotlin => Self::MojoJvm,
             Lang::Php => Self::PhpFfi,
             Lang::Csharp => Self::DotnetFfi,
         }
@@ -1172,6 +1174,20 @@ mod tests {
                 .any(|u| u.bridge.label() == "Mojo (Node-API)"),
             "{:?}",
             report.units.iter().map(|u| u.bridge).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn java_bridges_to_mojo_jvm() {
+        let report = analyze_lang(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java"),
+            Lang::Java,
+        )
+        .unwrap();
+        let labels: Vec<&str> = report.units.iter().map(|u| u.bridge.label()).collect();
+        assert!(
+            !labels.is_empty() && labels.iter().all(|l| *l == "Mojo (Java FFM)"),
+            "{labels:?}"
         );
     }
 

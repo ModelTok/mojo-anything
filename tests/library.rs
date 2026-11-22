@@ -189,6 +189,10 @@ fn shadows_honor_the_unit_kill_switch() {
         ("java", "src/main/java/com/example/text/"),
     ];
     for (name, unit) in units {
+        // Bridging a Java unit needs Java 22 or newer.
+        if name == "java" && !common::have_java() {
+            continue;
+        }
         let repo = fixture(name);
         let dir = bridged(&repo, unit);
         let manifest = Manifest::load(&dir).unwrap();
@@ -398,7 +402,7 @@ fn library_kill_switch_uses_original() {
 }
 
 #[test]
-fn library_takes_mojo_units_and_refuses_rust_crates() {
+fn library_takes_mojo_units_and_refuses_mojo_jvm_units() {
     if !common::have_mojo() {
         return;
     }
@@ -412,25 +416,27 @@ fn library_takes_mojo_units_and_refuses_rust_crates() {
     assert!(init.contains("import port as text"), "{init}");
     std::fs::remove_dir_all(&repo).unwrap();
 
+    // Bridging a Java unit needs Java 22 or newer.
+    if !common::have_java() {
+        return;
+    }
     let repo = fixture("java");
     door(&repo, true);
+    let wire_unit = |unit: &Path| {
+        front_door::wire(&WireOptions {
+            repo: &repo,
+            unit: &unit.to_string_lossy(),
+            commands: &[],
+            routes: &[],
+            skip_gate: true,
+            check: false,
+        })
+        .unwrap_err()
+    };
+    // A Java unit ported to Mojo is refused: front doors do not wire `mojo-jvm` units.
     let unit = bridged(&repo, "src/main/java/com/example/text/");
-    assert!(
-        unit.join("Cargo.toml").is_file(),
-        "Java still bridges to Rust"
-    );
-    let refused = front_door::wire(&WireOptions {
-        repo: &repo,
-        unit: &unit.to_string_lossy(),
-        commands: &[],
-        routes: &[],
-        skip_gate: true,
-        check: false,
-    })
-    .unwrap_err();
-    assert!(
-        format!("{refused:#}").contains("is a Rust crate"),
-        "{refused:#}"
-    );
+    assert!(unit.join("port.mojo").is_file(), "{}", unit.display());
+    let refused = wire_unit(&unit);
+    assert!(format!("{refused:#}").contains("mojo-jvm"), "{refused:#}");
     std::fs::remove_dir_all(&repo).unwrap();
 }

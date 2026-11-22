@@ -1,6 +1,6 @@
-//! The port's API: `port.rs` stubs from the source signatures, and the functions and classes a
-//! `port.rs` declares, which the Java and Kotlin JNI layers are generated from (Mojo ports are
-//! read by `codegen_mojo::parse_port_mojo` into the same [`PortApi`]).
+//! The port's API, [`PortApi`]: the functions and classes a port declares, read from
+//! `port.mojo` by `codegen_mojo::parse_port_mojo`. The Rust-era `port.rs` stubs and parser stay
+//! here until the Rust crate paths are removed; no bridge generates a Rust crate any more.
 //!
 //! The binding layer follows the port, not the source: change a port's types, run
 //! `mojo-anything refresh`, and the bindings follow.

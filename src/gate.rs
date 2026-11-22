@@ -58,6 +58,10 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
         "api" => {
             format!("export the missing functions from src/port.rs, then `mojo-anything build {c}`")
         }
+        "java api" => format!(
+            "mojo-anything refresh {c} writes the wrappers in java/ again with the original \
+             signatures (they are generated: do not edit them by hand)"
+        ),
         "error cases" | "panics" => {
             format!("mojo-anything diff {c} to see the cases where the port's errors differ")
         }
@@ -305,6 +309,9 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
         && let Some(lib) = &library
     {
         checks.push(c_exports_check(lib, &manifest));
+    }
+    if manifest.kind == crate::bridge::Kind::MojoJvm {
+        checks.push(java_api_check(crate_dir, &manifest));
     }
 
     if let Some(why) = crate::recording::stale(crate_dir, &manifest) {
@@ -790,6 +797,49 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
             name: "exports",
             passed: false,
             detail: format!("could not run nm: {e:#}"),
+            fix: None,
+        },
+    }
+}
+
+/// A `mojo-jvm` unit's wrappers against the original classes: a wrapper replaces the whole
+/// class, so every public member of the original (and of its public nested classes) must keep
+/// its declaration and JVM descriptor, or callers compiled against the original break.
+fn java_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
+    match crate::harness_mojo_jvm::api_check(unit_dir, manifest) {
+        Ok(api) if api.different.is_empty() && api.dropped.is_empty() => Check {
+            name: "java api",
+            passed: true,
+            detail: format!(
+                "the wrappers keep every public member of the original classes: {}",
+                api.same.join(", ")
+            ),
+            fix: None,
+        },
+        Ok(api) => Check {
+            name: "java api",
+            passed: false,
+            detail: api
+                .different
+                .iter()
+                .chain(&api.dropped)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n"),
+            // A dropped member is not fixed by `refresh`: the wrapper never had it.
+            fix: (!api.dropped.is_empty()).then(|| {
+                format!(
+                    "the wrappers in {}/java replace the whole class, so callers lose every member \
+                     they do not have: port each dropped member to Mojo (bridged as an export of \
+                     the unit) or move it out of the class into one the unit does not replace",
+                    unit_dir.display()
+                )
+            }),
+        },
+        Err(e) => Check {
+            name: "java api",
+            passed: false,
+            detail: last_lines(&format!("{e:#}"), 15),
             fix: None,
         },
     }

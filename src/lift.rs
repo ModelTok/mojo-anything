@@ -173,13 +173,22 @@ fn sync(from: &Path, to: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// A unit without its bridge (see [`strip_mojo_unit`]); refuses a folder with no `port.mojo`,
-/// which no front door wires (a unit still bridged to Rust: Java and Kotlin until M5).
+/// which no front door wires (a Rust crate from before the move to Mojo), and a `mojo-jvm`
+/// unit, which no front door wires either.
 pub fn strip_unit(dir: &Path) -> Result<Vec<PathBuf>> {
     ensure!(
         dir.join("port.mojo").is_file(),
-        "{} has no port.mojo: lift strips Mojo units only (Java and Kotlin units move to Mojo with M5)",
+        "{} has no port.mojo: lift strips Mojo units only (bridge the unit again for a Mojo port)",
         dir.display()
     );
+    if let Ok(m) = crate::bridge::Manifest::load(dir) {
+        ensure!(
+            m.kind != crate::bridge::Kind::MojoJvm,
+            "{} is a Java or Kotlin unit ported to Mojo (`mojo-jvm`): front doors do not wire \
+             those, so lift does not strip them",
+            dir.display()
+        );
+    }
     strip_mojo_unit(dir)
 }
 

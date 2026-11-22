@@ -88,7 +88,10 @@ Units with structured values use `src/mojo/json.mojo`, a thin layer over EmberJs
 - Integers are exact up to the 64-bit limits. A bare integer beyond them reads as a float (V8 and
   Go write large floats that way); `parse_json(text, refuse_big_ints=True)` raises instead, for
   Ruby, whose such tokens are bignums.
-- A lone surrogate (`"\ud800"`) is refused ("Bad unicode codepoint"). Nesting is limited to
+- A lone surrogate (`"\ud800"`) is refused ("Bad unicode codepoint"). An escaped pair is joined
+  with `|` instead of `+` (`_parser_helper.mojo`), so `"𠈀"` reads as U+10200, not
+  U+20200, on planes 2, 4, ... 16: send such characters unescaped (the Java codec does,
+  `tests/jvm_codegen.rs`, 2026-11-22). Nesting is limited to
   1024 levels. EmberJson writes NaN as `null`, so `write_json` writes `$num` markers for NaN, the
   infinities and -0.0 first.
 - Mojo's `atof` read all 20,003 probe doubles exactly; `String(Float64)` failed to round-trip 7.
@@ -149,7 +152,9 @@ Confirmed by the spikes before M6 Task 3 and by `tests/app.rs` `wire_*`, `wired_
 - stdin as bytes: `open("/dev/stdin", "r").read_bytes()` (a `List[UInt8]`, any bytes).
 - `print(..., file=stderr)` with `from std.sys import stderr`; `exit(code)` flushes what was
   printed.
-- `String.upper()` maps the full Unicode case (`ß` to `SS`); `s.count_codepoints()`,
+- `String.upper()` maps the full Unicode case (`ß` to `SS`), but from tables older than
+  Unicode 16 and with the Greek ypogegrammeni letters (U+1F80-1FFC) going to title case: 90 code
+  points differ from Java 25's `toUpperCase` (`demo/real-world/java-jdk-mojo`, 2026-11-22); `s.count_codepoints()`,
   `s.byte_length()`, `for c in s.codepoint_slices()` (`String(c)` for each); `Int("7")` parses and
   raises on anything else; `//` and `%` on `Int` floor as Python's do; `from std.time import
   perf_counter_ns`.

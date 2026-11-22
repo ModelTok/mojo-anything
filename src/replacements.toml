@@ -1547,5 +1547,5 @@ note = "UI and lifecycle: an application rewrite, not a port."
 prefixes = ["androidx.", "android."]
 replacement = "-"
 fit = "none"
-note = "The Android framework is the platform the port runs under, not a library it replaces."
+note = "The Android framework: Mojo does not target Android, so code that calls it stays in Kotlin."
 

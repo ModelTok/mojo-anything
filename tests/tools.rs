@@ -13,6 +13,9 @@ const CLI: &str = env!("CARGO_BIN_EXE_mojo-anything");
 /// Options only the terminal needs: how output is printed, and `analyze`'s output file.
 fn cli_only(tool: &str, option: &str) -> bool {
     option == "json"
+        // `--profile` takes only `host` since the Android profile went (M5); the tools run
+        // on the host and need no parameter for it.
+        || (matches!(tool, "record" | "build" | "diff") && option == "profile")
         || (tool == "analyze" && option == "out")
         || (tool == "map" && matches!(option, "write" | "check"))
 }

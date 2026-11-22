@@ -1817,11 +1817,12 @@ fn lift_strips_bridge_bindings_in_every_language() {
             }
             continue;
         }
-        // Java is still bridged to Rust (until M5), and no front door wires a Rust unit, so the
-        // lift refuses to strip one and leaves it as it was.
+        // Java bridges to `mojo-jvm`, which no front door wires yet, so the lift refuses to strip
+        // it and leaves it as it was.
         let err = format!("{:#}", lift::strip_unit(&dir).unwrap_err());
-        assert!(err.contains("no port.mojo"), "{lang}: {err}");
-        assert!(dir.join("src/port.rs").is_file());
+        assert!(err.contains("mojo-jvm"), "{lang}: {err}");
+        assert!(dir.join("port.mojo").is_file());
+        assert!(dir.join("dispatcher.mojo").is_file());
     }
     std::fs::remove_dir_all(&base).unwrap();
 }

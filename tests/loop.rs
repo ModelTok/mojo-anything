@@ -925,92 +925,11 @@ fn ruby_modules_bridge_record_and_diff() {
 }
 
 #[test]
-fn java_classes_bridge_record_and_diff() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java");
-    let dir = std::env::temp_dir().join(format!("mojo-anything-java-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let outcome = bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/main/java/com/example/text/",
-        kind: None,
-        out: Some(dir.clone()),
-        name: Some("text-rs".into()),
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-    })
-    .unwrap();
-    assert_eq!(outcome.kind, Kind::Ffi);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    assert!(
-        port.contains("pub fn parse_port(text: String) -> Result<i64, String>"),
-        "{port}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("fn Java_mojoanything_TextRsNative_call"),
-        "{lib}"
-    );
-    let wrapper = std::fs::read_to_string(dir.join("java/com/example/text/Strings.java")).unwrap();
-    assert!(
-        wrapper.contains("public static List<String> words(String text)"),
-        "{wrapper}"
-    );
-    // Batches: a list result cannot be batched; the others get a class beside the original.
-    assert!(bridge::add_batches(&dir, &["words:text".into()]).is_err());
-    bridge::add_batches(&dir, &["slugify:text".into(), "pages:total".into()]).unwrap();
-    let batch =
-        std::fs::read_to_string(dir.join("java/com/example/text/SlugifyBatch.java")).unwrap();
-    assert!(
-        batch.contains("public final class SlugifyBatch implements AutoCloseable"),
-        "{batch}"
-    );
-    assert!(batch.contains("public String[] run(int max)"), "{batch}");
-    let pages = std::fs::read_to_string(dir.join("java/com/example/text/PagesBatch.java")).unwrap();
-    assert!(
-        pages.contains("public int[] rank(int perPage, double min)"),
-        "{pages}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("fn Java_com_example_text_SlugifyBatch_nRun"),
-        "{lib}"
-    );
-    if !common::have("javac") {
+fn kotlin_functions_bridge_record_and_diff() {
+    // Bridging a Kotlin unit needs Java 22 or newer.
+    if !common::have_java() {
         return;
     }
-    let recorded = harness::record(&RecordOptions {
-        crate_dir: &dir,
-        count: 30,
-        inputs: None,
-        module: None,
-        resolve_from: None,
-        node_args: &[],
-    })
-    .unwrap();
-    assert!(recorded.cases > 100, "{recorded:?}");
-    // `parsePort` throws NumberFormatException for text.
-    assert!(recorded.errors > 0);
-    assert!(error_checks(&dir, "the fixture")[1].passed);
-    harness::build(&dir).unwrap();
-    let diff = harness::diff(&DiffOptions {
-        crate_dir: &dir,
-        module: None,
-        ignore_key_order: false,
-        float_tolerance: None,
-        node_args: &[],
-    })
-    .unwrap();
-    // Unported functions panic, which Java sees as a RuntimeException: nothing can match.
-    assert_eq!(diff.passed, 0, "{diff:?}");
-    assert_eq!(diff.total, recorded.cases);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn kotlin_functions_bridge_record_and_diff() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin");
     let dir = std::env::temp_dir().join(format!("mojo-anything-kotlin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1019,7 +938,7 @@ fn kotlin_functions_bridge_record_and_diff() {
         unit: "src/main/kotlin/com/example/text/",
         kind: None,
         out: Some(dir.clone()),
-        name: Some("text-rs".into()),
+        name: Some("text-mojo".into()),
         force: false,
         keep: Vec::new(),
         lang: None,
@@ -1027,18 +946,25 @@ fn kotlin_functions_bridge_record_and_diff() {
         as_json: Vec::new(),
     })
     .unwrap();
-    assert_eq!(outcome.kind, Kind::Ffi);
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    assert!(
-        port.contains("pub fn slugify(text: String, max: i64) -> Result<String, String>"),
-        "{port}"
-    );
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("fn Java_mojoanything_TextRsNative_call"),
-        "{lib}"
-    );
-    // Kotlin type names must become Java ones, or javac rejects the wrapper.
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    for rust in ["Cargo.toml", "src"] {
+        assert!(!dir.join(rust).exists(), "{rust}");
+    }
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    for sig in [
+        "def slugify(text: String, max: Int32) raises -> String:",
+        "def words(text: String) raises -> List[String]:",
+        "def frequencies(text: String) raises -> JsonValue:",
+        "def gcd(a: Int64, b: Int64) raises -> Int64:",
+        "def pages(total: Int32, per_page: Int32) raises -> Int32:",
+    ] {
+        assert!(port.contains(sig), "{sig}\n{port}");
+    }
+    let native =
+        std::fs::read_to_string(dir.join("java/mojoanything/TextMojoNative.java")).unwrap();
+    assert!(native.contains("java.lang.foreign"), "{native}");
+    // Kotlin type names must become Java ones, or javac rejects the wrapper; top-level
+    // functions live on `StringsKt`, `@JvmStatic` members of `object Nums` on `Nums`.
     let wrapper =
         std::fs::read_to_string(dir.join("java/com/example/text/StringsKt.java")).unwrap();
     assert!(
@@ -1049,12 +975,16 @@ fn kotlin_functions_bridge_record_and_diff() {
         wrapper.contains("public static Map<String, Integer> frequencies(String text)"),
         "{wrapper}"
     );
+    assert!(
+        wrapper.contains("TextMojoNative.invoke(\"slugify\""),
+        "{wrapper}"
+    );
     let nums = std::fs::read_to_string(dir.join("java/com/example/text/Nums.java")).unwrap();
     assert!(
         nums.contains("public static long gcd(long a, long b)"),
         "{nums}"
     );
-    if !common::have("kotlinc") || !common::have("javac") {
+    if !common::have("kotlinc") || !common::have_mojo() {
         return;
     }
     let recorded = harness::record(&RecordOptions {
@@ -1069,6 +999,104 @@ fn kotlin_functions_bridge_record_and_diff() {
     assert!(recorded.cases > 50, "{recorded:?}");
     // `pages` divides by zero for a generated per-page of 0.
     assert!(recorded.errors > 0, "{recorded:?}");
+    let opts = DiffOptions {
+        crate_dir: &dir,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    };
+    // The stubs raise `not ported: ...`, which never matches.
+    harness::build(&dir).unwrap();
+    let stubs = harness::diff(&opts).unwrap();
+    assert_eq!(stubs.passed, 0, "{stubs:?}");
+    assert_eq!(stubs.total, recorded.cases);
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
+    harness::build(&dir).unwrap();
+    let diff = harness::diff(&opts).unwrap();
+    assert_eq!(diff.failed, 0, "{diff:?}");
+    assert_eq!(diff.passed, recorded.cases, "{diff:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A top-level function (owner `TextKt`) and a companion object's `@JvmStatic` member (owner
+/// `Units`) in one Kotlin file: both bridge, record and replay through the Mojo port.
+#[test]
+fn kotlin_top_level_and_companion_replay() {
+    if !common::have_java() {
+        return;
+    }
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = std::env::temp_dir().join(format!(
+        "mojo-anything-kotlin-owners-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &fixtures.join("kotlin-owners"),
+        unit: "src/main/kotlin/com/example/owners/Text.kt",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("owners-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    let mut exports = outcome.exports.clone();
+    exports.sort();
+    assert_eq!(exports, ["parse", "slug"]);
+    let m = Manifest::load(&dir).unwrap();
+    let owner = |name: &str| {
+        let f = m.exports.iter().find(|f| f.name == name).unwrap();
+        mojo_anything::lang::java::receiver(f).0
+    };
+    assert_eq!(owner("slug"), "com.example.owners.TextKt");
+    assert_eq!(owner("parse"), "com.example.owners.Units");
+    let text = std::fs::read_to_string(dir.join("java/com/example/owners/TextKt.java")).unwrap();
+    assert!(
+        text.contains("public static String slug(String s) {"),
+        "{text}"
+    );
+    let units = std::fs::read_to_string(dir.join("java/com/example/owners/Units.java")).unwrap();
+    assert!(
+        units.contains("public static long parse(String s) {"),
+        "{units}"
+    );
+    if !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let recorded = harness::record(&RecordOptions {
+        crate_dir: &dir,
+        count: 30,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap();
+    for name in ["slug", "parse"] {
+        assert!(
+            recorded.per_function.get(name).copied().unwrap_or(0) > 10,
+            "{recorded:?}"
+        );
+    }
+    // Most generated text is not a number: `parse` throws NumberFormatException.
+    assert!(recorded.errors > 0, "{recorded:?}");
+    std::fs::copy(
+        fixtures.join("kotlin-mojo-port/owners.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(&dir).unwrap();
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
         crate_dir: &dir,
@@ -1078,45 +1106,25 @@ fn kotlin_functions_bridge_record_and_diff() {
         node_args: &[],
     })
     .unwrap();
-    // Unported functions panic, which Java sees as a RuntimeException: nothing can match.
-    assert_eq!(diff.passed, 0, "{diff:?}");
-    assert_eq!(diff.total, recorded.cases);
+    assert_eq!(diff.failed, 0, "{diff:?}");
+    assert_eq!(diff.passed, recorded.cases, "{diff:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The Android half: build the same JNI crate for an Android ABI and install it into `jniLibs/`.
-/// Skips when there is no NDK or the Rust target is missing, as CI usually has neither.
-#[test]
-fn android_build_installs_a_jni_library() {
-    let Ok(ndk) = mojo_anything::android::ndk_root(None) else {
-        return;
-    };
-    let installed = Command::new("rustup")
-        .args(["target", "list", "--installed"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
-    let Some(abi) = mojo_anything::android::DEFAULT_ABIS
-        .iter()
-        .find(|abi| installed.lines().any(|l| l.trim() == abi.triple()))
-    else {
-        return;
-    };
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin");
+/// `tests/fixtures/kotlin-owners`' unit bridged to Mojo in a fresh folder.
+fn kotlin_owners_bridged(tag: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kotlin-owners");
     let dir = std::env::temp_dir().join(format!(
-        "mojo-anything-android-{}-{}",
-        std::process::id(),
-        abi.name()
+        "mojo-anything-kotlin-owners-{tag}-{}",
+        std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&dir);
-    bridge::bridge(&bridge::Options {
+    let outcome = bridge::bridge(&bridge::Options {
         root: &root,
-        unit: "src/main/kotlin/com/example/text/",
+        unit: "src/main/kotlin/com/example/owners/Text.kt",
         kind: None,
         out: Some(dir.clone()),
-        name: Some("text-rs".into()),
+        name: Some("owners-mojo".into()),
         force: false,
         keep: Vec::new(),
         lang: None,
@@ -1124,31 +1132,197 @@ fn android_build_installs_a_jni_library() {
         as_json: Vec::new(),
     })
     .unwrap();
-    // Also exercise --jni-libs: Gradle's default is src/main/jniLibs, not the crate root.
-    let jni_libs = dir.join("libs");
-    let report = harness::build_android(
-        &dir,
-        &mojo_anything::android::Options {
-            abis: vec![abi.name().into(), abi.name().into()], // duplicate ABIs build once
-            api: mojo_anything::android::DEFAULT_API,
-            ndk: None,
-            out: Some(jni_libs),
-        },
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    dir
+}
+
+/// Runs `cmd` and returns its stdout, failing the test with its output when it fails.
+fn stdout_of(cmd: &mut Command) -> String {
+    let out = cmd.output().unwrap();
+    assert!(
+        out.status.success(),
+        "{cmd:?}\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// Every `.java` file under `dir`.
+fn java_sources(dir: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "java") {
+                sources.push(p);
+            }
+        }
+    }
+    sources
+}
+
+/// A Kotlin caller compiled against the original classes prints the same against the wrappers.
+/// Kotlin calls a companion object's `@JvmStatic` member through the companion
+/// (`getstatic Units.Companion`, then `invokevirtual Units$Companion.parse`), so a wrapper with
+/// the static method alone fails at link time with `NoSuchFieldError`.
+#[test]
+fn kotlin_caller_links_against_the_wrappers() {
+    if !common::have_java() || !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = kotlin_owners_bridged("caller");
+    std::fs::copy(
+        fixtures.join("kotlin-mojo-port/owners.mojo"),
+        dir.join("port.mojo"),
     )
     .unwrap();
-    assert_eq!(report.ndk, ndk);
-    assert_eq!(report.libraries.len(), 1, "{report:?}");
-    let library = &report.libraries[0];
-    assert_eq!(library.abi, abi.name());
-    assert!(library.path.is_file(), "{library:?}");
-    assert!(
-        library
-            .path
-            .ends_with(format!("libs/{}/libtext_rs.so", abi.name())),
-        "{library:?}"
+    bridge::refresh(&dir).unwrap();
+    let lib = harness::build(&dir).unwrap();
+    let check = dir.join("check");
+    std::fs::create_dir_all(&check).unwrap();
+    let original = check.join("original.jar");
+    stdout_of(
+        Command::new("kotlinc")
+            .arg(fixtures.join("kotlin-owners/src/main/kotlin/com/example/owners/Text.kt"))
+            .arg("-d")
+            .arg(&original),
     );
-    // call + the five exported functions.
-    assert_eq!(library.entry_points, 6, "{library:?}");
+    std::fs::write(
+        check.join("Caller.kt"),
+        r#"import com.example.owners.Units
+import com.example.owners.slug
+
+fun main() {
+    println(slug("a b c"))
+    println(Units.parse(" 42 "))
+    println(Units.Companion.parse("-7"))
+    try {
+        Units.parse("x")
+    } catch (e: NumberFormatException) {
+        println("NumberFormatException: ${e.message}")
+    }
+}
+"#,
+    )
+    .unwrap();
+    let caller = check.join("caller.jar");
+    stdout_of(
+        Command::new("kotlinc")
+            .arg("-cp")
+            .arg(&original)
+            .arg(check.join("Caller.kt"))
+            .arg("-include-runtime")
+            .arg("-d")
+            .arg(&caller),
+    );
+    let wrappers = check.join("wrappers");
+    stdout_of(
+        Command::new("javac")
+            .args(["-encoding", "UTF-8", "-nowarn", "-d"])
+            .arg(&wrappers)
+            .args(java_sources(&dir.join("java"))),
+    );
+    let run = |classes: &Path| {
+        stdout_of(
+            Command::new("java")
+                .args([
+                    "-XX:-UsePerfData",
+                    "--enable-native-access=ALL-UNNAMED",
+                    "-Dfile.encoding=UTF-8",
+                    "-cp",
+                ])
+                .arg(std::env::join_paths([caller.as_path(), classes]).unwrap())
+                .arg("CallerKt")
+                .env("MOJO_ANYTHING_LIB", &lib),
+        )
+    };
+    let expected = run(&original);
+    assert!(expected.contains("\n42\n-7\n"), "{expected}");
+    assert_eq!(run(&wrappers), expected);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `java api` compares the owner class's fields and nested classes too: a wrapper without the
+/// `Companion` field that Kotlin callers read fails it.
+#[test]
+fn kotlin_java_api_checks_the_companion() {
+    if !common::have_java() || !common::have("kotlinc") || !common::have_mojo() {
+        return;
+    }
+    let dir = kotlin_owners_bridged("gate");
+    let path = dir.join("java/com/example/owners/Units.java");
+    let units = std::fs::read_to_string(&path).unwrap();
+    let field = "    public static final Companion Companion = new Companion();\n";
+    assert!(units.contains(field), "{units}");
+    let api = |dir: &Path| {
+        let gate = mojo_anything::gate::gate(dir, &[]).unwrap();
+        gate.checks
+            .into_iter()
+            .find(|c| c.name == "java api")
+            .unwrap()
+    };
+    let passing = api(&dir);
+    assert!(passing.passed, "{passing:?}");
+    assert!(
+        passing.detail.contains("Units.Companion"),
+        "{}",
+        passing.detail
+    );
+    std::fs::write(&path, units.replace(field, "")).unwrap();
+    let failing = api(&dir);
+    assert!(!failing.passed, "{failing:?}");
+    assert!(
+        failing.detail.contains("Units.Companion"),
+        "{}",
+        failing.detail
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The wrapper replaces the whole class, so `java api` fails naming every public member of the
+/// original that it does not keep: a constant and a generic method the bridge leaves out.
+#[test]
+fn java_api_names_members_the_wrapper_drops() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java-members");
+    let dir =
+        std::env::temp_dir().join(format!("mojo-anything-java-members-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "src/main/java/com/example/members/",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("members-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.exports, ["twice"]);
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(!api.passed, "{api:?}");
+    assert!(api.detail.contains("Limits.MAX"), "{}", api.detail);
+    assert!(api.detail.contains("Limits.id"), "{}", api.detail);
+    assert!(!api.detail.contains("Limits.twice"), "{}", api.detail);
+    let fix = api.fix.as_deref().unwrap_or_default();
+    assert!(fix.contains("port"), "{fix}");
+    assert!(fix.contains("move"), "{fix}");
+    // The bridge says so too: the class is replaced, `id` does not stay in Java.
+    let notes = outcome.notes.join("\n");
+    assert!(notes.contains("`id`"), "{notes}");
+    assert!(notes.contains("java api"), "{notes}");
+    assert!(!notes.contains("stays in Java"), "{notes}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1378,4 +1552,318 @@ fn ts_mojo_gate_fails_on_missing_export() {
     assert!(fix.contains("mojo-anything refresh"), "{fix}");
     assert!(!fix.contains("src/port.rs"), "{fix}");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ---- Java units ported to Mojo (`mojo-jvm`) ----------------------------------------------------
+
+/// `tests/fixtures/java`'s text unit bridged to Mojo in a fresh folder.
+fn java_mojo_bridged(tag: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java");
+    let dir = std::env::temp_dir().join(format!(
+        "mojo-anything-java-mojo-{tag}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let outcome = bridge::bridge(&bridge::Options {
+        root: &root,
+        unit: "src/main/java/com/example/text/",
+        kind: None,
+        out: Some(dir.clone()),
+        name: Some("text-mojo".into()),
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: Vec::new(),
+        as_json: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(outcome.kind, Kind::MojoJvm);
+    dir
+}
+
+fn java_mojo_record(dir: &Path) -> harness::RecordOutcome {
+    harness::record(&RecordOptions {
+        crate_dir: dir,
+        count: 30,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap()
+}
+
+fn java_mojo_diff(dir: &Path) -> anyhow::Result<harness::DiffOutcome> {
+    harness::diff(&DiffOptions {
+        crate_dir: dir,
+        module: None,
+        ignore_key_order: false,
+        float_tolerance: None,
+        node_args: &[],
+    })
+}
+
+/// The fixture's Mojo port in place of the stubs, with the bindings regenerated.
+fn java_mojo_port(dir: &Path) {
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/java-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    bridge::refresh(dir).unwrap();
+}
+
+#[test]
+fn java_mojo_bridge_files() {
+    if !common::have_java() {
+        return;
+    }
+    let dir = java_mojo_bridged("files");
+    for file in [
+        "port.mojo",
+        "dispatcher.mojo",
+        "json.mojo",
+        "pixi.toml",
+        "mojo-anything.json",
+        "README.md",
+        "java/mojoanything/TextMojoNative.java",
+        "java/mojoanything/MojoAnythingJson.java",
+        "java/mojoanything/MojoAnythingError.java",
+        "java/com/example/text/Strings.java",
+        "java/com/example/text/Nums.java",
+    ] {
+        assert!(dir.join(file).is_file(), "{file}");
+    }
+    for rust in ["Cargo.toml", "src"] {
+        assert!(!dir.join(rust).exists(), "{rust}");
+    }
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    for sig in [
+        "def slugify(text: String, max: Int32) raises -> String:",
+        "def words(text: String) raises -> List[String]:",
+        "def frequencies(text: String) raises -> JsonValue:",
+        "def parse_port(text: String) raises -> Int32:",
+        "def gcd(a: Int64, b: Int64) raises -> Int64:",
+        "def mean(values: List[Float64]) raises -> Float64:",
+        "def pages(total: Int32, per_page: Int32) raises -> Int32:",
+    ] {
+        assert!(port.contains(sig), "{sig}\n{port}");
+    }
+    let native =
+        std::fs::read_to_string(dir.join("java/mojoanything/TextMojoNative.java")).unwrap();
+    assert!(native.contains("java.lang.foreign"), "{native}");
+    let pixi = std::fs::read_to_string(dir.join("pixi.toml")).unwrap();
+    assert!(pixi.contains("emberjson"), "{pixi}");
+    let manifest = std::fs::read_to_string(dir.join("mojo-anything.json")).unwrap();
+    assert!(manifest.contains("\"kind\": \"mojo-jvm\""), "{manifest}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_loop_matches() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("loop");
+    let recorded = java_mojo_record(&dir);
+    assert!(recorded.cases > 100, "{recorded:?}");
+    // `parsePort` throws NumberFormatException and `pages` ArithmeticException.
+    assert!(recorded.errors > 0, "{recorded:?}");
+    // The stubs raise `not ported: ...`, which never matches.
+    harness::build(&dir).unwrap();
+    let stubs = java_mojo_diff(&dir).unwrap();
+    assert_eq!(stubs.passed, 0, "{stubs:?}");
+    java_mojo_port(&dir);
+    harness::build(&dir).unwrap();
+    let out = java_mojo_diff(&dir).unwrap();
+    assert_eq!(out.failed, 0, "{out:?}");
+    assert_eq!(out.passed, recorded.cases, "{out:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_rebuild_after_edit() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("rebuild");
+    let recorded = java_mojo_record(&dir);
+    java_mojo_port(&dir);
+    harness::build(&dir).unwrap();
+    assert_eq!(java_mojo_diff(&dir).unwrap().passed, recorded.cases);
+    // A wrong gcd: diff refuses the stale library, and after a build it mismatches.
+    let port = std::fs::read_to_string(dir.join("port.mojo")).unwrap();
+    let wrong = port.replace(
+        "        y = t\n    return x\n",
+        "        y = t\n    return x + 1\n",
+    );
+    assert_ne!(port, wrong);
+    std::fs::write(dir.join("port.mojo"), wrong).unwrap();
+    let stale = java_mojo_diff(&dir).unwrap_err().to_string();
+    assert!(stale.contains("mojo-anything build"), "{stale}");
+    harness::build(&dir).unwrap();
+    let out = java_mojo_diff(&dir).unwrap();
+    assert!(out.failed > 0, "{out:?}");
+    assert!(
+        out.mismatches.iter().all(|m| m["fn"] == "gcd"),
+        "{:?}",
+        out.mismatches
+    );
+    assert_eq!(out.passed + out.failed, recorded.cases);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_gate_passes() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("gate");
+    java_mojo_record(&dir);
+    java_mojo_port(&dir);
+    // The Task 3 matching unit, built: the build makes the unit's pixi environment, which
+    // `mojo format` would otherwise wait for within its one-minute limit.
+    harness::build(&dir).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(gate.passed, "{:#?}", gate.checks);
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(api.passed, "{api:?}");
+    assert!(api.detail.contains("Nums.gcd"), "{}", api.detail);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn java_mojo_gate_fails_on_changed_signature() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("gate-signature");
+    java_mojo_port(&dir);
+    // A wrapper edited by hand: `gcd` now returns `int`. Callers compiled against the
+    // original's `long gcd(long, long)` would not link against it.
+    let nums = dir.join("java/com/example/text/Nums.java");
+    let text = std::fs::read_to_string(&nums).unwrap();
+    let edited = text.replace(
+        "public static long gcd(long a, long b) {\n        return (Long)",
+        "public static int gcd(long a, long b) {\n        return (int) (long) (Long)",
+    );
+    assert_ne!(text, edited, "{text}");
+    std::fs::write(&nums, edited).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(!gate.passed);
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(!api.passed, "{api:?}");
+    assert!(api.detail.contains("gcd"), "{}", api.detail);
+    assert!(api.detail.contains("(JJ)I"), "{}", api.detail);
+    let fix = api.fix.as_deref().unwrap_or_default();
+    assert!(fix.contains("mojo-anything refresh"), "{fix}");
+    // `refresh` writes the wrapper back with the original signature.
+    bridge::refresh(&dir).unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    let api = gate.checks.iter().find(|c| c.name == "java api").unwrap();
+    assert!(api.passed, "{api:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn jvm_parallel_calls_match() {
+    if !common::have_java() || !common::have_mojo() {
+        return;
+    }
+    let dir = java_mojo_bridged("parallel");
+    java_mojo_port(&dir);
+    let lib = harness::build(&dir).unwrap();
+    let check = dir.join("check");
+    std::fs::create_dir_all(&check).unwrap();
+    std::fs::write(
+        check.join("Parallel.java"),
+        r#"import com.example.text.Nums;
+import com.example.text.Strings;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class Parallel {
+    static String input(int i) {
+        return "Hello, Wörld " + (i % 97) + " ΣΑΣ " + "x".repeat(i % 13);
+    }
+
+    public static void main(String[] args) throws Exception {
+        int calls = 10_000;
+        String[] slugs = new String[calls];
+        int[] hashes = new int[calls];
+        long[] gcds = new long[calls];
+        for (int i = 0; i < calls; i++) {
+            slugs[i] = Strings.slugify(input(i), i % 7);
+            hashes[i] = Strings.hash(input(i));
+            gcds[i] = Nums.gcd(i * 6L, 4_000L);
+        }
+        AtomicInteger wrong = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+        for (int t = 0; t < 8; t++) {
+            final int offset = t * 1_237;
+            Thread thread = new Thread(() -> {
+                for (int k = 0; k < calls; k++) {
+                    int i = (k + offset) % calls;
+                    if (!Strings.slugify(input(i), i % 7).equals(slugs[i])
+                        || Strings.hash(input(i)) != hashes[i]
+                        || Nums.gcd(i * 6L, 4_000L) != gcds[i]) {
+                        wrong.incrementAndGet();
+                    }
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        System.out.println(wrong.get() == 0 ? "same" : wrong.get() + " differ");
+    }
+}
+"#,
+    )
+    .unwrap();
+    let classes = check.join("classes");
+    let mut sources = vec![check.join("Parallel.java")];
+    let mut stack = vec![dir.join("java")];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "java") {
+                sources.push(p);
+            }
+        }
+    }
+    let javac = Command::new("javac")
+        .args(["-encoding", "UTF-8", "-nowarn", "-d"])
+        .arg(&classes)
+        .args(&sources)
+        .output()
+        .unwrap();
+    assert!(
+        javac.status.success(),
+        "{}",
+        String::from_utf8_lossy(&javac.stderr)
+    );
+    let run = Command::new("java")
+        .args([
+            "-XX:-UsePerfData",
+            "--enable-native-access=ALL-UNNAMED",
+            "-Dfile.encoding=UTF-8",
+        ])
+        .arg(format!("-Dmojo-anything.lib.text_mojo={}", lib.display()))
+        .arg("-cp")
+        .arg(&classes)
+        .arg("Parallel")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(stdout.trim(), "same", "{stdout}{stderr}");
+    // No restricted-method warning reaches the output.
+    assert!(!stderr.contains("WARNING"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

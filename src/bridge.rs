@@ -1,9 +1,10 @@
 //! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
 //! later steps read.
 //!
-//! The port (`port.mojo`, or `src/port.rs` for Java and Kotlin until they move to Mojo) holds the
-//! logic; the generated layers around it (dispatcher, Node-API shim, Python extension, JNI
-//! wrapper) are rewritten by `refresh` and never edited by hand.
+//! The port (`port.mojo`, or `src/port.rs` for a Java or Kotlin unit bridged with `--kind ffi`)
+//! holds the logic;
+//! the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
+//! are rewritten by `refresh` and never edited by hand.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,7 @@ pub enum Kind {
     /// `extern "C"` functions with the original names: a drop-in replacement for C code.
     #[serde(rename = "c-abi")]
     CAbi,
-    /// A JSON dispatcher over the port, called from a generated Go, Ruby or Java wrapper.
+    /// A JSON dispatcher over the port, called from a generated Go or Ruby wrapper.
     Ffi,
     /// A Python extension module written in Mojo, imported by a generated wrapper package.
     #[serde(rename = "mojo-py")]
@@ -41,6 +42,10 @@ pub enum Kind {
     /// `index.cjs` loads in place of the Node-API addon.
     #[serde(rename = "mojo-wasm")]
     MojoWasm,
+    /// A Mojo port of a Java or Kotlin unit, reached from generated Java classes through the
+    /// Foreign Function & Memory API (Java 22+) over the JSON dispatcher.
+    #[serde(rename = "mojo-jvm")]
+    MojoJvm,
 }
 
 impl Kind {
@@ -51,11 +56,15 @@ impl Kind {
     }
 }
 
+/// Why `--batch` fails for `mojo-jvm` units.
+pub const JVM_BATCH_NOT_YET: &str =
+    "not yet: batches for Java units ported to Mojo come after correctness";
+
 /// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     use crate::lang::Lang;
     match kind {
-        Kind::MojoPy | Kind::CAbi | Kind::MojoNode | Kind::MojoWasm => true,
+        Kind::MojoPy | Kind::CAbi | Kind::MojoNode | Kind::MojoWasm | Kind::MojoJvm => true,
         Kind::Ffi => matches!(language, Lang::Go | Lang::Ruby),
     }
 }
@@ -216,6 +225,13 @@ impl Manifest {
         }
         let mut manifest: Self =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        if manifest.kind == Kind::Ffi && crate::jvm::is_jvm(manifest.language) {
+            bail!(
+                "{} is a Rust JNI crate, which mojo-anything no longer generates: run bridge again \
+                 to port the unit to Mojo (Java's Foreign Function & Memory API, Java 22+)",
+                crate_dir.display()
+            );
+        }
         if manifest.kind == Kind::CAbi && crate_dir.join("Cargo.toml").exists() {
             bail!(
                 "{} is a Rust C ABI crate, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
@@ -719,21 +735,6 @@ fn keep_reason(keep: &[String], name: &str) -> Option<String> {
     })
 }
 
-/// Formats the generated Rust, best effort: the gate checks formatting.
-fn format_rust(crate_dir: &Path) {
-    let files: Vec<PathBuf> = std::fs::read_dir(crate_dir.join("src"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "rs"))
-        .collect();
-    let _ = std::process::Command::new("rustfmt")
-        .args(["--edition", "2024"])
-        .args(&files)
-        .output();
-}
-
 /// Formats a generated Go wrapper with `gofmt`, best effort.
 fn format_wrapper(crate_dir: &Path) {
     if crate_dir.join("go").is_dir() {
@@ -774,67 +775,6 @@ pub fn add_batches(crate_dir: &Path, specs: &[String]) -> Result<Refreshed> {
     })
 }
 
-/// Cargo.toml with the dependencies and library types today's bindings need, for crates
-/// bridged by an older mojo-anything; versions and features already set are kept.
-fn with_template_deps(cargo: &str, template: &str) -> Result<String> {
-    let mut doc: toml_edit::DocumentMut = cargo.parse().context("Cargo.toml")?;
-    let template: toml_edit::DocumentMut = template.parse().context("Cargo.toml template")?;
-    if let Some(want) = template.get("dependencies").and_then(|d| d.as_table()) {
-        let deps = doc["dependencies"].or_insert(toml_edit::table());
-        for (name, item) in want {
-            if deps.get(name).is_none() {
-                deps[name] = item.clone();
-            }
-        }
-    }
-    if let Some(want) = template.get("features").and_then(|d| d.as_table()) {
-        let features = doc["features"].or_insert(toml_edit::table());
-        for (name, item) in want {
-            if features.get(name).is_none() {
-                features[name] = item.clone();
-            }
-        }
-    }
-    if let Some(kinds) = template.get("lib").and_then(|l| l.get("crate-type")) {
-        doc["lib"]["crate-type"] = kinds.clone();
-    }
-    Ok(doc.to_string())
-}
-
-/// `lib.rs` with mimalloc as the global allocator when the crate has batches: they allocate
-/// from all cores at once, and the system allocator serializes them (1.6x on 4 cores instead of
-/// 3.2x). Only Rust code uses this heap; every buffer that crosses the bridge is copied.
-fn with_allocator(m: &Manifest, lib: String) -> String {
-    if m.batches.is_empty() {
-        return lib;
-    }
-    lib.replacen(
-        "pub mod port;",
-        "pub mod port;
-
-         /// Batches allocate on all cores at once; mimalloc keeps that from serializing.
-         #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-",
-        1,
-    )
-}
-
-/// Cargo.toml with rayon and mimalloc when batches run on all cores.
-fn with_rayon(m: &Manifest, cargo: String) -> Result<String> {
-    if m.batches.is_empty() {
-        return Ok(cargo);
-    }
-    let mut doc: toml_edit::DocumentMut = cargo.parse().context("Cargo.toml")?;
-    let deps = doc["dependencies"].or_insert(toml_edit::table());
-    for (name, version) in [("rayon", "1"), ("mimalloc", "0.1")] {
-        if deps.get(name).is_none() {
-            deps[name] = toml_edit::value(version);
-        }
-    }
-    Ok(doc.to_string())
-}
-
 /// A port function whose doc line does not name an export (`/// Port of \`Integer.toString\``)
 /// takes the name of the export it was generated for, matched by its Rust name.
 pub fn match_export_names(m: &Manifest, api: &mut codegen::PortApi) {
@@ -861,10 +801,29 @@ pub struct Refreshed {
 }
 
 /// Regenerates the binding layers from the signatures in the port (`port.mojo`, or `src/port.rs`
-/// for Java and Kotlin, whose Cargo.toml also gets the dependencies they need). Never touches the
-/// port.
+/// for a Rust-era Java or Kotlin crate, whose Cargo.toml also gets the dependencies it needs).
+/// Never touches the port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
+    if manifest.kind == Kind::MojoJvm {
+        if crate_dir.join("Cargo.toml").exists() {
+            bail!(
+                "{} is a Rust port from before mojo-anything targeted Mojo: bridge again to get a \
+                 Mojo port (port.mojo)",
+                crate_dir.display()
+            );
+        }
+        let port =
+            std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
+        let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+        match_export_names(&manifest, &mut api);
+        let files = mojo_jvm_bindings(&manifest, &api)?;
+        write_files(crate_dir, &files)?;
+        return Ok(Refreshed {
+            functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
+            files: files.into_iter().map(|(p, _)| p).collect(),
+        });
+    }
     if manifest.kind == Kind::MojoPy {
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
@@ -922,24 +881,10 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
             files: files.into_iter().map(|(p, _)| p).collect(),
         });
     }
-    // A Java or Kotlin unit: a Rust JNI crate until those languages move to Mojo.
-    let port =
-        std::fs::read_to_string(crate_dir.join("src/port.rs")).context("reading src/port.rs")?;
-    let mut api = codegen::parse_port(&port);
-    match_export_names(&manifest, &mut api);
-    let mut files = ffi_bindings(&manifest, &api)?;
-    let cargo =
-        std::fs::read_to_string(crate_dir.join("Cargo.toml")).context("reading Cargo.toml")?;
-    let template = crate::codegen_ffi::cargo_toml(&manifest);
-    let cargo = with_template_deps(&cargo, &template)?;
-    files.push(("Cargo.toml".into(), with_rayon(&manifest, cargo)?));
-    write_files(crate_dir, &files)?;
-    format_rust(crate_dir);
-    format_wrapper(crate_dir);
-    Ok(Refreshed {
-        functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
-        files: files.into_iter().map(|(p, _)| p).collect(),
-    })
+    bail!(
+        "`refresh` has no bindings for a {} unit of kind `ffi`: bridge again",
+        manifest.language.name()
+    )
 }
 
 pub fn bridge(opts: &Options) -> Result<Outcome> {
@@ -950,6 +895,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let lang = opts
         .lang
         .unwrap_or_else(|| crate::lang::Lang::detect(&root));
+    if crate::jvm::is_jvm(lang) {
+        crate::jvm::require_java()?;
+    }
     let report = analyze::analyze_lang(&root, lang)?;
     let wanted = opts.unit.trim_start_matches("./");
     let whole = report
@@ -1001,7 +949,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let kind = opts.kind.unwrap_or(match unit.bridge {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
-        Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
+        Bridge::MojoJvm => Kind::MojoJvm,
+        Bridge::Cgo | Bridge::Fiddle => Kind::Ffi,
         // Code that could also run in browsers goes to Node too, unless `--kind wasm` asks for
         // the wasm module, whose toolchain is a separate install.
         _ => Kind::MojoNode,
@@ -1233,9 +1182,13 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     match kind {
         Kind::CAbi => bridge_c(&manifest, &crate_dir, &js_only),
         Kind::Ffi if mojo_unit(kind, lang) => bridge_ffi_mojo(&manifest, &crate_dir, &js_only),
-        Kind::Ffi => bridge_ffi(&manifest, &crate_dir, &js_only),
+        Kind::Ffi => bail!(
+            "the `ffi` kind is for Go and Ruby units; {} units bridge to Mojo with their own kind",
+            lang.name()
+        ),
         Kind::MojoPy => bridge_mojo_py(&manifest, &crate_dir, &js_only),
         Kind::MojoNode | Kind::MojoWasm => bridge_mojo_node(&manifest, &crate_dir, &js_only),
+        Kind::MojoJvm => bridge_mojo_jvm(&manifest, &crate_dir, &js_only),
     }
 }
 
@@ -1477,71 +1430,6 @@ fn c_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Strin
     Ok(files)
 }
 
-/// The generated layers of a JSON-dispatcher crate: `lib.rs` and the language-side wrapper.
-fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
-    let mut files = {
-        let mut lib = crate::codegen_ffi::lib_rs(m, api);
-        if matches!(
-            m.language,
-            crate::lang::Lang::Java | crate::lang::Lang::Kotlin
-        ) {
-            lib.push_str(&crate::codegen_java::typed_rs(m, api));
-        }
-        if matches!(
-            m.language,
-            crate::lang::Lang::Java | crate::lang::Lang::Kotlin
-        ) {
-            lib.push_str(&crate::codegen_java::wire_rs(m, api));
-            lib.push_str(
-                &crate::codegen_batch_native::java_rs(m, api).map_err(anyhow::Error::msg)?,
-            );
-        }
-        if matches!(
-            m.language,
-            crate::lang::Lang::Java | crate::lang::Lang::Kotlin
-        ) {
-            lib = lib.replacen("pub mod port;", "pub mod port;\npub mod wire;", 1);
-        }
-        let mut files = vec![("src/lib.rs".to_string(), with_allocator(m, lib))];
-        if matches!(
-            m.language,
-            crate::lang::Lang::Java | crate::lang::Lang::Kotlin
-        ) {
-            files.push(("src/wire.rs".to_string(), crate::wire::WIRE_RS.to_string()));
-        }
-        files
-    };
-    match m.language {
-        crate::lang::Lang::Java | crate::lang::Lang::Kotlin => {
-            files.extend(crate::codegen_java::wrappers(m, api));
-            files.extend(
-                crate::codegen_batch_native::java_files(m, api).map_err(anyhow::Error::msg)?,
-            );
-            files.push((
-                format!(
-                    "java/mojoanything/{}.java",
-                    crate::codegen_ffi::java_native_class(m)
-                ),
-                crate::codegen_java::native_class(m, api),
-            ));
-            files.push((
-                "java/mojoanything/MojoAnythingJson.java".into(),
-                crate::codegen_java::JSON_JAVA.into(),
-            ));
-            files.push((
-                "java/mojoanything/MojoAnythingWire.java".into(),
-                crate::codegen_java::WIRE_JAVA.into(),
-            ));
-            files.push((
-                "java/mojoanything/MojoAnythingError.java".into(),
-                crate::codegen_java::ERROR_JAVA.into(),
-            ));
-        }
-        other => bail!("no wrapper generator for {}", other.name()),
-    }
-    Ok(files)
-}
-
 /// The generated layers of a Go or Ruby unit's Mojo port: `pixi.toml`, `json.mojo` when the
 /// unit needs it, the library source and the language-side wrapper.
 fn mojo_ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
@@ -1608,6 +1496,94 @@ fn mojo_ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String
     Ok(files)
 }
 
+/// The generated layers of a `mojo-jvm` unit: `pixi.toml`, `json.mojo`, the dispatcher, and
+/// the Java classes (the FFM native class, the codec, the error mapping and the wrappers).
+fn mojo_jvm_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
+    if !m.batches.is_empty() {
+        bail!("{JVM_BATCH_NOT_YET}");
+    }
+    if !crate::jvm::is_jvm(m.language) {
+        bail!("{} units do not bridge through Java", m.language.name());
+    }
+    // Only the unit's exports cross; a public helper in port.mojo stays inside the library.
+    let mut exported = api.clone();
+    exported
+        .functions
+        .retain(|f| m.exports.iter().any(|e| e.name == f.js_name));
+    let api = &exported;
+    let mut files = vec![
+        (
+            "pixi.toml".to_string(),
+            crate::codegen_mojo_py::unit_pixi_toml(m, true),
+        ),
+        (
+            "json.mojo".into(),
+            crate::codegen_mojo::JSON_MOJO.to_string(),
+        ),
+        (
+            crate::codegen_ffi::DISPATCHER.into(),
+            crate::codegen_ffi::dispatcher_mojo(m, api).map_err(anyhow::Error::msg)?,
+        ),
+    ];
+    files.extend(crate::codegen_mojo_jvm::support_files(m));
+    files.extend(crate::codegen_mojo_jvm::wrappers_ffm(m, api));
+    Ok(files)
+}
+
+fn bridge_mojo_jvm(m: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_mojo::port_mojo(m);
+    let mut api = crate::codegen_mojo::parse_port_mojo(&port);
+    match_export_names(m, &mut api);
+    // Everything is generated before anything is written: a unit that cannot cross leaves no
+    // folder behind.
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        (".gitignore".into(), ".pixi/\n.mojo-anything/\n".into()),
+        ("README.md".into(), readme(m)),
+        (MANIFEST.into(), serde_json::to_string_pretty(m)? + "\n"),
+    ];
+    files.extend(mojo_jvm_bindings(m, &api)?);
+    write_files(crate_dir, &files)?;
+    let mut notes = vec![
+        format!(
+            "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+            crate_dir.display()
+        ),
+        "Callers compile the classes in java/ and load the library `build` writes (system \
+         property mojo-anything.lib.<name>, MOJO_ANYTHING_LIB, or next to the classes); run the \
+         JVM with --enable-native-access=ALL-UNNAMED (Java 22+)."
+            .to_string(),
+    ];
+    let language = m.language.name();
+    for c in &m.classes {
+        notes.push(format!(
+            "Class `{}` is not bridged to Mojo yet; it stays in {language}.",
+            c.name
+        ));
+    }
+    for j in kept {
+        // A wrapper replaces the whole class it is named after, so a member it leaves out is
+        // gone for callers, not kept in the original.
+        if m.exports.iter().any(|f| f.file == j.file) {
+            notes.push(format!(
+                "`{}` is not ported ({}), but the wrappers in java/ replace the classes of {}: \
+                 `gate`'s `java api` check fails until it is ported or moved to a class the unit \
+                 does not replace.",
+                j.name, j.reason, j.file
+            ));
+        } else {
+            notes.push(format!("`{}` stays in {language}: {}.", j.name, j.reason));
+        }
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: Kind::MojoJvm,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: m.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
+}
+
 fn bridge_ffi_mojo(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
     let port = crate::codegen_mojo::port_mojo(manifest);
     let mut api = crate::codegen_mojo::parse_port_mojo(&port);
@@ -1626,47 +1602,6 @@ fn bridge_ffi_mojo(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Re
     format_wrapper(crate_dir);
     let mut notes = vec![format!(
         "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
-        crate_dir.display()
-    )];
-    for j in kept {
-        notes.push(format!(
-            "`{}` stays in {}: {}.",
-            j.name,
-            manifest.language.name(),
-            j.reason
-        ));
-    }
-    Ok(Outcome {
-        crate_dir: crate_dir.to_path_buf(),
-        kind: Kind::Ffi,
-        files: files.into_iter().map(|(p, _)| p).collect(),
-        exports: manifest.exports.iter().map(|f| f.name.clone()).collect(),
-        notes,
-    })
-}
-
-fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
-    let port = codegen::port_rs(manifest);
-    let api = codegen::parse_port(&port);
-    let mut files = vec![
-        (
-            "Cargo.toml".to_string(),
-            with_rayon(manifest, crate::codegen_ffi::cargo_toml(manifest))?,
-        ),
-        ("src/port.rs".into(), port),
-        (".gitignore".into(), "target/\n.mojo-anything/\n".into()),
-        ("README.md".into(), readme(manifest)),
-        (
-            MANIFEST.into(),
-            serde_json::to_string_pretty(manifest)? + "\n",
-        ),
-    ];
-    files.extend(ffi_bindings(manifest, &api)?);
-    write_files(crate_dir, &files)?;
-    format_rust(crate_dir);
-    format_wrapper(crate_dir);
-    let mut notes = vec![format!(
-        "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
         crate_dir.display()
     )];
     for j in kept {
@@ -1761,6 +1696,7 @@ fn readme(m: &Manifest) -> String {
             Kind::Ffi => "a JSON dispatcher",
             Kind::MojoNode => "a Node-API addon over the JSON dispatcher",
             Kind::MojoWasm => "a WebAssembly module of the JSON dispatcher",
+            Kind::MojoJvm => "Java's Foreign Function & Memory API over the JSON dispatcher",
         },
     )
 }
@@ -1879,6 +1815,30 @@ Rust port of `u`"
             .unwrap();
             let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
             assert!(err.contains("bridge again"), "{kind}: {err}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn java_ffi_manifest_says_rebridge() {
+        for lang in ["java", "kotlin"] {
+            let dir = std::env::temp_dir().join(format!(
+                "mojo-anything-{lang}-ffi-rebridge-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join(MANIFEST),
+                format!(
+                    r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/main/x/", "language": "{lang}", "kind": "ffi", "crate_name": "x-rs", "exports": []}}"#
+                ),
+            )
+            .unwrap();
+            // With or without its Cargo.toml: the JNI crate cannot be built any more.
+            let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
+            assert!(err.contains("bridge again"), "{lang}: {err}");
+            assert!(err.contains("JNI"), "{lang}: {err}");
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }
