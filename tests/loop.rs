@@ -1577,3 +1577,73 @@ fn ts_mojo_shadow_reports_mismatch() {
     assert_eq!(run("new"), r#"[1,1,0,[]]"#);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The Task 3 unit with the fixture port, recorded and built.
+fn gated_mojo(name: &str) -> PathBuf {
+    let dir = bridged_mojo(name);
+    harness::record(&RecordOptions {
+        crate_dir: &dir,
+        count: 60,
+        inputs: None,
+        module: None,
+        resolve_from: None,
+        node_args: &[],
+    })
+    .unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn ts_mojo_gate_passes() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
+        return;
+    }
+    let dir = gated_mojo("ts-mojo-gate");
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(gate.passed, "{:#?}", gate.checks);
+    let names: Vec<&str> = gate.checks.iter().map(|c| c.name).collect();
+    for name in [
+        "mojo format",
+        "ported",
+        "unsafe",
+        "size",
+        "build",
+        "api",
+        "behavior",
+    ] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    let size = gate.checks.iter().find(|c| c.name == "size").unwrap();
+    assert!(size.detail.contains("lines of Mojo for"), "{}", size.detail);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn ts_mojo_gate_fails_on_missing_export() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
+        return;
+    }
+    let dir = gated_mojo("ts-mojo-gate-missing");
+    let index = dir.join("index.cjs");
+    let text = std::fs::read_to_string(&index).unwrap();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.starts_with("  count: ["))
+        .collect();
+    assert!(kept.len() < text.lines().count(), "{text}");
+    std::fs::write(&index, kept.join("\n") + "\n").unwrap();
+    let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
+    assert!(!gate.passed);
+    let api = gate.checks.iter().find(|c| c.name == "api").unwrap();
+    assert!(!api.passed, "{api:?}");
+    assert!(api.detail.contains("count"), "{}", api.detail);
+    let fix = api.fix.as_deref().unwrap_or_default();
+    assert!(fix.contains("mojo-anything refresh"), "{fix}");
+    assert!(!fix.contains("src/port.rs"), "{fix}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

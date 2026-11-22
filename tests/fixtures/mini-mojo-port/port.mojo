@@ -34,7 +34,7 @@ def _index_of(hay: List[UInt16], needle: List[UInt16]) -> Int:
 
 
 def _string_value(u: List[UInt16], start: Int, end: Int) -> JsonValue:
-    """`u[start:end]` as a JSON string, or a `$utf16` marker when it holds a lone surrogate."""
+    """`u[start:end]` as JSON, or a `$utf16` marker for a lone surrogate."""
     var text = String()
     var i = start
     while i < end:

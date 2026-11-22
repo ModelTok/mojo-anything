@@ -51,6 +51,10 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
             "remove the entries that no longer happen from {c}/{}",
             crate::recording::KNOWN_DIFFS
         ),
+        "api" if crate_dir.join("port.mojo").is_file() => format!(
+            "define the missing functions in port.mojo, then `mojo-anything refresh {c}` to \
+             regenerate index.cjs and the dispatcher"
+        ),
         "api" => {
             format!("export the missing functions from src/port.rs, then `mojo-anything build {c}`")
         }
@@ -154,6 +158,36 @@ pub(crate) fn with_local_imports(root: &Path, files: Vec<PathBuf>) -> Vec<PathBu
     seen.into_iter().collect()
 }
 
+/// Mojo files `bridge`, `refresh`, `shadow` and `--pin-clock` write next to `port.mojo`.
+const GENERATED_MOJO: [&str; 8] = [
+    "_native.mojo",
+    "c_structs.mojo",
+    "dispatcher.mojo",
+    "exports.mojo",
+    "exports_shadow.mojo",
+    "json.mojo",
+    "pinned.mojo",
+    "py_num.mojo",
+];
+
+/// The Mojo files of a port: those in the unit's folder that no command generated, tests aside.
+fn mojo_port_files(unit_dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(unit_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|x| x == "mojo")
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| !n.starts_with("test_") && !GENERATED_MOJO.contains(&n))
+        })
+        .collect();
+    files.sort();
+    files
+}
+
 fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
     let source_comments: &[&str] = match manifest.language {
         crate::lang::Lang::Python | crate::lang::Lang::Ruby => &["#"],
@@ -183,15 +217,25 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
     if source == 0 {
         return None;
     }
-    let rust: usize = files_under(&crate_dir.join("src"), &["rs"])
-        .iter()
-        .filter(|p| {
-            p.file_name()
-                .is_none_or(|n| !GENERATED.contains(&n.to_string_lossy().as_ref()))
-        })
-        .filter_map(|p| std::fs::read_to_string(p).ok())
-        .map(|t| code_lines(&t, &["//"]))
-        .sum();
+    let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
+    let rust: usize = if mojo {
+        mojo_port_files(crate_dir)
+            .iter()
+            .filter_map(|p| std::fs::read_to_string(p).ok())
+            .map(|t| code_lines(&t, &["#"]))
+            .sum()
+    } else {
+        files_under(&crate_dir.join("src"), &["rs"])
+            .iter()
+            .filter(|p| {
+                p.file_name()
+                    .is_none_or(|n| !GENERATED.contains(&n.to_string_lossy().as_ref()))
+            })
+            .filter_map(|p| std::fs::read_to_string(p).ok())
+            .map(|t| code_lines(&t, &["//"]))
+            .sum()
+    };
+    let port_language = if mojo { "Mojo" } else { "Rust" };
     let growth = rust as f64 / source as f64;
     let passed = rust as f64 <= MAX_GROWTH * source as f64 + ALLOWANCE;
     Some(Check {
@@ -199,7 +243,7 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
         name: "size",
         passed,
         detail: format!(
-            "{rust} lines of Rust for {source} lines of {} ({growth:.1}x){}",
+            "{rust} lines of {port_language} for {source} lines of {} ({growth:.1}x){}",
             manifest.language.name(),
             if passed {
                 String::new()
@@ -233,6 +277,7 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
                 .into_iter()
                 .filter(|c| c.name != "panics"),
         );
+        checks.extend(size_check(crate_dir, &manifest));
         checks
     } else {
         let lockfile = lockfile_check(crate_dir);
@@ -1002,6 +1047,18 @@ mod tests {
                     // todo!() in a comment\n";
         assert_eq!(stubs(port), 3);
         assert_eq!(stubs("pub fn ok() -> u8 { 1 }"), 0);
+    }
+
+    #[test]
+    fn generated_mojo_names_every_bridge_file() {
+        for name in [
+            format!("{}.mojo", crate::codegen_mojo_py::NATIVE),
+            format!("{}.mojo", crate::codegen_mojo_c::C_STRUCTS),
+            crate::harness_mojo_c::EXPORTS.to_string(),
+            crate::harness_mojo_c::EXPORTS_SHADOW.to_string(),
+        ] {
+            assert!(super::GENERATED_MOJO.contains(&name.as_str()), "{name}");
+        }
     }
 
     #[test]
