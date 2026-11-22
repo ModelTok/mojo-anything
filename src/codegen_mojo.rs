@@ -95,8 +95,80 @@ pub const STUB_MARK: &str = "not ported: ";
 /// `json.mojo`, the JSON reader and writer emitted into units with structured values.
 pub const JSON_MOJO: &str = include_str!("mojo/json.mojo");
 
+/// The Mojo type for a Go source type; anything structured crosses as `JsonValue`.
+pub fn go_mojo_type(go: &str) -> String {
+    match go.trim() {
+        "int" => "Int",
+        "int8" => "Int8",
+        "int16" => "Int16",
+        "int32" | "rune" => "Int32",
+        "int64" => "Int64",
+        "uint" => "UInt",
+        "uint8" | "byte" => "UInt8",
+        "uint16" => "UInt16",
+        "uint32" => "UInt32",
+        "uint64" | "uintptr" => "UInt64",
+        "float32" => "Float32",
+        "float64" => "Float64",
+        "string" => "String",
+        "bool" => "Bool",
+        "[]string" => "List[String]",
+        _ => "JsonValue",
+    }
+    .to_string()
+}
+
+/// The Mojo types the typed C path carries: scalars and strings.
+const TYPED: &[&str] = &[
+    "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+    "Float32", "Float64", "Bool", "String",
+];
+
+/// Whether a Go port function gets a typed `mojo_anything_t_<name>` export: every parameter and
+/// the result are scalars or strings.
+pub fn go_typed_eligible(f: &PortFn) -> bool {
+    f.params.iter().all(|(_, t)| TYPED.contains(&t.as_str()))
+        && (f.ret == "None" || TYPED.contains(&f.ret.as_str()))
+}
+
+/// Whether a unit needs `json.mojo`: a `JsonValue` in its API, or a function reached through the
+/// JSON dispatcher (every Ruby function; Go functions that are not typed-eligible).
+pub fn needs_json_mojo(lang: crate::lang::Lang, api: &PortApi) -> bool {
+    use crate::lang::Lang;
+    let json_in_api = api.all().any(|f| {
+        f.ret.contains("JsonValue") || f.params.iter().any(|(_, t)| t.contains("JsonValue"))
+    });
+    json_in_api
+        || match lang {
+            Lang::Ruby => true,
+            Lang::Go => !api.functions.iter().all(go_typed_eligible),
+            _ => false,
+        }
+}
+
+/// A Go result list as written in the manifest (`(T, error)`): its Mojo type, `None` for none.
+/// Several results cross as one JSON array.
+fn go_ret_mojo(native: &str) -> Option<String> {
+    let inner = native.trim().trim_start_matches('(').trim_end_matches(')');
+    let results: Vec<&str> = inner
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty() && *r != "error")
+        .collect();
+    match results.as_slice() {
+        [] => None,
+        [one] => Some(go_mojo_type(one)),
+        _ => Some("JsonValue".into()),
+    }
+}
+
 /// The Mojo type of a port parameter.
 fn param_mojo(m: &Manifest, p: &crate::ts::exports::Param) -> String {
+    if m.language == crate::lang::Lang::Go
+        && let Some(go) = &p.native_type
+    {
+        return go_mojo_type(go);
+    }
     let t = if crate::codegen_py::has_literal_default(p) {
         RType::from_ts(&p.ts_type)
     } else {
@@ -121,9 +193,11 @@ pub fn port_mojo(m: &Manifest) -> String {
             .iter()
             .map(|p| format!("{}: {}", mojo_ident(&p.name), param_mojo(m, p)))
             .collect();
-        let ret = ret_mojo(m, &f.returns)
-            .map(|t| format!(" -> {t}"))
-            .unwrap_or_default();
+        let ret = match (&f.native_return, m.language) {
+            (Some(native), crate::lang::Lang::Go) => go_ret_mojo(native),
+            _ => ret_mojo(m, &f.returns),
+        };
+        let ret = ret.map(|t| format!(" -> {t}")).unwrap_or_default();
         let _ = writeln!(
             body,
             "\n\n# Port of `{}` (`{}:{}`).",
@@ -165,6 +239,9 @@ pub fn port_mojo(m: &Manifest) -> String {
     }
     if body.contains("PyNum") {
         out.push_str("\nfrom py_num import PyNum\n");
+    }
+    if body.contains("JsonValue") {
+        out.push_str("\nfrom json import JsonValue\n");
     }
     out.push_str(&body);
     out
@@ -365,6 +442,112 @@ mod tests {
         );
         assert_eq!(f.ret, "Bool");
         assert!(!f.fallible);
+    }
+
+    fn unit(language: &str, exports: &str) -> Manifest {
+        serde_json::from_str(&format!(
+            r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "u",
+                "language": "{language}", "kind": "ffi", "crate_name": "u-mojo",
+                "exports": [{exports}]}}"#
+        ))
+        .unwrap()
+    }
+
+    fn go_fn(name: &str, params: &[(&str, &str)], ret: &str) -> String {
+        let params: Vec<String> = params
+            .iter()
+            .map(|(n, t)| {
+                format!(
+                    r#"{{"name": "{n}", "ts_type": "int", "optional": false, "rest": false,
+                         "native_type": "{t}"}}"#
+                )
+            })
+            .collect();
+        format!(
+            r#"{{"name": "{name}", "file": "p.go", "line": 1, "params": [{}],
+                "returns": "unknown", "native_return": "{ret}", "is_async": false,
+                "is_generator": false, "type_params": [], "uses_instanceof": false}}"#,
+            params.join(", ")
+        )
+    }
+
+    #[test]
+    fn go_mojo_types() {
+        for (go, mojo) in [
+            ("int", "Int"),
+            ("int64", "Int64"),
+            ("uint64", "UInt64"),
+            ("float64", "Float64"),
+            ("string", "String"),
+            ("bool", "Bool"),
+            ("[]string", "List[String]"),
+            ("map[string]int", "JsonValue"),
+            ("Point", "JsonValue"),
+        ] {
+            assert_eq!(go_mojo_type(go), mojo, "{go}");
+        }
+        let src = port_mojo(&unit(
+            "go",
+            &go_fn(
+                "Split",
+                &[("s", "string"), ("n", "uint64")],
+                "([]string, error)",
+            ),
+        ));
+        assert!(
+            src.contains("def split(s: String, n: UInt64) raises -> List[String]:"),
+            "{src}"
+        );
+        let src = port_mojo(&unit("go", &go_fn("Pair", &[], "(int, string)")));
+        assert!(src.contains("def pair() raises -> JsonValue:"), "{src}");
+        assert!(src.contains("from json import JsonValue"), "{src}");
+        let src = port_mojo(&unit("go", &go_fn("Check", &[], "(error)")));
+        assert!(src.contains("def check() raises:"), "{src}");
+    }
+
+    #[test]
+    fn scalar_go_unit_has_no_json() {
+        let src = port_mojo(&unit(
+            "go",
+            &go_fn("Clean", &[("path", "string")], "(string)"),
+        ));
+        assert!(!src.contains("json"), "{src}");
+        let api = parse_port_mojo(&src);
+        assert!(api.functions.iter().all(go_typed_eligible));
+        assert!(!needs_json_mojo(crate::lang::Lang::Go, &api), "{src}");
+        let src = port_mojo(&unit(
+            "go",
+            &go_fn("Fields", &[("s", "string")], "([]string)"),
+        ));
+        let api = parse_port_mojo(&src);
+        assert!(!go_typed_eligible(&api.functions[0]));
+        assert!(needs_json_mojo(crate::lang::Lang::Go, &api), "{src}");
+    }
+
+    #[test]
+    fn ruby_unit_has_json() {
+        let m = unit(
+            "ruby",
+            r#"{"name": "shellsplit", "file": "s.rb", "line": 1,
+                "params": [{"name": "line", "ts_type": "unknown", "optional": false,
+                            "rest": false}],
+                "returns": "unknown", "is_async": false, "is_generator": false,
+                "type_params": [], "uses_instanceof": false}"#,
+        );
+        let src = port_mojo(&m);
+        assert!(
+            src.contains("def shellsplit(line: JsonValue) raises -> JsonValue:"),
+            "{src}"
+        );
+        assert!(src.contains("from json import JsonValue"), "{src}");
+        assert!(needs_json_mojo(
+            crate::lang::Lang::Ruby,
+            &parse_port_mojo(&src)
+        ));
+        assert!(needs_json_mojo(
+            crate::lang::Lang::Ruby,
+            &parse_port_mojo("def f() raises:\n    pass\n")
+        ));
     }
 
     #[test]

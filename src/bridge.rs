@@ -374,7 +374,8 @@ impl RType {
             Self::Unit => "None".into(),
             Self::Vec(t) => format!("List[{}]", t.mojo(lang)),
             Self::Opt(t) => format!("Optional[{}]", t.mojo(lang)),
-            Self::Json => "PythonObject".into(),
+            Self::Json if lang == Lang::Python => "PythonObject".into(),
+            Self::Json => "JsonValue".into(),
         }
     }
 
