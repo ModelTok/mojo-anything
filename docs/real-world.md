@@ -25,57 +25,36 @@ Found in the tool, and fixed:
 ## vercel/ms
 
 [vercel/ms](https://github.com/vercel/ms) (5.5k stars, commit `4ff48ce`) turns `"2 days"` into
-milliseconds and back; most Node projects pull it in through some dependency. Ported end to end
-with rust-anything 1.5.1; the crate is in
-[`demo/real-world/vercel-ms-rs`](../demo/real-world/vercel-ms-rs).
+milliseconds and back; most Node projects pull it in through some dependency. Ported to Mojo 1.2.0
+on 2026-11-22; the unit is in [`demo/real-world/vercel-ms-mojo`](../demo/real-world/vercel-ms-mojo).
 
 | Step | Result |
 | --- | --- |
-| `analyze` | 1 unit (`src/index.ts`), ready, readiness 96 |
-| `bridge --kind napi` | `ms`, `parse`, `parseStrict` and `format` bridged, none kept in TS |
-| `record --from-tests -- jest` | 975 cases: generated ones, traps, and 340 calls captured from vercel/ms's 167 Jest tests (the first port used 149 inputs copied from them by hand) |
-| port | 200 lines of Rust for 184 of TS, including a `FormatIndex` that reads `options` once per batch |
-| `diff` | 784/784 matched on the first build; 975/975 with the captured calls |
-| `gate` | passes (fmt, clippy, tests, error paths, size, behavior) |
-| `bench`, per call | 0.56x over the recorded cases (0.39x at first): `parse` on a normal string takes 79 ns, level with JS, but edge cases and thrown errors still cost more through the bridge |
-| batch, `parse` x100,000 | JS 11.8 ms, Rust 0.65 ms: **18x**; 3.4x counting the one-time handover of the strings (2.1x before strings crossed joined) |
-| batch, `format` x100,000 | JS 2.1 ms, Rust 2.5 ms with the handover: **0.8x** (0.2x at first); `format(x, { long: true })` 1.2x |
+| `bridge --kind node` | `ms`, `parse`, `parseStrict` and `format` bridged to a Node-API addon over the Mojo dispatcher |
+| `record --inputs` | 1,128 cases: generated ones, regex traps, and the 489 inputs of the Rust-era demo (149 copied from the Jest tests by hand, 340 captured by `record --from-tests`); 95% of the original's lines ran |
+| port | 336 lines of Mojo for 184 of TS (1.8x): every parameter is a `JsonValue`, since the original checks types at run time and throws its own errors |
+| `diff` | 1,128/1,128 on the first build; 975/975 on the Rust-era recording (`cases.rust-era.jsonl`, recorded with `--from-tests -- jest`) |
+| `gate` | passes (mojo format, ported, unsafe, error cases, size, build, api, behavior) |
+| `bench` | not run yet: the machine was busy, and numbers taken under load are off by a wide margin |
 
 What the port had to get right, all caught by recorded cases or traps:
 
-- `/.../i` without the `u` flag folds only ASCII letters, while Rust's `regex` folds Unicode, so
-  `"1 ſ"` (long s) and the Kelvin sign would have parsed as seconds. The port matches units by
-  hand, ASCII only.
-- `Math.round` rounds halves up (`-2.5` gives `-2`); Rust's `round` goes away from zero.
-- `${n}` prints `1e+21`, `5e-324` and `0` for `-0`; the port reproduces JS number-to-string.
-  Its first version also had a tie bug (`25.728225708007812` printed as `...813`) that ms's
-  integer outputs never reach.
+- `/.../i` without the `u` flag folds only ASCII letters, so `"1 ſ"` (long s) and the Kelvin sign
+  are not seconds. The port matches units by hand, ASCII only.
+- `Math.round` rounds halves up (`-2.5` gives `-2`); the port floors and adds one at a half.
+- `${n}` prints `1e+21`, `5e-324` and `0` for `-0`. Mojo's `String(Float64)` gives the shortest
+  round-trip digits in its own layout (`1e-07`, `100.0`); the port lays those digits out by the
+  ECMAScript rules.
 - `str.length` counts UTF-16 units, so the 100-character limit counts an emoji as two.
+- The error messages quote the argument with `JSON.stringify`, `undefined` included; the port
+  writes JSON the way JS does instead of using EmberJson's writer.
 
-Found in the tool, and fixed: a napi batch method with a structured parameter (`format`'s
-`options`) did not compile, since the generated binding took a `serde_json::Value` that napi
-cannot convert without its `serde-json` feature. Crates with batch classes now enable it.
+The Rust era (rust-anything 1.5.1, napi-rs): the same four functions in 200 lines of Rust,
+975/975, 0.56x per call over the recorded cases and 18x for `parse` over 100,000 strings in one
+batch (3.4x counting the handover). Those numbers belong to that port and do not carry over.
 
-Taken back into the tool from this port:
-
-- The generated `js.rs` has `js::number_to_string` and `js::math_round`, checked against Node on
-  20,000 random doubles; the port uses them instead of its own copies. `number_to_string` takes
-  its digits from serde_json's printer: 5x faster than `format!` for integers, 3x for fractions.
-- napi batches send string items as one joined string with UTF-16 end offsets, number items as
-  one `Float64Array`, and return string results joined (`index.cjs` splits them with `slice`):
-  2x faster for strings and 20x for numbers than one JS value per item. `new Batch(items)` and
-  `run()` keep their shape.
-- `analyze` flags `Math.round`, `toFixed` and `/i` regexes without `u` that mention `s` or `k`,
-  with guidance on each.
-- Calls cost less: on napi every sync function goes over the binary wire with no napi arguments
-  (an argument costs about 55 ns, the whole call 22 ns), one JS wrapper per function instead of
-  two, `serde_json::Value` parameters cross as tagged values of any shape, and errors come back
-  in the wire buffer. `parse` per call went from 121 to 79 ns.
-- `record --from-tests` replaces copying test inputs by hand: it records each call the suite makes
-  while the tests run, with the capture code kept out of coverage (ms enforces 100%).
-
-The verdict: `ms` is a good port and a bad speed target. Correct on every recorded case, faster
-only when a program parses many durations in one go.
+The verdict so far: `ms` ports to Mojo cleanly, correct on every recorded case; whether the Node
+addon is any faster than JS per call is for `bench` to say.
 
 ## Fuse.js
 

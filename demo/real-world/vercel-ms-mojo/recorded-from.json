@@ -1,0 +1,17 @@
+{
+  "unit": "src/index.ts",
+  "files": 1,
+  "fingerprint": "9df744f965fb9b27",
+  "coverage": {
+    "lines": 227,
+    "reached": 215,
+    "files": [
+      {
+        "file": "src/index.ts",
+        "lines": 227,
+        "reached": 215,
+        "missed": "105, 123-125, 129-131, 141-145"
+      }
+    ]
+  }
+}
