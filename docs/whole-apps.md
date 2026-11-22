@@ -7,7 +7,7 @@ the [README](../README.md).
 
 The goal is an app that behaves like the original without it: for a CLI, a pure Mojo binary.
 Your agent writes the Mojo; mojo-anything orders the work, scaffolds it, and proves every step.
-The [whole-app skill](../skills/rust-anything/whole-app.md) walks the agent through it, starting
+The [whole-app skill](../skills/mojo-anything/whole-app.md) walks the agent through it, starting
 with the decisions only you can make:
 
 - **Grilling**: the agent asks in rounds, each question with its recommended answer, until every
@@ -75,7 +75,7 @@ and `app replay` prove the app, for CLIs and servers in any language (the app is
 
 ```sh
 mojo-anything app record . -- python3 cli.py          # the command that runs the original
-mojo-anything app replay .                            # the original must pass 100%
+mojo-anything app replay .                            # the original must pass every case
 mojo-anything app replay . --build "mojo/app/.mojo-anything/build/mytool"
 ```
 
@@ -113,7 +113,7 @@ Then move the entry point to Mojo and hand it commands one unit at a time:
 mojo-anything app front-door .                            # mojo/app: every command runs the original
 mojo-anything app wire . textops-mojo --command upper     # a Mojo unit: a folder with port.mojo
 # write the glue in mojo/app/glue/textops.mojo, then:
-mojo-anything app wire . textops-mojo                     # 100% again, lower fallback rate
+mojo-anything app wire . textops-mojo                     # every case again, lower fallback rate
 ```
 
 - `app front-door` scaffolds `mojo/app`, a pixi project with a Mojo binary named after the app:
@@ -126,7 +126,7 @@ mojo-anything app wire . textops-mojo                     # 100% again, lower fa
   `mojo/app/.mojo-anything/build/<binary>`, with the repository built in; at run time
   `MOJO_ANYTHING_REPO` wins, so a front door started from elsewhere, or through a symlinked
   `mojo/`, still finds the original. Each fallback is counted, so replaying the fresh front door
-  gives 100% passed at 100% fallback (it builds and replays to show it). It never overwrites
+  passes every case with every case falling back (it builds and replays to show it). It never overwrites
   `mojo/app`: the code is yours from then on.
 - A command goes to its unit only when every option on its command line is one the recording saw
   for it, in any case (a recorded usage error counts: replay checks the glue's answer to it); any
@@ -145,7 +145,7 @@ mojo-anything app wire . textops-mojo                     # 100% again, lower fa
   `open("/dev/stdin", "r").read_bytes()`; write bytes with `stdout.write_bytes(...)` from
   `std.sys`). Each such call is one fallback.
 - `MOJO_ANYTHING_UNIT_<NAME>=original` sends a wired unit back to the original until the lift.
-  Units written in Rust (Java and Kotlin, until they move to Mojo) cannot be wired into a CLI.
+  Java and Kotlin units (`mojo-jvm`) cannot be wired into a CLI.
 
 Wire the app's own name as a command (`--command mytool`) for argv that names no command: no
 arguments, options only, unknown commands, usage errors.
@@ -178,7 +178,8 @@ A real run: CPython's `quopri` command line. Its `encodestring` and `decodestrin
 `bridge`, `record` (481 cases), the port, `diff` and `gate`; the CLI was recorded on 163 cases
 (usage errors and missing files included), front-doored, wired to that unit with glue for
 `main()` and lifted; the pure Mojo binary passes 163/163 with the original moved away
-([`demo/real-world/python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md)).
+([`demo/real-world/python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md),
+[log](measurements/2026-11-22-quopri.md)).
 
 ### Servers
 
@@ -203,7 +204,7 @@ mojo-anything app lift .
   or folder, repeatable) is snapshotted into `http/files/` and copied into a new working
   directory each time the original, the front door or a build starts; `--arg db.json` is an
   argument every start gets after its command, so the new binary is started as the original is.
-  `--pace 50` waits 50 ms after each response, for work a server does after answering (a file
+  `--pace 50` waits fifty milliseconds after each response, for work a server does after answering (a file
   watcher reloading what it just wrote).
 - Cases are `mojo/app-cases/http/<case>.toml` (the request, the status and the headers that
   matter) and `<case>.body` (the response body, with `[..]` where two runs differed). Date, server
@@ -214,7 +215,7 @@ mojo-anything app lift .
   of its own and proxies to it, `units.mojo` routes), built with `mojo build --Werror` into
   `mojo/app/.mojo-anything/build`. It answers one request at a time; an idle keep-alive
   connection is closed as soon as another client waits, and a connection that sends nothing for
-  5 s is closed. It listens on 127.0.0.1 only (`MOJO_ANYTHING_HOST=0.0.0.0` listens on every
+  five seconds is closed. It listens on 127.0.0.1 only (`MOJO_ANYTHING_HOST=0.0.0.0` listens on every
   address, for an original that did; IPv6 is not served). It takes its port where the recording
   passed `{port}` (`--arg=--port --arg={port}`), else from `PORT`, else 8080; the original gets
   the recorded arguments with its own private port, never the front door's arguments. A replay
@@ -260,7 +261,7 @@ mojo-anything app lift .
   manifest), runs `gate`, and writes the unit's shadow drop-in: the original package imports it in
   place of the unit, so its callers keep the original API and reach the port.
   `MOJO_ANYTHING_UNIT_<NAME>=original` sends the unit back (C: build without the shadow's flags).
-  Units bridged to Rust (Java and Kotlin, until they move to Mojo) are refused.
+  Java and Kotlin units on `mojo-jvm` are refused.
 - `app replay` runs every wired unit's recorded cases through its bindings (build each unit with
   `mojo-anything build` first). The fallback rate is the share of public exports the port does not
   answer yet: unwired units, and exports `bridge` keeps in the original language.

@@ -1,48 +1,46 @@
 # Examples and case studies
 
-Real modules ported with rust-anything, with the commands and the numbers. Back to the [README](../README.md).
-
-## Case study: x18n's core
-
-All 29 functions of x18n's core that can move without an API change were ported with rust-anything:
-every gate passes and 7,925 recorded cases match exactly. `rust-anything bench` then showed the ports
-are slower than the TS as called from JS, because the bridge costs more than the work. Full report:
-[`demo/x18n-core`](../demo/x18n-core/README.md). The lesson is built in: measure with `bench` before
-shipping a port.
+Real modules ported with mojo-anything, with the commands. Back to the [README](../README.md).
 
 ## Real code in six languages
 
-Go's `path`, Ruby's `shellwords`, Python's `colorsys`, JDK and glibc behavior behind small
-facades: every port passes its gate, 13,010 recorded cases in all. The runs found and fixed
-bugs in rust-anything (floats off by one ULP through `serde_json`, C crashes during recording,
-untyped code getting garbage inputs). Called per function, the Ruby port runs 4.4x faster than
-Ruby and the Python port 1.35x faster than CPython, while Go and Java leaf functions stay faster
-in their own language; as batches, all of them win (see the table above).
-Report: [`docs/real-world-languages.md`](real-world-languages.md).
+Go's `path`, Ruby's `shellwords`, Python's `colorsys` and `quopri`, vercel/ms, ffmpeg's
+`rational.c`, and JDK and glibc behaviour behind small facades, each ported to Mojo and checked
+against its recording: [Real code in six languages](real-world-languages.md) and
+[vercel/ms](real-world.md#vercelms-on-mojo), each with the log of the run that checked it. The
+ports are in [`demo/real-world`](../demo/real-world/README.md).
 
-## Example: a real module from x18n
+## Example: a Python module
 
-`packages/core/src/fuzzy.ts` from [x18n](https://github.com/x18n-dev/x18n), ported to Rust before
-mojo-anything targeted Mojo (the napi-rs and wasm-bindgen crates were removed with those bridges;
-the TS/JS example in Mojo is [`demo/real-world/vercel-ms-mojo`](../demo/real-world/vercel-ms-mojo)):
+`colorsys.py` from CPython, in a project with a `pyproject.toml`:
 
 ```sh
-rust-anything analyze ../x18n                                      # fuzzy.ts: ready, wasm-bindgen (core runs in browsers)
-rust-anything bridge ../x18n packages/core/src/fuzzy.ts --out demo/fuzzy-rs
-rust-anything record demo/fuzzy-rs --count 2000
-# write src/port.rs
-rust-anything gate demo/fuzzy-rs
+mojo-anything analyze .                                  # the units, and the bridge for each (mojo-py)
+mojo-anything bridge . src/colorsys_pkg/                 # mojo/colorsys-pkg-mojo
+mojo-anything record mojo/colorsys-pkg-mojo              # what the original does
+# write port.mojo
+mojo-anything build mojo/colorsys-pkg-mojo
+mojo-anything diff mojo/colorsys-pkg-mojo
+mojo-anything gate mojo/colorsys-pkg-mojo
 ```
 
-A first port that indexed by Rust `char` passed simple tests but failed `diff`:
+`colorsys` has no type hints, and keeps ints through `+`, `-` and `*` (`hsv_to_rgb(0, 0, 7)` is
+`(7, 7, 7)`, not `(7.0, 7.0, 7.0)`). A port computing in `Float64` fails `diff` on the cases where
+ints go in and come back out; the port in
+[`demo/real-world/python-colorsys-mojo`](../demo/real-world/python-colorsys-mojo) computes with a
+small int-or-float type (`py_num.mojo`) instead, and matches every recorded case.
 
-```
-198/200 cases match
-- fuzzyScore("b😀", "a😀b😀c"): expected {"ok":1997}, got {"ok":1998}
-```
+## Example: a whole CLI
 
-JS `indexOf` counts UTF-16 code units, so an emoji is two positions. The Rust port used
-the generated `utf16` helpers and passed 2000/2000 cases and the gate, as napi-rs and as
-wasm-bindgen.
+CPython's `quopri` command line, from `python3 quopri.py` to a pure Mojo binary through one
+bridged unit, a front door, glue for `main()` and `app lift`:
+[the report](real-world-languages.md#a-whole-cli-lifted-to-mojo-cpythons-quopri) and
+[`demo/real-world/python-quopri-mojo`](../demo/real-world/python-quopri-mojo/README.md).
 
-The plan rust-anything writes for all of x18n: [`docs/examples/x18n.md`](examples/x18n.md).
+## rust-anything's case studies
+
+x18n's core, Fuse.js, json-server, Prettier, ffmpeg's libavutil and ESLint were ported to Rust
+by rust-anything before this fork targeted Mojo. They are kept as
+[history](real-world.md#rust-anything-history-rust-ports-not-mojo), and the plan
+rust-anything wrote for all of x18n is in [`docs/examples/x18n.md`](examples/x18n.md); none of it
+is a Mojo result.

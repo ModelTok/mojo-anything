@@ -184,7 +184,7 @@ Lay out installable packages for a gated Mojo port; writes files only, never bui
 
 Tool `gate` · CLI `mojo-anything gate`
 
-Definition of done for a Mojo port: port.mojo formatted as mojo format writes it, every test_*.mojo passes under mojo run, no function still a stub, abort, raw pointers and external_call only with a # SAFETY: comment (c-abi: no pointers in port.mojo at all), every place the original fails on purpose reached by a recorded failing case, the port at most 3x the original's lines plus 50, mojo build --Werror, every export present (C exports for c-abi, the original classes' public members for mojo-jvm), recorded behaviour matches.
+Definition of done for a Mojo port: port.mojo formatted as mojo format writes it, every test_*.mojo passes under mojo run, no function still a stub, abort, raw pointers and external_call only with a # SAFETY: comment (c-abi: no pointers in port.mojo at all), every place the original fails on purpose reached by a recorded failing case, the port at most three times the original's lines plus 50, mojo build --Werror, every export present (C exports for c-abi, the original classes' public members for mojo-jvm), recorded behaviour matches.
 
 Runs the original's code or commands.
 
@@ -242,7 +242,7 @@ Runs the original's code or commands.
 
 Tool `app_front_door` · CLI `mojo-anything app front-door`
 
-Scaffold <repo>/mojo/app, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original with the same argv, stdin bytes, env and exit status (each fallback counted). For a server: a Mojo server (libc sockets, TCP_NODELAY) that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: 100% passed at 100% fallback. Needs app_record first; never overwrites mojo/app.
+Scaffold <repo>/mojo/app, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original with the same argv, stdin bytes, env and exit status (each fallback counted). For a server: a Mojo server (libc sockets, TCP_NODELAY) that starts the original on a port of its own and proxies every route no unit answers. Builds it and replays the cases: every case passes, every case falling back. Needs app_record first; never overwrites mojo/app.
 
 Runs the original's code or commands.
 
@@ -256,7 +256,7 @@ Runs the original's code or commands.
 
 Tool `app_wire` · CLI `mojo-anything app wire`
 
-After a unit passes gate, hand its commands to its port. A CLI takes a Mojo unit (a folder under mojo/ with port.mojo): writes a glue stub mojo/app/glue/<unit>.mojo, one `def <command>(args: List[String]) raises -> Int` per command (yours to write: parse args, call `port` from `from <unit> import port`, print what the original prints; `original.run(args)` or `original.run_with_stdin(args, input)` hands a case back), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. A library takes a Mojo unit `bridge` made: it is re-exported from mojo/app/__init__.mojo and its shadow drop-in is written for the original package. A server takes a Mojo unit too: one `def <route_fn>(req: http.Request, params: Dict[String, String]) raises -> http.Response` per route in mojo/app/glue/<unit>.mojo (`original.proxy(req)` hands a request back). Run it again after writing the glue: 100% passed and a lower fallback rate.
+After a unit passes gate, hand its commands to its port. A CLI takes a Mojo unit (a folder under mojo/ with port.mojo): writes a glue stub mojo/app/glue/<unit>.mojo, one `def <command>(args: List[String]) raises -> Int` per command (yours to write: parse args, call `port` from `from <unit> import port`, print what the original prints; `original.run(args)` or `original.run_with_stdin(args, input)` hands a case back), regenerates the routing with a kill switch MOJO_ANYTHING_UNIT_<NAME>=original, then builds and replays. A library takes a Mojo unit `bridge` made: it is re-exported from mojo/app/__init__.mojo and its shadow drop-in is written for the original package. A server takes a Mojo unit too: one `def <route_fn>(req: http.Request, params: Dict[String, String]) raises -> http.Response` per route in mojo/app/glue/<unit>.mojo (`original.proxy(req)` hands a request back). Run it again after writing the glue: every case passes, with a lower fallback rate.
 
 Runs the original's code or commands.
 

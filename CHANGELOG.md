@@ -1,11 +1,40 @@
 # Changelog
 
-## Unreleased
+## Unreleased (mojo-anything 0.1.0)
 
-- CPython's `quopri` command line is lifted to a pure Mojo binary through a bridged unit
-  (`demo/real-world/python-quopri-mojo`, 481/481 unit cases, 163/163 CLI cases), replacing the
-  hand-written `base64` demo. A Python unit's bytes now cross the bindings as `List[UInt8]`, and
-  options seen in failing recorded cases (usage errors) reach the glue instead of the original.
+mojo-anything is a fork of rust-anything that ports to Mojo instead of Rust. Nothing is released
+yet.
+
+- Every bridge writes a Mojo port (`port.mojo`) behind bindings the original language loads:
+  `mojo-node` (a Node-API addon) and `mojo-wasm` (a wasm64 module, Node 24) for TS/JS, `mojo-py`
+  (a Python extension module) for Python, `c-abi` for C, `ffi` (a JSON dispatcher over cgo or
+  Fiddle) for Go and Ruby, and `mojo-jvm` (Java's Foreign Function & Memory API, Java 22+) for
+  Java and Kotlin. Every unit pins Mojo 1.2.0 through pixi. The napi-rs, PyO3, magnus, JNI and
+  wasm-bindgen bridges, the binary wire and Android are gone.
+- `gate` checks Mojo ports: `mojo format`, the unit's `test_*.mojo`, nothing unported, every
+  `abort`, pointer and `external_call` explained, error cases, size, build, API and behaviour
+  (plus `java api` for Java and Kotlin units).
+- Whole apps: the CLI, server and library front doors are Mojo (`mojo/app`), and `app lift` makes
+  a pure Mojo binary or package. CPython's `quopri` command line is lifted to a pure Mojo binary
+  through a bridged unit (`demo/real-world/python-quopri-mojo`): 481/481 unit cases and 163/163
+  CLI cases, checked again on 2026-11-22 ([log](docs/measurements/2026-11-22-quopri.md)).
+- `package` lays out wheels, npm packages, gems, Go modules, C archives and jars of Mojo ports;
+  `doctor` checks pixi and Mojo; the npm package is a launcher that downloads the release binary.
+- Real code ported to Mojo and checked: vercel/ms, CPython's `colorsys` and `quopri`, Go's `path`,
+  Ruby's `shellwords`, ffmpeg's `rational.c`, and JDK and glibc behaviour behind facades
+  ([Real code in six languages](docs/real-world-languages.md)). Timings are not published yet.
+- Docs: every number with a unit names its measurement log under `docs/measurements/`
+  (`scripts/check-doc-numbers.py`, run by `cargo test`); rust-anything's results stay only as
+  labelled history.
+
+## rust-anything history (Rust ports, not Mojo)
+<!-- doc-numbers: history -->
+
+The entries below are rust-anything's, from before the fork. Their numbers were measured on Rust
+ports and do not describe Mojo.
+
+### Unreleased in rust-anything (before the fork)
+
 - Prettier demo: about 75 differences from Prettier 3.6.2 outside the recorded corpus, found by
   differential fuzzing, mutation testing and a Doc-level comparison, are fixed or handed to
   Prettier. 355 new cases and the checks are in `demo/real-world/prettier-rs/equiv`. The
@@ -131,7 +160,7 @@
   to Build Tools already installed, the fix also says how to add the workload by hand. A fix of
   several commands prints one per line.
 
-## 2.1.0 (2026-11-20)
+### 2.1.0 (2026-11-20)
 
 - `app record --float-file PATH=f32le|f64le`: a written file of raw floats is compared value by
   value within `--float-tolerance` instead of byte for byte, and a mismatch reports the count,
@@ -163,12 +192,12 @@
 - `bridge --allocator rusty_alloc`: an opt-in pure-Rust global allocator for batch crates (wasm
   too), kept by `refresh` and taken by the MCP `bridge` tool. mimalloc stays the default (#112).
 
-## 2.0.2 (2026-11-19)
+### 2.0.2 (2026-11-19)
 
 - The npm package carries `mcpName`, and `server.json` describes the MCP server, so it can be
   listed in the official MCP Registry as `io.github.erkamyaman/rust-anything`.
 
-## 2.0.1 (2026-11-19)
+### 2.0.1 (2026-11-19)
 
 - `record`: string traps now include characters that languages classify differently (`²`, `Ⅰ`,
   `½`, `①`, vowel signs such as `ि`, Arabic-Indic digits and letters beyond U+FFFF), so a port
@@ -185,7 +214,7 @@
 - `setup`: a Codex entry written as an inline table (`rust-anything = { ..., env = { ... } }`)
   keeps its other keys on reinstall, as a `[mcp_servers.rust-anything]` table already did.
 
-## 2.0.0 (2026-11-19)
+### 2.0.0 (2026-11-19)
 
 Highlights:
 
@@ -317,7 +346,7 @@ Changed: `diff` exits non-zero when the recording is stale (it printed a warning
 - `analyze` flags `Math.round`, `toFixed`, and `/i` regexes without `u` where Rust's case folding
   matches more (`ſ`, the Kelvin sign).
 
-## 1.5.1 (2026-11-18)
+### 1.5.1 (2026-11-18)
 
 - Fix ([#80](https://github.com/erkamyaman/rust-anything/issues/80)): `record` could stall for good
   when a generated input made the original run away (a trap like `2147483647` in `[w] * n`
@@ -326,7 +355,7 @@ Changed: `diff` exits non-zero when the recording is stale (it printed a warning
   `RUST_ANYTHING_CASE_TIMEOUT`) stops the original, the cases recorded so far are kept, and that
   input is left out and listed. Drivers now write each case as it finishes instead of at the end.
 
-## 1.5.0 (2026-11-18)
+### 1.5.0 (2026-11-18)
 
 Twenty-two contributions from the community, Windows in CI, and a README in 16 languages.
 
@@ -358,7 +387,7 @@ Twenty-two contributions from the community, Windows in CI, and a README in 16 l
 - A social preview image (`docs/assets/social-preview.png`) without a version or star count, so
   link cards never go stale.
 
-## 1.4.0 (2026-11-18)
+### 1.4.0 (2026-11-18)
 
 Fixes from the first round of outside issues and pull requests, and the project's community files.
 
@@ -383,7 +412,7 @@ Fixes from the first round of outside issues and pull requests, and the project'
   and ACCESSIBILITY, issue and pull request templates. The README names its author up top, opens
   with the speed demo, and lists its sponsors.
 
-## 1.3.0 (2026-11-18)
+### 1.3.0 (2026-11-18)
 
 Two new languages in preview (PHP and C#), a stricter `diff`, a sturdier napi bridge, and 18
 fixes from the first outside contributor.
@@ -467,7 +496,7 @@ fixes from the first outside contributor.
   like #4 fail CI instead of reaching users.
 - A `.github/FUNDING.yml` turns on the repository's Sponsor button.
 
-## 1.2.0 (2026-11-17)
+### 1.2.0 (2026-11-17)
 
 Numeric code, already compiled code, and the edges of what a recording proves, after the first
 round of feedback. rust-anything is now on crates.io: `cargo install rust-anything`.
@@ -497,7 +526,7 @@ round of feedback. rust-anything is now on crates.io: `cargo install rust-anythi
   that carry LLVM bitcode, which every Rust static library does; cgo links the shared library
   anyway. Run `rust-anything refresh <crate>` on a Go crate bridged by an earlier version.
 
-## 1.1.0 (2026-11-16)
+### 1.1.0 (2026-11-16)
 
 Whole-app ports: rust-anything now takes a TypeScript/JavaScript, Python, C, Go, Ruby or Java app
 all the way to a pure Rust app, proving at every step that it still behaves the same. CLIs and HTTP
@@ -559,11 +588,11 @@ far); every `app` command is also an MCP tool (`app_record`, `app_replay`, `app_
 - The pitch is now rewriting a whole app in Rust; making the slow part fast stays as a smaller use
   of the same tool.
 
-## 1.0.1 (2026-11-16)
+### 1.0.1 (2026-11-16)
 
 - npm: one `rust-anything` package that carries the binaries for macOS, Linux and Windows.
 
-## 1.0.0 (2026-11-16)
+### 1.0.0 (2026-11-16)
 
 First version: the full loop for TypeScript/JavaScript, Python, C, Go, Ruby and Java.
 

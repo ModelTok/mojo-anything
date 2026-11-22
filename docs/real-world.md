@@ -1,8 +1,64 @@
 # Real-world runs
 
-What happened when rust-anything met real code, and what changed in the tool because of it.
+What happened when mojo-anything met real code, and what changed in the tool because of it. The
+Mojo runs in other languages (Go, Ruby, Python, Java, C) are in
+[Real code in six languages](real-world-languages.md). The second half of this page is
+rust-anything's history: runs of the Rust ports this fork started from, kept as history and
+labelled so.
 
-## x18n (the case-study repository)
+## Mojo runs
+
+### vercel/ms on Mojo
+
+[vercel/ms](https://github.com/vercel/ms) (commit `4ff48ce`) turns `"2 days"` into milliseconds
+and back; most Node projects pull it in through some dependency. Ported to Mojo 1.2.0 on
+2026-11-22; the unit is in [`demo/real-world/vercel-ms-mojo`](../demo/real-world/vercel-ms-mojo).
+
+| Step | What it did |
+| --- | --- |
+| `bridge --kind node` | `ms`, `parse`, `parseStrict` and `format` bridged to a Node-API addon over the Mojo dispatcher |
+| `record --inputs` | 1,128 cases: generated ones, regex traps, and the 489 inputs of the Rust-era demo (149 copied from the Jest tests by hand, 340 captured by `record --from-tests`) |
+| port | every parameter is a `JsonValue`, since the original checks types at run time and throws its own errors |
+| `diff`, `gate` | every case matched on the first build; gate passes |
+
+Checked again on 2026-11-22 from a copy of the demo in a vercel/ms checkout, on Node 24
+([log](measurements/2026-11-22-vercel-ms-node.md)): `diff` 1,128/1,128, and 975/975 on
+`cases.rust-era.jsonl` (the recording rust-anything's napi-rs port passed, made with
+`--from-tests -- jest`); `gate` passes every check, with 336 lines of Mojo for 184 of TS (1.8x).
+The recorded cases ran 215 of the 227 lines of `src/index.ts`. Built, the addon is 16,584 bytes
+over a 294,784-byte Mojo library.
+
+On `mojo-wasm` the same port does not build yet ([log](measurements/2026-11-22-vercel-ms-wasm.md)):
+a fresh `bridge --kind wasm` given this `port.mojo` stops in `build`, because the dispatcher's IR
+holds `double +nan(0x7FFFFFFFFFFFF)`, a NaN with a payload, which the rewriter that turns Mojo's
+IR into what mojo-wasm's clang reads refuses. So there is no vercel/ms wasm module, size or case
+count yet.
+
+What the port had to get right, all caught by recorded cases or traps:
+
+- `/.../i` without the `u` flag folds only ASCII letters, so `"1 ſ"` (long s) and the Kelvin sign
+  are not seconds. The port matches units by hand, ASCII only.
+- `Math.round` rounds halves up (`-2.5` gives `-2`); the port floors and adds one at a half.
+- `${n}` prints `1e+21`, `5e-324` and `0` for `-0`. Mojo's `String(Float64)` gives the shortest
+  round-trip digits in its own layout (`1e-07`, `100.0`); the port lays those digits out by the
+  ECMAScript rules.
+- `str.length` counts UTF-16 units, so the 100-character limit counts an emoji as two.
+- The error messages quote the argument with `JSON.stringify`, `undefined` included; the port
+  writes JSON the way JS does instead of using EmberJson's writer.
+
+How fast the addon is against the JS, per call and in batches, is pending a `bench` run on a
+quiet machine.
+
+## rust-anything history (Rust ports, not Mojo)
+<!-- doc-numbers: history -->
+
+Everything from here to the end was measured on rust-anything's Rust ports (napi-rs, PyO3,
+magnus, JNI and wasm-bindgen crates) before this fork targeted Mojo. It is kept as the history
+of the tool's recording, replay and front-door machinery, which those runs shaped. None of
+these numbers describes a Mojo port, and none was measured again: the bridges they used are
+gone, and the Rust crates that remain in `demo/` (`*-rs`) no longer build with mojo-anything.
+
+### x18n (the case-study repository)
 
 | Target | What ran | Result |
 | --- | --- | --- |
@@ -22,41 +78,13 @@ Found in the tool, and fixed:
 - Shaped inputs found a real bug in the `text.ts` port (Infinity in a range), then an order
   dependency on V8's sort with NaN comparators; `js::sort` now reproduces V8.
 
-## vercel/ms
-
-[vercel/ms](https://github.com/vercel/ms) (5.5k stars, commit `4ff48ce`) turns `"2 days"` into
-milliseconds and back; most Node projects pull it in through some dependency. Ported to Mojo 1.2.0
-on 2026-11-22; the unit is in [`demo/real-world/vercel-ms-mojo`](../demo/real-world/vercel-ms-mojo).
-
-| Step | Result |
-| --- | --- |
-| `bridge --kind node` | `ms`, `parse`, `parseStrict` and `format` bridged to a Node-API addon over the Mojo dispatcher |
-| `record --inputs` | 1,128 cases: generated ones, regex traps, and the 489 inputs of the Rust-era demo (149 copied from the Jest tests by hand, 340 captured by `record --from-tests`); 95% of the original's lines ran |
-| port | 336 lines of Mojo for 184 of TS (1.8x): every parameter is a `JsonValue`, since the original checks types at run time and throws its own errors |
-| `diff` | 1,128/1,128 on the first build; 975/975 on the Rust-era recording (`cases.rust-era.jsonl`, recorded with `--from-tests -- jest`) |
-| `gate` | passes (mojo format, ported, unsafe, error cases, size, build, api, behavior) |
-| `bench` | not run yet: the machine was busy, and numbers taken under load are off by a wide margin |
-
-What the port had to get right, all caught by recorded cases or traps:
-
-- `/.../i` without the `u` flag folds only ASCII letters, so `"1 ſ"` (long s) and the Kelvin sign
-  are not seconds. The port matches units by hand, ASCII only.
-- `Math.round` rounds halves up (`-2.5` gives `-2`); the port floors and adds one at a half.
-- `${n}` prints `1e+21`, `5e-324` and `0` for `-0`. Mojo's `String(Float64)` gives the shortest
-  round-trip digits in its own layout (`1e-07`, `100.0`); the port lays those digits out by the
-  ECMAScript rules.
-- `str.length` counts UTF-16 units, so the 100-character limit counts an emoji as two.
-- The error messages quote the argument with `JSON.stringify`, `undefined` included; the port
-  writes JSON the way JS does instead of using EmberJson's writer.
+### vercel/ms (Rust era)
 
 The Rust era (rust-anything 1.5.1, napi-rs): the same four functions in 200 lines of Rust,
 975/975, 0.56x per call over the recorded cases and 18x for `parse` over 100,000 strings in one
 batch (3.4x counting the handover). Those numbers belong to that port and do not carry over.
 
-The verdict so far: `ms` ports to Mojo cleanly, correct on every recorded case; whether the Node
-addon is any faster than JS per call is for `bench` to say.
-
-## Fuse.js
+### Fuse.js
 
 [Fuse.js](https://github.com/krisk/Fuse) (20k stars, about 20 million npm downloads a week,
 commit `edf2fb6`) is the fuzzy-search library behind countless search boxes. Ported with
@@ -106,7 +134,7 @@ What it does not cover: object lists with `keys`, extended and token search, log
 speedup needs the list to stay in Rust between searches; building it costs about as much as
 Fuse's own index (3.4 ms against 2.8 ms for 50,000 strings).
 
-## json-server
+### json-server
 
 [json-server](https://github.com/typicode/json-server) (75k stars, MIT, commit `89a34a4`,
 1.0.0-beta.15) serves a REST API from a JSON file: Node, tinyhttp and lowdb. It is the first whole
@@ -225,7 +253,7 @@ What it does not cover: JSON5 databases (the binary says so and exits), the 100 
 with lone surrogates (they become U+FFFD), and a database value of `1e400` (Node keeps `Infinity`
 in memory until the next reload; the port stores `null`, which is what the file gets).
 
-## Prettier
+### Prettier
 
 [Prettier](https://github.com/prettier/prettier) (MIT, tag `3.6.2`, commit `7a8b05f`) is the
 first large tool ported with the whole-app flow where the port covers only part of the input:
@@ -443,7 +471,7 @@ port now refuses it too. The style runs found two: `@function f($a, $args\n...)`
 an empty comma group on which Prettier's printer throws (the port now refuses it). One CSS mutant
 made Prettier loop forever, so each fuzz file now runs in a child process with a 10 s limit.
 
-## ffmpeg
+### ffmpeg
 
 A Reddit comment on the 2.0 launch asked for something critical, ffmpeg or OpenSSL, instead of a
 JavaScript library. ffmpeg is C plus hand-written assembly, and Rust does not beat the
@@ -614,7 +642,7 @@ eight are faster, and the other 16 are slower by 3 to 40%, the slowest the 1 ns 
 - The bridge reads `av_escape`'s `char **dst` (memory it allocates) as a position in `src`; it
   was kept in C by hand (`--keep`).
 
-## ESLint
+### ESLint
 
 A Reddit comment asked for ESLint next: Oxlint is fast but differs from ESLint, so an
 exact-behavior Rust ESLint would be something else. This run took
@@ -697,7 +725,7 @@ What it does not cover: config files, plugins and custom parsers (TypeScript, Ba
 line (ignore files, caching, suppressions, `--fix` writing files), and parse error messages. The
 front door is not lifted: ESLint stays installed and answers those runs.
 
-## Fixtures written to stress the tool
+### Fixtures written to stress the tool
 
 | Fixture | Exercises | Result |
 | --- | --- | --- |
@@ -711,7 +739,7 @@ Mojo dispatcher did the same until M4's review (it now writes the `$undefined` m
 too short and too random to catch a stateful bug (now up to 12 calls, reusing earlier strings);
 generated `let out = ()` and immediately-called closures that clippy rejects.
 
-## External libraries (static only)
+### External libraries (static only)
 
 `unjs/scule`, `unjs/ufo` and `unjs/pathe` were cloned and analyzed and bridged. Running their
 code (`record` executes the original) was refused by the session's safety policy for code
@@ -728,3 +756,133 @@ string[]>`) were treated as "any value, functions included", which kept 10 of sc
 functions in TS. Type parameters with data constraints are now substituted by the constraint.
 
 A port of scule was written (`demo` not included: it was never recorded against the original).
+
+### Six languages: speed (Rust era)
+
+The first bridges for Python, Go, Ruby and Java sent every argument and result through JSON
+text, which cost 10-50x more than the work in these functions. They were rebuilt to convert
+values directly. `bench` now times only the calls (arguments decoded once, in process) and says
+whether to ship.
+
+| Language | Per call before | Per call now | Rust vs the original (`bench`, geometric mean) | Verdict |
+| --- | ---: | ---: | --- | --- |
+| Ruby | 6.9-9.5 µs (Fiddle + JSON) | 0.36-1.15 µs (magnus extension) | **4.4x faster** (3.6-7x per function) | ship |
+| Python | 11.7 µs (JSON) | about 0.3 µs (direct PyO3 conversion) | **1.35x faster** (1.5-1.9x on most calls) | ship |
+| C | - | no crossing: linked directly | 0.87x: ctype 1.1-1.4x faster, glibc's tuned `strtod`, `strspn`, `strcmp` 0.5-0.7x | optimize or keep the slower ones |
+| Go | 2.6 µs (cgo + JSON) | 0.11-0.42 µs (typed cgo and binary wire) | 0.04x | port bigger units |
+
+Lists, maps, structs and several results in Go crossed as a binary wire generated per type:
+`WordFreq` (a map) went from 5.1 to 1.0 µs, `Midpoint` (a struct) from 7.2 to 1.0 µs.
+
+TypeScript (x18n core, nine units, 27 functions on the same cases): the binary wire cut the
+bridge cost by a third on average (`rangeContains` 3.6 -> 1.1 µs, `applyTextEdits` 10.4 -> 5.7
+µs, `toWireRange` 5.0 -> 2.6 µs), and `buildTree` went from even to 2.0x faster than TS. The
+other functions are leaves that V8 runs in 15-600 ns: still slower in Rust, as for Go.
+
+What decides it:
+
+- **Interpreted originals (Python, Ruby)**: the call into Rust costs about 100-300 ns and the
+  Rust code is much faster than the interpreter, so even small functions win.
+- **Compiled originals (Go, Java after the JIT)**: the original leaf function takes 4-90 ns; one
+  cgo call alone costs about 80 ns, and a call into Mojo from Java about 1 µs. No bridge can make a 5 ns
+  function faster. These languages gain only when one call does a lot of work: port a function
+  together with its callers. `bench` says so.
+- **C**: there is no crossing; the Rust code is compared with the C code directly, and the result
+  is a property of the port.
+
+#### Batches: x18n's search
+
+The leaf ports above are measured per call. On x18n's sidebar search (50,000 keys, typed letter
+by letter), `rust-anything profile` showed `fuzzyScore` at about a quarter of the run, called once per key by
+`matched`, and suggested `--batch fuzzyScore:text`. The generated `FuzzyScoreBatch` keeps the
+keys in Rust; a `FuzzyScoreIndex` in `port.rs` lowercases them to UTF-16 once and keeps a 64-bit
+mask of the code units in each key, so most keys that cannot match are skipped unread. Results
+are identical to the TS pipeline for every query:
+
+| | ms per query | vs TS |
+| --- | ---: | ---: |
+| TS pipeline | 10 | 1x |
+| TS with the same narrowing | 4.1-5.4 | 2x |
+| Batch, default index (port per item, 4 cores) | 5.1 | 1.7x |
+| Batch with `FuzzyScoreIndex` (masks), napi, 4 cores | 1.2 | 7x |
+| Batch with `FuzzyScoreIndex` ranking itself, napi, 4 cores | 0.45-0.56 | 18-22x |
+| The same, wasm, 1 thread | 0.95 | 11.5x |
+
+The step from 7x to 20x: of the 1.2 ms, 0.4 ms was the benchmark's own `Array.from(order, i =>
+keys[i])` (a plain loop costs 0.02 ms). The rest came from letting the index rank by itself:
+it rescores only the last query's matches when the new query extends it (a key that does not
+match `s` cannot match `se`), reads one-letter queries from a table of first positions, scores
+ASCII keys as bytes, and orders the whole-number scores with a counting sort. Callgrind showed
+library calls (`memchr`, `memcmp`) costing more than plain loops on 30-byte keys. Part of the gain
+is the algorithm, so the benchmark also runs TS with the same narrowing: Rust is 7-12x faster
+than that (wasm 5x).
+
+The same pattern in the other languages: the Rust batch on 4 cores against the original on one
+thread, identical results and errors. The Go row is not a fair race; see the correction below.
+
+| Language | Workload | Original (1 thread) | Per-call port vs original | Batch (4 cores) vs original |
+| --- | --- | ---: | ---: | ---: |
+| Python | fixture `slugify`, 20,000 strings | 98 ms | - | 17x |
+| Ruby | fixture `slugify`, 20,000 strings | 110 ms | - | 12.7x |
+| Ruby | `Shellwords.shellescape`, 50,000 mixed values | 88 ms | - | 11.8x |
+| Go | fixture `Slugify`, 50,000 strings | 49 ms | 0.93x | 3.3-4.1x |
+
+The Go batch first ran slower than one thread: the port allocates per item and glibc's allocator
+serialized the threads inside the Go process. Batch crates now use mimalloc. The shellescape batch
+also found a port bug that per-call recording had missed: Ruby symbols (`shellescape(:sym)`) came
+back as their JSON marker. Fixed in the port.
+
+Go then went from 2.5x to 4x. Inside the batch, half the time was not the work: results were
+joined and freed on one thread, and Go copied them a second time; string results went back in
+bulk, written on all cores into Go's own buffer. The other half was the port: on one thread the
+Rust `slugify` was barely faster than Go's. Lowering ASCII without table lookups and without an
+intermediate string fixed that. Per call, the Go port went from 0.73x to 0.93x.
+
+**Correction (2026-11-19, [#110](https://github.com/erkamyaman/rust-anything/issues/110)).** The Java `slugify` numbers measured then (0.68x per call, 3.0x as a batch; their rows went with the JNI bridge in M5) did not hold up:
+
+- **The port was wrong on some text.** Java's `Character.isLetterOrDigit` takes letters and
+  decimal digits per UTF-16 unit; the port used Rust's `char::is_alphanumeric`, which also takes
+  `²`, `Ⅰ`, `½`, vowel signs such as `ि` and characters beyond U+FFFF. `slugify("a²b", 0)` gave
+  `a²b` instead of `a-b`. The 50,000 benchmark strings had none of them, and neither did the
+  recording. The port now checks the general category per UTF-16 unit, `record` adds those
+  characters to every string trap, and the fixture records 1,596/1,596.
+- **The race was not even.** The batch ran on 4 cores against Java's serial loop, the batch was
+  built before the timer, and each side reported its best of 15 calls. With JMH, the same inputs,
+  the same number of workers and the copies inside the timer, the reporter measured the original
+  Java at 9.8 ms and the Rust batch at 24.7 ms on 4 workers, 34.1 ms and 43.0 ms on one (50,000
+  strings, Windows, Core i5-12450H). The Java original is faster. The Go row was measured the same
+  way and has not been re-run.
+
+### Six languages: bugs in rust-anything found by the runs
+
+- **Floats changed by one ULP** (Java run). `serde_json`'s default float parser is not always
+  correctly rounded. rust-anything perturbed recorded inputs when it read them, and generated crates
+  perturbed them again. 43 `Double.toString` cases failed for a correct port. Fixed with
+  `serde_json`'s `float_roundtrip` feature in rust-anything and in every crate it generates (napi-rs,
+  wasm and the JSON dispatcher).
+- **C crashes killed recording** (C run). Inputs outside a C function's contract (`isalpha(INT_MAX)`)
+  segfault glibc. The C driver now runs each case in a forked child and records
+  `crash: SIGSEGV`; `diff` accepts any port behavior there, since C's is undefined.
+- **`module_function :name` not seen** (Ruby run). `shellwords` declares its module functions
+  with symbol arguments after the methods; the exporter only knew the bare `module_function`
+  form. Both forms are found now.
+- **Untyped code got garbage inputs** (Python run). `colorsys` has no type hints, so 1,709 of
+  1,800 generated cases were `TypeError`s. Unannotated parameters used as numbers (`r - g`,
+  `max(r, g, b)`, `x < 1`) are now typed `number`, in Python and Ruby: 94 errors remain, all real
+  (`ZeroDivisionError`).
+- **Ints passed as floats never recorded** (Python run). Python callers pass `1` as often as
+  `1.0`, and `colorsys` passes ints through (`hsv_to_rgb(0, 0, 7)` is `(7, 7, 7)`). Recording now
+  passes integral numbers as ints in every fourth Python case; that exposed 134 mismatches in a
+  port typed `f64`.
+- **Messages from the TypeScript days**: "must stay in JS", "kept in TS", "characterization tests
+  against the TS code" now name the source language.
+- **Reopened core classes** (`class String` in `shellwords.rb`) are now a monkeypatching risk.
+
+### Six languages: C limits (Rust era)
+
+- **C APIs that pass buffers.** aklomp/base64's public functions take `char *out, size_t *outlen`
+  or a `struct base64_state *`. The C bridge carries scalars and `const char *` only, so it keeps
+  them all in C, with the reason. Supporting the output-buffer pattern is the next step for C.
+- **C macros.** 43 of base64's 51 files define functions through macros
+  (`BASE64_ENC_FUNCTION(arch)`); the parser reports errors there and the plan marks those units
+  partial. SIMD intrinsics are not called out as a risk yet.

@@ -1,52 +1,68 @@
 # Install, update and develop
 
-Every way to install rust-anything, keep it up to date, remove it, and build it from source. Back to the [README](../README.md).
+Every way to install mojo-anything, keep it up to date, remove it, and build it from source. Back to the [README](../README.md).
 
 ## Install
 
+mojo-anything runs on Linux (x64, arm64) and macOS (Apple silicon). Mojo has no native Windows
+or Intel macOS build, so neither has mojo-anything: on Windows, use it inside WSL
+(`wsl --install -d Ubuntu-24.04`). So far it has been run on x86-64 Linux only; macOS has not been
+run ([Status](STATUS.md#known-gaps)).
+
+**No release exists yet.** Until version 0.1.0 is published, the npm package and the release
+archives below answer "not found"; build it [from a clone](#from-a-clone) instead.
+
+Once 0.1.0 is published:
+
 ```sh
-cargo install --path .
+npm install -g mojo-anything   # a launcher; the first run downloads the release binary
 ```
 
-`record`, `diff` and `bench` run the original in its own runtime: Node 22.6+ for TS (it runs `.ts`
-sources directly), Python 3.9+ for Python and C (ctypes), Go 1.21+, Ruby 3+, JDK 22+
-(`javac` and `java`). `profile` on Node needs Node 24+, which allows `--cpu-prof` in `NODE_OPTIONS`. C also needs a C compiler. wasm bridges also need `rustup target add wasm32-unknown-unknown` and
-`cargo install wasm-bindgen-cli --version <the crate's wasm-bindgen version> --locked`; `build` names
-the exact version.
+The npm package holds only a launcher. On first run it downloads
+`mojo-anything-v<version>-<target>.tar.gz` and `SHA256SUMS` from the GitHub release, checks the
+archive's SHA-256, and keeps the binary in a cache folder (`MOJO_ANYTHING_CACHE`, else the
+platform's cache folder); `MOJO_ANYTHING_DOWNLOAD_BASE` points it at a mirror. On Windows it
+stops and names WSL. Or take the archive for your platform from the
+[releases page](https://github.com/ModelTok/mojo-anything/releases) yourself, check it against
+`SHA256SUMS`, and put `mojo-anything` on your `PATH`.
 
-### Windows
+### What it needs
 
-Native Windows CI uses the `x86_64-pc-windows-msvc` Rust target. Install the stable MSVC
-toolchain and Visual Studio Build Tools with the **Desktop development with C++** workload; the
-C compiler and linker are required for C bridges and native Rust extensions. Install the runtime
-for the source language you are migrating. Python may be available as either `python3` or
-`python`; rust-anything detects both. The GNU Windows target is not exercised by CI.
+- [pixi](https://pixi.sh). Every unit mojo-anything writes has a `pixi.toml` that pins Mojo 1.2.0
+  (and EmberJson where the unit uses JSON), and `build` runs Mojo through it, so Mojo is not
+  installed by hand. The first build downloads it.
+- The runtime of the language you port, for `record`, `diff` and `gate`, which run the original:
+  Node 22.6+ for TS/JS (it runs `.ts` sources directly; the `mojo-wasm` bridge and `profile`
+  need Node 24), Python 3.9+ for Python, and for C (ctypes), Go 1.21+, Ruby 3+, Java 22+ (`javac`
+  and `java`) for Java and Kotlin (`kotlinc` too). C needs a C compiler.
+- The `mojo-wasm` bridge also needs a checkout of [mojo-wasm](https://github.com/lee101/mojo-wasm)
+  (`MOJOWASM_HOME`, else `~/github/mojo-wasm`) for its clang and wasm-ld.
 
-Run the native bridge integration suite from a Developer PowerShell prompt:
+`mojo-anything doctor` lists each of these with its version and the command that installs or
+updates what is missing.
 
-```powershell
-rustup default stable-x86_64-pc-windows-msvc
-cargo test --locked --test native -- --nocapture
+### From a clone
+
+mojo-anything itself is written in Rust; building it needs a stable Rust toolchain:
+
+```sh
+git clone https://github.com/ModelTok/mojo-anything
+cd mojo-anything
+cargo build --release              # target/release/mojo-anything
 ```
 
-The suite builds and loads real DLL-backed Node and Python extensions and the supported native
-bridges for each runtime present on `PATH`. Missing optional runtimes are reported as skipped;
-Cargo, the active Rust standard library, and the MSVC linker are required. If Cargo reports that
-it cannot find `std`, reinstall the active target with
-`rustup target remove x86_64-pc-windows-msvc` followed by
-`rustup target add x86_64-pc-windows-msvc`. If linking fails, run from a Visual Studio Developer
-PowerShell and verify that `where.exe link` finds the MSVC linker. Tests use temporary folders,
-including a path with spaces and Unicode characters, and remove generated artifacts after a
-successful run.
+Put `target/release/mojo-anything` on your `PATH`.
 
-For agents, `rust-anything setup` registers everything (see Quick start). The same MCP server and
+### Agents
+
+`mojo-anything setup` registers everything (see the README's Quick start). The same MCP server and
 skill also ship as a Codex plugin from `.agents/plugins/marketplace.json`
-(`codex plugin marketplace add erkamyaman/rust-anything`, then
-`codex plugin add rust-anything@rust-anything`). To add the MCP server to one project by hand
+(`codex plugin marketplace add ModelTok/mojo-anything`, then
+`codex plugin add mojo-anything@mojo-anything`). To add the MCP server to one project by hand
 instead (`.mcp.json`):
 
 ```json
-{ "mcpServers": { "rust-anything": { "command": "rust-anything", "args": ["mcp"] } } }
+{ "mcpServers": { "mojo-anything": { "command": "mojo-anything", "args": ["mcp"] } } }
 ```
 
 OpenCode takes a local server under `mcp.servers` and the whole argv in one `command` array, in
@@ -57,37 +73,42 @@ that shape):
 {
   "mcp": {
     "servers": {
-      "rust-anything": { "type": "local", "command": ["rust-anything", "mcp"] }
+      "mojo-anything": { "type": "local", "command": ["mojo-anything", "mcp"] }
     }
   }
 }
 ```
 
-Its skill goes in `~/.config/opencode/skills/rust-anything/` (`SKILL.md` and `whole-app.md` from
-[`skills/rust-anything/`](../skills/rust-anything)).
+Its skill goes in `~/.config/opencode/skills/mojo-anything/` (`SKILL.md` and `whole-app.md` from
+[`skills/mojo-anything/`](../skills/mojo-anything)).
 
 Every tool, its parameters and what it may touch: [docs/tools.md](tools.md). The server also
 offers two prompts, `port_unit` and `port_whole_app`, built from the skill.
 
 ## Development
 
+From a clone, in Linux or WSL:
+
 ```sh
-cargo test                        # unit tests, fixture repo, record/diff/shadow loop (needs node), app record/replay per language
+cargo test                        # unit tests, fixtures, the record/diff/gate loop per language, app record/replay
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
-Design choices and their reasons: [DECISIONS.md](../DECISIONS.md).
+Tests that need a runtime that is missing are skipped; `MOJO_ANYTHING_REQUIRE=node,python3,go,ruby,java,cc,mojo`
+makes them fail instead, as CI does. Design choices and their reasons: [DECISIONS.md](../DECISIONS.md).
 
 ## Update or remove
 
+Once 0.1.0 is published:
+
 ```sh
-cargo install rust-anything                                    # update (Cargo)
-npm install -g rust-anything@latest                            # update (npm)
-rust-anything setup                                            # refresh agent settings
-rust-anything setup --remove && cargo uninstall rust-anything  # remove (Cargo)
-rust-anything setup --remove && npm uninstall -g rust-anything # remove (npm)
+npm install -g mojo-anything@latest                             # update
+mojo-anything setup                                             # refresh agent settings
+mojo-anything setup --remove && npm uninstall -g mojo-anything  # remove
 ```
 
-`setup --remove` takes out only rust-anything's entries; the copies it saved
-(`<file>.rust-anything.bak`) stay until you delete them.
+From a clone: `git pull` and `cargo build --release` again.
+
+`setup --remove` takes out only mojo-anything's entries; the copies it saved
+(`<file>.mojo-anything.bak`) stay until you delete them.

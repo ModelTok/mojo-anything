@@ -213,3 +213,67 @@ fn docs_tools_md_matches_the_tool_list() {
         "docs/tools.md is out of date: run `UPDATE_TOOLS_DOC=1 cargo test --test tools`"
     );
 }
+
+/// Runs `scripts/check-doc-numbers.py` with `args`, returning (success, output).
+fn check_doc_numbers(args: &[&str]) -> (bool, String) {
+    let script =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-doc-numbers.py");
+    let out = Command::new("python3")
+        .arg(&script)
+        .args(args)
+        .output()
+        .expect("python3 runs scripts/check-doc-numbers.py");
+    let text =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    (out.status.success(), text)
+}
+
+#[test]
+fn docs_numbers_have_sources() {
+    let (ok, out) = check_doc_numbers(&[]);
+    assert!(ok, "{out}");
+}
+
+#[test]
+fn doc_number_check_needs_a_log_link_except_in_marked_history() {
+    let root_buf =
+        std::env::temp_dir().join(format!("mojo-anything-doc-numbers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_buf);
+    let root = root_buf.as_path();
+    std::fs::create_dir_all(root.join("docs/measurements")).unwrap();
+    std::fs::write(root.join("docs/measurements/run.md"), "# run\n").unwrap();
+    let check = |text: &str| {
+        std::fs::write(root.join("docs/a.md"), text).unwrap();
+        check_doc_numbers(&["--root", root.to_str().unwrap(), "docs/a.md"])
+    };
+    let (ok, out) = check("# A\n\nThe port matches 481/481 and is 2.5x faster.\n");
+    assert!(
+        !ok && out.contains("481/481") && out.contains("2.5x"),
+        "{out}"
+    );
+    let (ok, out) = check("# A\n\nThe port matches 481/481 ([log](measurements/run.md)).\n");
+    assert!(ok, "{out}");
+    let (ok, out) = check("# A\n\nIt matches 9/9 ([log](measurements/missing.md)).\n");
+    assert!(
+        !ok,
+        "a link to a log that does not exist is no source: {out}"
+    );
+    let (ok, out) = check("# A\n\n| x | 12 ms |\n| y | [log](measurements/run.md) |\n");
+    assert!(
+        !ok && out.contains("12 ms"),
+        "each table row is its own paragraph: {out}"
+    );
+    let (ok, out) = check("# A\n\nRun `bench --runs 3` and `sleep 5s`.\n");
+    assert!(ok, "inline code is not read: {out}");
+    let (ok, out) = check("# A\n\nNUL and invalid UTF-8 bytes on x86-64 pass.\n");
+    assert!(ok, "a number inside a name is not a measurement: {out}");
+    let history = "# A\n\n## rust-anything history\n<!-- doc-numbers: history -->\n\nRust: 0.03x, 10,192/10,192.\n\n### Older\n\n42 ms\n\n## Mojo\n\nNow 3 ms.\n";
+    let (ok, out) = check(history);
+    assert!(
+        !ok && out.contains("3 ms") && !out.contains("42 ms") && !out.contains("0.03x"),
+        "{out}"
+    );
+    let (ok, out) = check("# A\n\n## Old results\n<!-- doc-numbers: history -->\n\n5 ms\n");
+    assert!(!ok && out.contains("does not name rust-anything"), "{out}");
+    let _ = std::fs::remove_dir_all(root);
+}

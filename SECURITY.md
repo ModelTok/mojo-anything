@@ -2,18 +2,19 @@
 
 ## Supported versions
 
-Security fixes go into the latest release. Upgrade with `cargo install mojo-anything` or
-`npm i -g mojo-anything` before reporting, in case it is already fixed.
+Security fixes go into the latest release. No release has been published yet; once 0.1.0 is out,
+upgrade with `npm install -g mojo-anything@latest` (or the latest release archive) before
+reporting, in case it is already fixed.
 
 | Version | Supported |
 | --- | --- |
-| Latest minor (1.x) | Yes |
+| Latest minor (0.x) | Yes |
 | Older | No |
 
 ## Reporting a vulnerability
 
 Please report it privately, not in a public issue: use
-[Report a vulnerability](https://github.com/erkamyaman/rust-anything/security/advisories/new) on
+[Report a vulnerability](https://github.com/ModelTok/mojo-anything/security/advisories/new) on
 the repository's Security tab.
 
 Include what you found, how to reproduce it, which version and platform you used, and what an
@@ -23,18 +24,18 @@ If you'd like credit in the release notes, say how you want to be named.
 ## What counts
 
 mojo-anything runs your code on purpose. `record`, `diff`, `app record` and `app replay` execute
-the original app and the Rust port to compare them, so running them on an untrusted repository is
+the original app and the Mojo port to compare them, so running them on an untrusted repository is
 like running that repository yourself. That alone is not a vulnerability.
 
 These are in scope:
 
-- Code that mojo-anything generates (bindings, drivers, front doors) with memory-unsafe or
-  undefined behavior that the port didn't ask for.
-- Reading or writing files outside the project, the crate and the system temp folder.
-- A crafted recording (`cases.jsonl`, `rust/app-cases/`) that makes mojo-anything run commands it
+- Code that mojo-anything generates (bindings, dispatchers, drivers, front doors) with
+  memory-unsafe or undefined behaviour that the port didn't ask for.
+- Reading or writing files outside the project, the unit and the system temp folder.
+- A crafted recording (`cases.jsonl`, `mojo/app-cases/`) that makes mojo-anything run commands it
   wasn't told to run.
-- The release pipeline: the published binaries, the npm package or the crates.io crate not
-  matching the tagged source.
+- The release pipeline: the published binaries or the npm launcher not matching the tagged
+  source, or the launcher running a download whose checksum does not match `SHA256SUMS`.
 - The MCP server doing more than the tool call asked for.
 
 ## Disclosure
