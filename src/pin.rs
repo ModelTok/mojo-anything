@@ -25,6 +25,9 @@ pub const CASE: &str = "MOJO_ANYTHING_CASE";
 /// Where `record --pin-clock` writes the port's helper (`mod pinned;` in `port.rs`).
 pub const HELPER: &str = "src/port/pinned.rs";
 
+/// The helper of a crate ported to Mojo, next to `port.mojo`.
+pub const HELPER_MOJO: &str = "pinned.mojo";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pin {
     /// Milliseconds since the Unix epoch that every clock read returns.
@@ -47,7 +50,7 @@ impl Default for Pin {
 pub fn supported(m: &Manifest) -> bool {
     match m.language {
         Lang::Python => true,
-        Lang::Ts => m.kind == Kind::Napi,
+        Lang::Ts => matches!(m.kind, Kind::Napi | Kind::MojoNode),
         _ => false,
     }
 }
@@ -76,7 +79,7 @@ pub fn set(crate_dir: &Path, on: bool) -> Result<Option<PathBuf>> {
     let manifest = Manifest::load(crate_dir)?;
     if !supported(&manifest) {
         bail!(
-            "`--pin-clock` covers TS/JS units with the napi bridge and Python units; this crate is \
+            "`--pin-clock` covers TS/JS units with the node or napi bridge and Python units; this crate is \
              {:?} with the {:?} bridge",
             manifest.language,
             manifest.kind
@@ -85,12 +88,14 @@ pub fn set(crate_dir: &Path, on: bool) -> Result<Option<PathBuf>> {
     let pin = load(crate_dir)?.unwrap_or_default();
     std::fs::write(&path, serde_json::to_string_pretty(&pin)? + "\n")
         .with_context(|| format!("writing {}", path.display()))?;
-    let helper = crate_dir.join(HELPER);
+    let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
+    let helper = crate_dir.join(if mojo { HELPER_MOJO } else { HELPER });
     if helper.exists() {
         return Ok(None);
     }
     std::fs::create_dir_all(helper.parent().unwrap_or(crate_dir))?;
-    std::fs::write(&helper, HELPER_RS).with_context(|| format!("writing {}", helper.display()))?;
+    std::fs::write(&helper, if mojo { HELPER_MOJO_SRC } else { HELPER_RS })
+        .with_context(|| format!("writing {}", helper.display()))?;
     Ok(Some(helper))
 }
 
@@ -246,6 +251,9 @@ pub fn randbelow(n: u64) -> u64 {
     }
 }
 "#;
+
+/// The Mojo port's side: `pinned.mojo`, imported with `from pinned import now_ms, random`.
+pub const HELPER_MOJO_SRC: &str = include_str!("mojo/pinned.mojo");
 
 #[cfg(test)]
 mod tests {

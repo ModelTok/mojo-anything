@@ -237,10 +237,11 @@ impl Risk {
             Self::ClockAndRandom => {
                 "Results that depend on the time or on random numbers differ on every run, so a \
                  plain recording cannot pin them down. Record with `record --pin-clock` (TS/JS with \
-                 the napi bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`, \
-                 `datetime.now` and `random`) then return fixed values during record, diff and \
-                 gate, and the port reads the same ones from `src/port/pinned.rs` (`now_ms()`, \
-                 `random()`, a documented mulberry32). Or pass the time and the seed in as \
+                 the node or napi bridge, Python): `Date.now()`, `new Date()` and `Math.random` \
+                 (`time.time`, `datetime.now` and `random`) then return fixed values during \
+                 record, diff and gate, and the port reads the same ones from `pinned.mojo` \
+                 (`now_ms()`, `random()`, a documented mulberry32; `src/port/pinned.rs` for a \
+                 Rust port). Or pass the time and the seed in as \
                  parameters."
             }
         }

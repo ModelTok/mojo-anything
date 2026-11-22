@@ -1,5 +1,6 @@
 //! `fuzz` finds what the recording missed, and `record --pin-clock` makes clock and random
-//! numbers recordable. Both build a real napi port, so they need `node` and cargo.
+//! numbers recordable. Both build a real Mojo port behind the Node-API addon, so they need
+//! `node`, a C compiler and Mojo.
 
 mod common;
 
@@ -11,7 +12,7 @@ use mojo_anything::harness::{self, DiffOptions, RecordOptions};
 
 const CLI: &str = env!("CARGO_BIN_EXE_mojo-anything");
 
-/// A TS repository with one file, bridged with napi into `<repo>/rust/unit`.
+/// A TS repository with one file, bridged to a Mojo port in `<repo>/mojo/unit`.
 fn bridged(name: &str, file: &str, source: &str, port: &str) -> (PathBuf, PathBuf) {
     let repo = std::env::temp_dir().join(format!("mojo-anything-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&repo);
@@ -22,11 +23,11 @@ fn bridged(name: &str, file: &str, source: &str, port: &str) -> (PathBuf, PathBu
     )
     .unwrap();
     std::fs::write(repo.join("src").join(file), source).unwrap();
-    let dir = repo.join("rust/unit");
+    let dir = repo.join("mojo/unit");
     bridge::bridge(&bridge::Options {
         root: &repo,
         unit: &format!("src/{file}"),
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -37,7 +38,7 @@ fn bridged(name: &str, file: &str, source: &str, port: &str) -> (PathBuf, PathBu
         allocator: Default::default(),
     })
     .unwrap();
-    std::fs::write(dir.join("src/port.rs"), port).unwrap();
+    std::fs::write(dir.join("port.mojo"), port).unwrap();
     bridge::refresh(&dir).unwrap();
     (repo, dir)
 }
@@ -76,16 +77,18 @@ fn behavior(dir: &Path) -> bool {
 
 #[test]
 fn fuzz_finds_a_mismatch_the_recording_missed_and_keep_makes_gate_fail() {
-    if !common::have("node") {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
         return;
     }
     let (repo, dir) = bridged(
         "fuzz",
         "calc.ts",
         "export function sum3(a: number, b: number, c: number): number {\n  return a + b + c\n}\n",
-        "pub fn sum3(a: f64, b: f64, c: f64) -> Result<f64, String> {\n    \
-         if a > 1.0 && b > 1.0 && c > 1.0 {\n        Ok(a + b)\n    } else {\n        \
-         Ok(a + b + c)\n    }\n}\n",
+        r#"def sum3(a: Float64, b: Float64, c: Float64) raises -> Float64:
+    if a > 1.0 and b > 1.0 and c > 1.0:
+        return a + b
+    return a + b + c
+"#,
     );
     record(&dir, 2);
     harness::build(&dir).unwrap();
@@ -142,8 +145,8 @@ fn fuzz_finds_a_mismatch_the_recording_missed_and_keep_makes_gate_fail() {
 }
 
 #[test]
-fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_rust_port() {
-    if !common::have("node") {
+fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_mojo_port() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
         return;
     }
     let (repo, dir) = bridged(
@@ -154,16 +157,28 @@ fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_rust_port() {
          return `${utc}@${Date.now()}/${new Date().getTime()}#${id}`\n}\n\n\
          export function roll(sides: number): number {\n  \
          return Math.floor(Math.random() * sides) + Math.floor(Math.random() * sides)\n}\n",
-        "mod pinned;\n\n\
-         pub fn stamp(utc: bool) -> Result<String, String> {\n    \
-         let id = (pinned::random() * 1_000_000.0).floor();\n    \
-         Ok(format!(\"{utc}@{}/{}#{id}\", pinned::now_ms(), pinned::now_ms()))\n}\n\n\
-         pub fn roll(sides: f64) -> Result<f64, String> {\n    \
-         let first = (pinned::random() * sides).floor();\n    \
-         Ok(first + (pinned::random() * sides).floor())\n}\n",
+        r##"from std.math import floor
+
+from pinned import now_ms, random
+
+
+def _js(x: Float64) -> String:
+    return String(Int(x)) if x == Float64(Int(x)) else String(x)
+
+
+def stamp(utc: Bool) raises -> String:
+    var id = floor(random() * 1000000.0)
+    var u = "true" if utc else "false"
+    return u + "@" + _js(now_ms()) + "/" + _js(now_ms()) + "#" + _js(id)
+
+
+def roll(sides: Float64) raises -> Float64:
+    var first = floor(random() * sides)
+    return first + floor(random() * sides)
+"##,
     );
     let helper = mojo_anything::pin::set(&dir, true).unwrap();
-    assert_eq!(helper, Some(dir.join(mojo_anything::pin::HELPER)));
+    assert_eq!(helper, Some(dir.join(mojo_anything::pin::HELPER_MOJO)));
     let first = record(&dir, 20);
     assert_eq!(first.pinned, Some(mojo_anything::pin::Pin::default()));
     let cases = std::fs::read_to_string(dir.join(harness::CASES)).unwrap();
@@ -179,12 +194,6 @@ fn pinned_clock_and_random_numbers_are_recorded_and_matched_by_a_rust_port() {
     let matched = diff(&dir);
     assert_eq!(matched.failed, 0, "{:?}", matched.mismatches);
     assert!(matched.total > 20);
-    let fmt = Command::new("cargo")
-        .arg("fmt")
-        .current_dir(&dir)
-        .status()
-        .unwrap();
-    assert!(fmt.success());
     let gate = mojo_anything::gate::gate(&dir, &[]).unwrap();
     assert!(gate.passed, "{:?}", gate.checks);
 

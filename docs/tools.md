@@ -66,7 +66,7 @@ Runs the original's code or commands.
 | `test_command` | string[] |  | TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. ["npx", "jest"] or ["pytest"]. Runs in the original's folder. |
 | `profile` | string |  | Record on this machine (default) or on a connected Android device (JVM crates). |
 | `device` | string |  | Android device serial; picked automatically when only one is connected. |
-| `pin_clock` | boolean |  | TS/JS (napi) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes src/port/pinned.rs for the port to read them (`mod pinned;` in port.rs). Kept for later runs; false stops pinning. |
+| `pin_clock` | boolean |  | TS/JS (node or napi) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning. |
 
 ## Build crate
 

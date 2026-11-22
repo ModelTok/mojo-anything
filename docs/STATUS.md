@@ -36,13 +36,13 @@ Details of every run: [real-world.md](real-world.md) (TS/JS) and
 | `record`/`diff --profile android` | Tested | Kotlin fixture on an Android 11 TV: record 291 cases under ART, then diff against the Android `.so` (12 of them did not match yet, not investigated); guarded test `tests/android_device.rs` skips without a device |
 | Types for untyped JS in `bridge` (sibling `.d.ts`/`.d.mts`/`.d.cts`, then JSDoc) | Tested | `tests/untyped_js_types.rs` |
 | `bench` | Verified | the runs above; numbers in [real-world.md](real-world.md) |
-| `fuzz` | Tested | TS/JS: finds a planted mismatch the recording missed, `--keep` makes `gate` fail (`tests/fuzz.rs`); other languages share the record/diff path untested |
-| `record --pin-clock` | Tested | TS/JS (napi): a unit using `Date.now()` and `Math.random` recorded and matched by a Rust port (`tests/fuzz.rs`); Python driver shares the algorithm, untested on a real port |
+| `fuzz` | Tested | TS/JS with a Mojo port: finds a planted mismatch the recording missed, `--keep` makes `gate` fail (`tests/fuzz.rs`); other languages share the record/diff path untested |
+| `record --pin-clock` | Tested | TS/JS (mojo-node): a unit using `Date.now()` and `Math.random` recorded, matched and gated by a Mojo port reading `pinned.mojo` (`tests/fuzz.rs`); Python driver shares the algorithm, untested on a real port |
 | `record --from-tests` | Verified (TS/JS), Tested (Python) | vercel/ms's Jest suite |
 | Coverage of the original in `record` and `gate` | Verified (TS/JS) | Fuse.js: cases run 81% of the lines it imports; other languages do not measure it yet |
 | `--batch` | Verified | Fuse.js, vercel/ms, x18n search |
 | wasm bridge (`--kind wasm`) | Verified | x18n search |
-| `shadow` | Verified | x18n's `packages/core` |
+| `shadow` | Verified | x18n's `packages/core` (Rust era); a Mojo port behind the node bridge reports a planted mismatch (`tests/loop.rs` `ts_mojo_shadow_reports_mismatch`) |
 | `profile` | Tested | |
 | `map` | Tested | ports, upstream changes and `--crates` in `tests/port_map.rs` |
 | `app record`, `app replay` | Verified (servers and CLIs) | json-server: 514 HTTP cases with `--fresh`, `--arg`, `--pace`; Prettier: 17,224 CLI cases with `--inputs`, 63 of them with config files around the input; CLIs in `tests/app.rs`, CLI `--fresh` in `tests/app_fresh.rs` |

@@ -1533,3 +1533,47 @@ fn ts_mojo_loop_matches() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn ts_mojo_shadow_reports_mismatch() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
+        return;
+    }
+    let dir = bridged_mojo("ts-mojo-shadow");
+    // The fixture port, with `count` miscounting tabs as spaces.
+    let port = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini-mojo-port/port.mojo"),
+    )
+    .unwrap()
+    .replace("if c == 32:", "if c == 32 or c == 9:");
+    std::fs::write(dir.join("port.mojo"), port).unwrap();
+    harness::build(&dir).unwrap();
+    let out = shadow::shadow(&dir, None).unwrap();
+    let file = out.path.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(!file.contains("-mojo"), "{file}");
+    let script = dir.join("use.ts");
+    std::fs::write(
+        &script,
+        format!(
+            "import {{ count, shadowStats, onMismatch }} from '{}'\n\
+             const seen: string[] = []\n\
+             onMismatch(m => seen.push(m.fn))\n\
+             console.log(JSON.stringify([count('a b'), count('a\\tb'), shadowStats.calls, seen]))\n",
+            out.path.display()
+        ),
+    )
+    .unwrap();
+    let run = |mode: &str| {
+        let o = Command::new("node")
+            .arg(&script)
+            .env("MOJO_ANYTHING_MODE", mode)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    assert_eq!(run("shadow"), r#"[1,0,2,["count"]]"#);
+    // New: the Mojo port answers, bug included.
+    assert_eq!(run("new"), r#"[1,1,0,[]]"#);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

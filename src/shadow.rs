@@ -119,7 +119,7 @@ pub fn shadow(crate_dir: &Path, out: Option<&Path>) -> Result<ShadowOutcome> {
         .collect();
     files.sort_unstable();
     files.dedup();
-    let stem = manifest.crate_name.trim_end_matches("-rs");
+    let stem = port_stem(&manifest);
     let path = match out {
         Some(p) => p.to_path_buf(),
         None => crate_dir.join("shadow").join(format!("{stem}.shadow.ts")),
@@ -282,6 +282,14 @@ pub fn shadow(crate_dir: &Path, out: Option<&Path>) -> Result<ShadowOutcome> {
 /// An ES import specifier for `to`, relative to the folder `from`.
 /// Makes the shadow honor the unit's kill switch, `MOJO_ANYTHING_UNIT_<NAME>=original`, before
 /// `MOJO_ANYTHING_MODE`: the original package can send one unit back on its own.
+/// The unit's name without the port's `-rs` or `-mojo` suffix, for naming shadow files.
+fn port_stem(manifest: &Manifest) -> &str {
+    manifest
+        .crate_name
+        .trim_end_matches("-rs")
+        .trim_end_matches("-mojo")
+}
+
 fn with_kill_switch(text: &str, crate_name: &str) -> String {
     let switch = crate::front_door::kill_switch(crate_name);
     text.replacen(
@@ -349,10 +357,7 @@ fn shadow_python(
     manifest: &Manifest,
     out: Option<&Path>,
 ) -> Result<ShadowOutcome> {
-    let stem = manifest
-        .crate_name
-        .trim_end_matches("-rs")
-        .replace('-', "_");
+    let stem = port_stem(manifest).replace('-', "_");
     let path = match out {
         Some(p) => p.to_path_buf(),
         None => crate_dir.join("shadow").join(format!("{stem}_shadow.py")),
@@ -527,11 +532,7 @@ def load(path):
 
 /// C: a shadow translation unit, and the `-D` flags that rename the originals beside it.
 fn shadow_c(crate_dir: &Path, manifest: &Manifest, out: Option<&Path>) -> Result<ShadowOutcome> {
-    let stem = manifest
-        .crate_name
-        .trim_end_matches("-rs")
-        .trim_end_matches("-mojo")
-        .replace('-', "_");
+    let stem = port_stem(manifest).replace('-', "_");
     let path = match out {
         Some(p) => p.to_path_buf(),
         None => crate_dir.join("shadow").join(format!("{stem}_shadow.c")),

@@ -148,10 +148,11 @@ enum Cmd {
         /// Android device serial; picked automatically when only one is connected.
         #[arg(long)]
         device: Option<String>,
-        /// Pin the clock and random numbers while recording and diffing (TS/JS with napi,
-        /// Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`, `datetime.now`
-        /// and `random`) get fixed values, saved in `pinned.json`, and the port reads them from
-        /// `src/port/pinned.rs`. Kept for later runs until `--no-pin-clock`.
+        /// Pin the clock and random numbers while recording and diffing (TS/JS with the node or
+        /// napi bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
+        /// `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port
+        /// reads them from `pinned.mojo` (a Rust port: `src/port/pinned.rs`). Kept for later
+        /// runs until `--no-pin-clock`.
         #[arg(long, conflicts_with = "no_pin_clock")]
         pin_clock: bool,
         /// Stop pinning the clock and random numbers.
