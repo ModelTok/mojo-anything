@@ -288,7 +288,9 @@ fn from_json(out: &mut Converters, ty: &str) -> Result<String, String> {
             } else if let Some(t) = inner(ty, "Optional") {
                 let value = from_json(out, t)?;
                 format!(
-                    "if v.is_null():\n        return Optional[{t}](None)\n    return Optional[{t}]({value}(v))"
+                    // JS `undefined` crosses as the `$undefined` marker: an omitted argument.
+                    "if v.is_null() or (v.is_object() and len(v.object()) == 1 and \"$undefined\" in v.object()):\n        \
+                     return Optional[{t}](None)\n    return Optional[{t}]({value}(v))"
                 )
             } else {
                 return Err(format!("`{ty}` cannot cross the JSON dispatcher"));
@@ -397,6 +399,90 @@ def _ok(v: JsonValue) -> String:
         return _panic("the result does not write as JSON: " + String(e))
 "#;
 
+/// The dispatcher entries of `--batch function:param`: `"<function>:batch"` takes the function's
+/// arguments with a JSON array of items in the batched parameter's place, calls the port once
+/// per item and answers the array of results.
+fn batch_calls(
+    m: &Manifest,
+    api: &PortApi,
+    conv: &mut Converters,
+    calls: &mut String,
+    arms: &mut String,
+) -> Result<(), String> {
+    for b in &m.batches {
+        let spec = format!("--batch {}:{}", b.function, b.param);
+        let f = api
+            .functions
+            .iter()
+            .find(|f| f.js_name == b.function)
+            .ok_or_else(|| format!("{spec}: port.mojo has no `{}`", b.function))?;
+        let at = m
+            .exports
+            .iter()
+            .find(|e| e.name == b.function)
+            .and_then(|e| e.params.iter().position(|p| p.name == b.param))
+            .filter(|&p| p < f.params.len())
+            .ok_or_else(|| format!("{spec}: `{}` has no parameter `{}`", b.function, b.param))?;
+        let n = f.params.len();
+        let err = |e: String| format!("{spec}: {e}");
+        let _ = writeln!(
+            calls,
+            "\n\ndef _batch_{r}(args: Array) -> String:\n    if len(args) != {n}:\n        \
+             return _panic(\"{js} batch takes {n} argument{s}, got \" + String(len(args)))",
+            r = f.rust_name,
+            js = f.js_name,
+            s = if n == 1 { "" } else { "s" }
+        );
+        for (i, (_, t)) in f.params.iter().enumerate() {
+            if i != at {
+                let _ = writeln!(calls, "    var a{i}: {t}");
+            }
+        }
+        calls.push_str("    try:\n");
+        let _ = writeln!(calls, "        json_array(args[{at}])");
+        for (i, (_, t)) in f.params.iter().enumerate() {
+            if i != at {
+                let from = from_json(conv, t).map_err(err)?;
+                let _ = writeln!(calls, "        a{i} = {from}(args[{i}])");
+            }
+        }
+        let _ = writeln!(
+            calls,
+            "    except e:\n        return _panic(\"{}: \" + String(e))",
+            f.js_name
+        );
+        let item_t = &f.params[at].1;
+        let from_item = from_json(conv, item_t).map_err(err)?;
+        let call_args: Vec<String> = (0..n)
+            .map(|i| if i == at { "x".into() } else { format!("a{i}") })
+            .collect();
+        let call = format!("port.{}({})", f.rust_name, call_args.join(", "));
+        let push = if f.ret == "None" {
+            format!("{call}\n            out.append(JsonValue())")
+        } else {
+            format!(
+                "out.append({}({call}))",
+                to_json(conv, &f.ret).map_err(err)?
+            )
+        };
+        let _ = writeln!(
+            calls,
+            "    var out = Array()\n    var k = 0\n    for item in args[{at}].array():\n        \
+             var x: {item_t}\n        try:\n            x = {from_item}(item)\n        except e:\n            \
+             return _panic(\"{js}: item \" + String(k) + \": \" + String(e))\n        \
+             try:\n            {push}\n        except e:\n            return _error(String(e))\n        \
+             k += 1\n    return _ok(JsonValue(out^))",
+            js = f.js_name
+        );
+        let _ = writeln!(
+            arms,
+            "    if name == \"{}:batch\":\n        return _batch_{}(a)",
+            f.js_name, f.rust_name
+        );
+    }
+    Ok(())
+}
+
 /// `dispatcher.mojo`: `mojo_anything_call(name, args) -> answer` over every port function, and
 /// `mojo_anything_free(answer)`. `args` is a JSON array; the answer is `{"ok": value}`,
 /// `{"error": message}` when the port raises, or `{"panic": message}` when the call itself is
@@ -450,6 +536,7 @@ pub fn dispatcher_mojo(m: &Manifest, api: &PortApi) -> Result<String, String> {
             f.js_name, f.rust_name
         );
     }
+    batch_calls(m, api, &mut conv, &mut calls, &mut arms)?;
     // Ruby's bignums would otherwise read as floats (see json.mojo).
     let refuse = if m.language == Lang::Ruby {
         "True"

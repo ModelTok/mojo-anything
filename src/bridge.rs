@@ -1567,9 +1567,6 @@ fn bridge_mojo_node(m: &Manifest, crate_dir: &Path, js_only: &[JsOnly]) -> Resul
 /// The generated layers of a `mojo-node` unit: `pixi.toml`, `json.mojo`, the dispatcher, the
 /// Node-API addon source, `binding.gyp` and `index.cjs`.
 fn mojo_node_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, String)>> {
-    if !m.batches.is_empty() {
-        bail!("not yet: batches for Mojo ports of TS/JS units come with M4 Task 4");
-    }
     let mut exported = api.clone();
     exported
         .functions

@@ -922,3 +922,149 @@ console.log(JSON.stringify([
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Bridge `unit` as a Mojo port with `batch`, put `port` in place and build.
+fn mojo_node_batch_unit(root: &Path, unit: &str, batch: &str, port: &str) -> PathBuf {
+    let dir = root.join("port");
+    bridge::bridge(&bridge::Options {
+        root,
+        unit,
+        kind: Some(Kind::MojoNode),
+        out: Some(dir.clone()),
+        name: None,
+        force: false,
+        keep: Vec::new(),
+        lang: None,
+        batch: vec![batch.into()],
+        as_json: Vec::new(),
+        allocator: Default::default(),
+    })
+    .unwrap();
+    std::fs::write(dir.join("port.mojo"), port).unwrap();
+    bridge::refresh(&dir).unwrap();
+    harness::build(&dir).unwrap();
+    dir
+}
+
+fn run_node(dir: &Path, script: &str) -> String {
+    let output = Command::new("node")
+        .args(["-e", script])
+        .arg(dir.join("index.cjs"))
+        .output()
+        .unwrap();
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout).trim(),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+const LABEL_MOJO: &str = "from json import JsonValue\n\n\n\
+    def label(n: Float64, options: Optional[JsonValue]) raises -> String:\n    \
+    var text = String(Int(n)) if n == Float64(Int(n)) else String(n)\n    \
+    var long = False\n    \
+    if options:\n        \
+    ref o = options.value()\n        \
+    if o.is_object() and \"long\" in o.object():\n            \
+    ref v = o.object()[\"long\"]\n            \
+    long = v.is_bool() and v.bool()\n    \
+    return text + \" units\" if long else text + \"u\"\n";
+
+#[test]
+fn node_batches_take_structured_parameters() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-batch-options",
+        &[
+            ("package.json", r#"{"name":"fmt","version":"0.1.0"}"#),
+            (
+                "src/fmt.ts",
+                "export function label(n: number, options?: { long?: boolean }): string {\n  return options?.long ? `${n} units` : `${n}u`;\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_batch_unit(&root, "src/fmt.ts", "label:n", LABEL_MOJO);
+    let out = run_node(
+        &dir,
+        r#"
+const { LabelBatch, label } = require(process.argv[1])
+const batch = new LabelBatch([1, 2])
+const refused = [() => new LabelBatch(3), () => new LabelBatch([1, '2'])].map(f => { try { f(); return 'no' } catch (e) { return e.name } })
+console.log(JSON.stringify([batch.run(), batch.run({ long: true }), batch instanceof LabelBatch, refused, label(3)]))
+"#,
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        out,
+        r#"[["1u","2u"],["1 units","2 units"],true,["TypeError","TypeError"],"3u"]"#
+    );
+}
+
+#[test]
+fn node_string_batches_cross_joined() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-batch-strings",
+        &[
+            ("package.json", r#"{"name":"wrap","version":"0.1.0"}"#),
+            (
+                "src/wrap.ts",
+                "export function wrap(s: string): number {\n  return s.length;\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_batch_unit(
+        &root,
+        "src/wrap.ts",
+        "wrap:s",
+        "def wrap(s: String) raises -> Float64:\n    return Float64(s.byte_length())\n",
+    );
+    let out = run_node(
+        &dir,
+        r#"
+const { WrapBatch } = require(process.argv[1])
+const batch = new WrapBatch(['', 'a', 'é', '😀x', 'ascii only'])
+const refused = [() => new WrapBatch('ab'), () => new WrapBatch(['a', 1]), () => new WrapBatch(['b\uD800c'])].map(f => { try { f(); return 'no' } catch (e) { return e.name } })
+console.log(JSON.stringify([batch.run(), batch.rank(2), refused, new WrapBatch([]).run()]))
+"#,
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    // `rank(min)`: the indexes of results at least `min`, best first, ties in item order.
+    assert_eq!(
+        out,
+        r#"[[0,1,2,5,10],[4,3,2],["TypeError","TypeError","TypeError"],[]]"#
+    );
+}
+
+#[test]
+fn node_batch_handle_freed() {
+    if !have_node_mojo() {
+        return;
+    }
+    let root = project(
+        "node-batch-free",
+        &[
+            ("package.json", r#"{"name":"fmt","version":"0.1.0"}"#),
+            (
+                "src/fmt.ts",
+                "export function label(n: number, options?: { long?: boolean }): string {\n  return options?.long ? `${n} units` : `${n}u`;\n}\n",
+            ),
+        ],
+    );
+    let dir = mojo_node_batch_unit(&root, "src/fmt.ts", "label:n", LABEL_MOJO);
+    let out = run_node(
+        &dir,
+        r#"
+const { LabelBatch } = require(process.argv[1])
+const batch = new LabelBatch([1])
+batch.free()
+try { batch.run() } catch (e) { console.log(e.constructor.name, e.message) }
+"#,
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(out, "Error LabelBatch was freed");
+}
