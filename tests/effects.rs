@@ -4,6 +4,35 @@ use std::path::Path;
 
 use mojo_anything::app::{self, RecordOptions, ReplayOptions};
 use mojo_anything::effects::EffectsConfig;
+use mojo_anything::front_door::{self, FrontDoorOptions};
+
+/// Builds the Mojo front door and replays the cases through it: every case runs the original
+/// behind it, and what the original sends still reaches the sinks and matches. `None` without
+/// Mojo.
+fn through_front_door(repo: &Path) -> Option<app::ReplayOutcome> {
+    if !common::have_mojo() {
+        return None;
+    }
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo,
+        library: false,
+        check: true,
+    })
+    .unwrap();
+    let replayed = door.replay.unwrap();
+    assert_eq!(
+        replayed.passed,
+        replayed.total,
+        "{}",
+        std::fs::read_to_string(&replayed.report).unwrap_or_default()
+    );
+    assert_eq!(
+        replayed.fallback.as_ref().map(|f| f.cases),
+        Some(replayed.total),
+        "every case goes through the front door to the original"
+    );
+    Some(replayed)
+}
 
 const NOTIFY: &str = r#"import json, os, smtplib, sys, urllib.request
 from email.message import EmailMessage
@@ -114,6 +143,7 @@ fn a_second_email_fails_replay_even_when_the_output_matches() {
         let fields: Vec<&str> = failure.problems.iter().map(|p| p.field.as_str()).collect();
         assert_eq!(fields, ["effects"], "{failure:?}");
     }
+    through_front_door(&repo);
 
     std::fs::remove_dir_all(&repo).unwrap();
 }
@@ -212,6 +242,7 @@ fn a_server_that_mails_twice_fails_only_on_that_request() {
     assert_eq!((twice.passed, twice.total), (1, 2), "{twice:?}");
     assert_eq!(twice.failures[0].case, "signup");
     assert_eq!(twice.failures[0].problems[0].field, "effects");
+    through_front_door(&repo);
 
     std::fs::remove_dir_all(&repo).unwrap();
 }
@@ -290,6 +321,7 @@ fn rows_written_differently_fail_replay_through_the_db_dump() {
     let twice = replay(&repo, &format!("{python} add_twice.py"));
     let dave = twice.failures.iter().find(|f| f.case == "dave").unwrap();
     assert_eq!(dave.problems[0].field, "effects", "{dave:?}");
+    through_front_door(&repo);
 
     std::fs::remove_dir_all(&repo).unwrap();
 }

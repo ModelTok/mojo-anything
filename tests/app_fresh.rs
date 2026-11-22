@@ -116,6 +116,21 @@ fn cli_cases_start_from_the_fresh_snapshot() {
     assert!(report.contains("removed files"), "{report}");
     assert!(report.contains("stale/old.txt"), "{report}");
 
+    // Through the Mojo front door, each case starts from the snapshot too: the original runs in
+    // the case's fresh folder, where the front door was started.
+    if mojo_anything::mojo::available() {
+        let door = front_door::front_door(&FrontDoorOptions {
+            repo: &repo,
+            library: false,
+            check: true,
+        })
+        .unwrap()
+        .replay
+        .unwrap();
+        assert_eq!((door.passed, door.total), (2, 2), "{door:?}");
+        assert_eq!(door.fallback.unwrap().cases, 2);
+    }
+
     let _ = std::fs::remove_dir_all(&repo);
 }
 
