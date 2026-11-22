@@ -36,7 +36,7 @@ struct Cli {
 enum KindArg {
     /// A Mojo port behind a Node-API addon.
     Node,
-    /// A Mojo port compiled to wasm (not yet: M4 Task 8).
+    /// A Mojo port compiled to a WebAssembly module (wasm64), loaded by `index.cjs`.
     Wasm,
 }
 
@@ -587,13 +587,13 @@ fn run() -> Result<ExitCode> {
             batch,
             as_json,
         } => {
-            if matches!(kind, Some(KindArg::Wasm)) {
-                anyhow::bail!("{}", bridge::WASM_NOT_YET);
-            }
             let outcome = bridge::bridge(&bridge::Options {
                 root: &root,
                 unit: &unit,
-                kind: kind.map(|_| bridge::Kind::MojoNode),
+                kind: kind.map(|k| match k {
+                    KindArg::Node => bridge::Kind::MojoNode,
+                    KindArg::Wasm => bridge::Kind::MojoWasm,
+                }),
                 out,
                 name,
                 force,

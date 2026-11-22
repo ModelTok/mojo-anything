@@ -45,7 +45,7 @@ pub fn package(opts: &Options) -> Result<Outcome> {
     let crate_dir = std::path::absolute(opts.crate_dir)?;
     let manifest = Manifest::load(&crate_dir)?;
     match manifest.kind {
-        Kind::MojoNode => bail!("{NPM_NOT_YET}"),
+        Kind::MojoNode | Kind::MojoWasm => bail!("{NPM_NOT_YET}"),
         Kind::MojoPy => bail!("packaging a Mojo Python extension is not supported yet"),
         Kind::CAbi | Kind::Ffi => bail!(
             "packaging {:?} units is not supported yet (see the packaging plan, M7)",

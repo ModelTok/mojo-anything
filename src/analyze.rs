@@ -39,8 +39,9 @@ pub enum Status {
 pub enum Bridge {
     /// A Mojo port reached from Node through a Node-API C shim.
     MojoNode,
-    /// Code that also runs in browsers: a Mojo port compiled to wasm (not built yet, M4 Task 8;
-    /// `bridge` gives it the Node bridge meanwhile).
+    /// Code that also runs in browsers: a Mojo port that `bridge --kind wasm` compiles to a
+    /// wasm module (`bridge` without `--kind` gives it the Node bridge, whose toolchain is
+    /// the common one).
     Wasm,
     /// Keep in the source language (named for JS, the first language; applies to all).
     KeepInJs,
@@ -62,7 +63,7 @@ impl Bridge {
     pub fn label(self) -> &'static str {
         match self {
             Self::MojoNode => "Mojo (Node-API)",
-            Self::Wasm => "wasm (not yet)",
+            Self::Wasm => "Mojo (wasm)",
             Self::KeepInJs => "keep",
             Self::MojoPy => "Mojo (Python extension)",
             Self::CAbi => "C ABI",

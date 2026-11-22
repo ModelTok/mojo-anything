@@ -459,6 +459,7 @@ fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
         Kind::MojoPy => crate::harness_mojo_py::native_file(crate_dir, manifest),
         Kind::CAbi => crate::harness_mojo_c::library_path(crate_dir, manifest, false),
         Kind::MojoNode => crate::harness_mojo_node::addon_path(crate_dir, manifest),
+        Kind::MojoWasm => crate::harness_mojo_wasm::wasm_path(crate_dir, manifest),
         Kind::Ffi => return None,
     };
     crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built)
@@ -519,6 +520,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
         }
         Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
         Kind::MojoNode => crate::harness_mojo_node::build(crate_dir, &manifest),
+        Kind::MojoWasm => crate::harness_mojo_wasm::build(crate_dir, &manifest),
     }
 }
 

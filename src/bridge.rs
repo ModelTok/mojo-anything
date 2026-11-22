@@ -37,23 +37,31 @@ pub enum Kind {
     /// dispatcher.
     #[serde(rename = "mojo-node")]
     MojoNode,
+    /// A Mojo port of a TS/JS unit compiled to a WebAssembly module, which the generated
+    /// `index.cjs` loads in place of the Node-API addon.
+    #[serde(rename = "mojo-wasm")]
+    MojoWasm,
+}
+
+impl Kind {
+    /// A TS/JS unit ported to Mojo: the original API in `index.cjs` over the JSON dispatcher,
+    /// reached through a Node-API addon or a wasm module.
+    pub fn mojo_js(self) -> bool {
+        matches!(self, Kind::MojoNode | Kind::MojoWasm)
+    }
 }
 
 /// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     use crate::lang::Lang;
     match kind {
-        Kind::MojoPy | Kind::CAbi | Kind::MojoNode => true,
+        Kind::MojoPy | Kind::CAbi | Kind::MojoNode | Kind::MojoWasm => true,
         Kind::Ffi => matches!(language, Lang::Go | Lang::Ruby),
     }
 }
 
 /// Why `--batch` fails for Go and Ruby units.
 pub const BATCH_NOT_YET: &str = "not yet: batches for Go and Ruby come after correctness";
-
-/// Why `bridge --kind wasm` fails.
-pub const WASM_NOT_YET: &str =
-    "not yet: the wasm bridge through Mojo-to-wasm is M4 Task 8; bridge with `--kind node` for now";
 
 /// What `bridge` generated; every later step starts from it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -882,7 +890,7 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
             files: files.into_iter().map(|(p, _)| p).collect(),
         });
     }
-    if manifest.kind == Kind::MojoNode {
+    if manifest.kind.mojo_js() {
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
         let mut api = crate::codegen_mojo::parse_port_mojo(&port);
@@ -994,9 +1002,17 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
-        // Code the plan would put in wasm also goes to Node until the wasm bridge exists.
+        // Code that could also run in browsers goes to Node too, unless `--kind wasm` asks for
+        // the wasm module, whose toolchain is a separate install.
         _ => Kind::MojoNode,
     });
+    if kind == Kind::MojoWasm && lang != crate::lang::Lang::Ts {
+        bail!(
+            "`--kind wasm` is for TS/JS units; a {} unit bridges with its own kind (leave out \
+             --kind)",
+            lang.name()
+        );
+    }
 
     let mut exports = Vec::new();
     let mut classes = Vec::new();
@@ -1188,8 +1204,8 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
 
     let mut classes = classes.clone();
     let mut js_only = js_only.clone();
-    if kind == Kind::MojoNode {
-        // The Node bridge has no Mojo classes yet: a class stays in TS, where `record`, `gate`
+    if kind.mojo_js() {
+        // The Node and wasm bridges have no Mojo classes yet: a class stays in TS, where `record`, `gate`
         // and the shadow leave it to the original instead of expecting it from the port.
         for c in classes.drain(..) {
             js_only.push(JsOnly {
@@ -1219,7 +1235,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Kind::Ffi if mojo_unit(kind, lang) => bridge_ffi_mojo(&manifest, &crate_dir, &js_only),
         Kind::Ffi => bridge_ffi(&manifest, &crate_dir, &js_only),
         Kind::MojoPy => bridge_mojo_py(&manifest, &crate_dir, &js_only),
-        Kind::MojoNode => bridge_mojo_node(&manifest, &crate_dir, &js_only),
+        Kind::MojoNode | Kind::MojoWasm => bridge_mojo_node(&manifest, &crate_dir, &js_only),
     }
 }
 
@@ -1309,6 +1325,7 @@ fn bridge_mojo_node(m: &Manifest, crate_dir: &Path, js_only: &[JsOnly]) -> Resul
 *.node
 *.so
 *.dylib
+*.wasm
 "
             .into(),
         ),
@@ -1358,7 +1375,7 @@ fn mojo_node_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(Strin
         .functions
         .retain(|f| m.exports.iter().any(|e| e.name == f.js_name));
     let api = &exported;
-    Ok(vec![
+    let mut files = vec![
         (
             "pixi.toml".to_string(),
             crate::codegen_mojo_py::unit_pixi_toml(m, true),
@@ -1371,19 +1388,23 @@ fn mojo_node_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(Strin
             crate::codegen_ffi::DISPATCHER.into(),
             crate::codegen_ffi::dispatcher_mojo(m, api).map_err(anyhow::Error::msg)?,
         ),
-        (
+    ];
+    // A wasm unit loads its module from `index.cjs`; only a Node unit has an addon to build.
+    if m.kind == Kind::MojoNode {
+        files.push((
             crate::harness_mojo_node::NODE_SHIM.into(),
             crate::codegen_mojo_node::node_shim_c(m),
-        ),
-        (
+        ));
+        files.push((
             "binding.gyp".into(),
             crate::codegen_mojo_node::binding_gyp(m),
-        ),
-        (
-            "index.cjs".into(),
-            crate::codegen_mojo_node::index_cjs_mojo(m, api),
-        ),
-    ])
+        ));
+    }
+    files.push((
+        "index.cjs".into(),
+        crate::codegen_mojo_node::index_cjs_mojo(m, api),
+    ));
+    Ok(files)
 }
 
 fn mojo_readme(m: &Manifest) -> String {
@@ -1739,6 +1760,7 @@ fn readme(m: &Manifest) -> String {
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
             Kind::MojoNode => "a Node-API addon over the JSON dispatcher",
+            Kind::MojoWasm => "a WebAssembly module of the JSON dispatcher",
         },
     )
 }
@@ -1753,6 +1775,15 @@ mod tests {
         let k: Kind = serde_json::from_value(serde_json::json!("mojo-node")).unwrap();
         assert_eq!(k, Kind::MojoNode);
         assert!(mojo_unit(Kind::MojoNode, crate::lang::Lang::Ts));
+    }
+
+    #[test]
+    fn wasm_kind_round_trips() {
+        assert_eq!(serde_json::to_value(Kind::MojoWasm).unwrap(), "mojo-wasm");
+        let k: Kind = serde_json::from_value(serde_json::json!("mojo-wasm")).unwrap();
+        assert_eq!(k, Kind::MojoWasm);
+        assert!(mojo_unit(Kind::MojoWasm, crate::lang::Lang::Ts));
+        assert!(k.mojo_js() && Kind::MojoNode.mojo_js() && !Kind::MojoPy.mojo_js());
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub mod harness_kotlin;
 pub mod harness_mojo_c;
 pub mod harness_mojo_node;
 pub mod harness_mojo_py;
+pub mod harness_mojo_wasm;
 pub mod harness_py;
 pub mod harness_ruby;
 pub mod http;
