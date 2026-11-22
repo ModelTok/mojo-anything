@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use mojo_anything::bridge::{self, Manifest};
 use mojo_anything::front_door::{self, AppKind, FrontDoorOptions, State, WireOptions};
-use mojo_anything::harness::{self, RecordOptions};
 use mojo_anything::lift::{self, LiftOptions};
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -53,40 +52,15 @@ fn bridged(repo: &Path, unit: &str) -> PathBuf {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap()
     .crate_dir
-}
-
-fn record(dir: &Path, count: usize) {
-    harness::record(&RecordOptions {
-        crate_dir: dir,
-        count,
-        inputs: None,
-        module: None,
-        resolve_from: None,
-        node_args: &[],
-    })
-    .unwrap();
 }
 
 fn door(repo: &Path, library: bool) -> front_door::FrontDoorOutcome {
     front_door::front_door(&FrontDoorOptions {
         repo,
         library,
-        check: true,
-    })
-    .unwrap()
-}
-
-fn wire(repo: &Path, unit: &str, skip_gate: bool) -> front_door::WireOutcome {
-    front_door::wire(&WireOptions {
-        repo,
-        unit,
-        commands: &[],
-        routes: &[],
-        skip_gate,
         check: true,
     })
     .unwrap()
@@ -160,9 +134,6 @@ fn shadows_honor_the_unit_kill_switch() {
     }
 }
 
-const STAND_IN: &str = "exports.shout = text => text.toUpperCase() + '!'\n\
-    exports.initials = name => name.split(/\\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase()\n";
-
 #[test]
 fn a_ts_library_moves_unit_by_unit() {
     if !common::have("node") || !common::have("cargo") {
@@ -171,39 +142,22 @@ fn a_ts_library_moves_unit_by_unit() {
     let repo = fixture("lib/ts");
     let front = door(&repo, false);
     assert_eq!(front.api.len(), 2, "{:?}", front.api);
+    // TS/JS units are Mojo ports now (`mojo-node`): wiring them into the Rust library front
+    // door waits for the Mojo front door (M6), and says so instead of looking under `rust/`.
     let dir = bridged(&repo, "src/text.ts");
-    record(&dir, 40);
-    std::fs::write(dir.join("index.cjs"), STAND_IN).unwrap();
-
-    let wired = wire(&repo, "text-rs", true);
-    let shadow = wired.shadow.clone().unwrap();
-    let shadow_text = std::fs::read_to_string(&shadow).unwrap();
-    assert!(
-        shadow_text.contains("MOJO_ANYTHING_UNIT_TEXT"),
-        "{shadow_text}"
-    );
-    let replay = wired.replay.unwrap();
-    assert!(replay.total > 40);
-    assert_eq!(replay.passed, replay.total, "{:?}", replay.failures);
-    let fallback = replay.fallback.unwrap();
-    assert_eq!(fallback.names, ["src/nums.ts: clamp"]);
-    let lib = std::fs::read_to_string(repo.join("rust/app/src/lib.rs")).unwrap();
-    assert!(lib.contains("pub use text_rs::port as text;"), "{lib}");
-    assert!(
-        lib.contains("Still only in the original: `src/nums.ts`"),
-        "{lib}"
-    );
-
-    std::fs::write(dir.join("index.cjs"), STAND_IN.replace("+ '!'", "+ '?'")).unwrap();
-    let broken = mojo_anything::app::replay(&mojo_anything::app::ReplayOptions {
-        case: None,
+    assert!(dir.ends_with("mojo/text-mojo"), "{}", dir.display());
+    let refused = front_door::wire(&WireOptions {
         repo: &repo,
-        build: None,
-        timeout_secs: None,
-        port: None,
+        unit: "text-mojo",
+        commands: &[],
+        routes: &[],
+        skip_gate: true,
+        check: true,
     })
-    .unwrap();
-    assert!(!broken.failures.is_empty());
-    assert!(broken.failures.iter().all(|f| f.case == "text: shout"));
+    .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("is a Mojo unit"),
+        "{refused:#}"
+    );
     std::fs::remove_dir_all(&repo).unwrap();
 }

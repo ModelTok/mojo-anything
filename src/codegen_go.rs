@@ -1247,7 +1247,6 @@ func Json(raw uint64) uint64 { return raw }"#,
             classes: vec![],
             js_only: vec![],
             batches: vec![],
-            allocator: Default::default(),
             float_tolerance: None,
         };
         let mut api =
@@ -1308,7 +1307,6 @@ func Json(raw uint64) uint64 { return raw }"#,
             classes: vec![],
             js_only: vec![],
             batches: vec![],
-            allocator: Default::default(),
             float_tolerance: None,
         };
         let mut api =

@@ -1,29 +1,4 @@
-//! The JS layers shared by every TS/JS bridge: the value codec (markers for what JSON cannot
-//! carry), the error guard and the wrapper of structured calls.
-
-pub(crate) const GUARD_CJS: &str = r#"const JS_ERRORS = /^(TypeError|RangeError|SyntaxError|ReferenceError|URIError|EvalError): ([\s\S]*)$/
-const jsError = e => {
-  const message = typeof e?.message === 'string' ? e.message : ''
-  const typed = JS_ERRORS.exec(message)
-  if (typed) return new globalThis[typed[1]](typed[2])
-  if (/Expected$/.test(e?.code)) return Object.assign(new TypeError(message), { code: e.code })
-  if (message.startsWith('Rust panic:')) e.code = 'RUST_PANIC'
-  return e
-}
-const illFormed = v => typeof v === 'string' ? !v.isWellFormed() : Array.isArray(v) && v.some(illFormed)
-for (const [name, [isAsync, strings]] of Object.entries(guards)) {
-  const f = module.exports[name]
-  if (typeof f !== 'function') continue
-  const check = a => {
-    for (const i of strings) {
-      if (illFormed(a[i])) throw new TypeError(`argument ${i + 1} of ${name} has a lone surrogate, which a Rust String cannot hold`)
-    }
-  }
-  module.exports[name] = isAsync
-    ? { [name]: async function (...a) { check(a); try { return await f(...a) } catch (e) { throw jsError(e) } } }[name]
-    : { [name]: function (...a) { check(a); try { return f(...a) } catch (e) { throw jsError(e) } } }[name]
-}
-"#;
+//! The JS value codec of the TS/JS bridge: markers for what JSON cannot carry.
 
 pub(crate) const CODEC_CJS: &str = r#"
 // Structured values cross as JSON text. JSON has no `undefined`, NaN, -0, bigint, Date, Map, Set
@@ -68,29 +43,5 @@ const fromUnits = (units) => {
   for (let i = 0; i < units.length; i += 8192)
     out += String.fromCharCode.apply(null, Array.prototype.slice.call(units, i, i + 8192))
   return out
-}
-"#;
-
-pub(crate) const WRAP_CJS: &str = r#"const convert = result => result === 'json' ? decode : result === 'units' ? fromUnits : x => x
-// An omitted structured argument is `undefined`, not a missing value.
-const prepare = (a, structured) => Array.from({ length: Math.max(a.length, structured.length) }, (_, i) => structured[i] ? encode(a[i]) : a[i])
-// Functions: [structured arguments, result kind, async].
-for (const [name, [structured, result, isAsync]] of Object.entries(specs)) {
-  const call = native[name]
-  const out = convert(result)
-  module.exports[name] = isAsync
-    ? async (...a) => out(await call(...prepare(a, structured)))
-    : (...a) => out(call(...prepare(a, structured)))
-}
-// Classes: a JS class around the native one, converting arguments and results.
-const INNER = Symbol('native')
-for (const [name, [ctor, methods]] of Object.entries(classes)) {
-  const Native = native[name]
-  const Wrapped = { [name]: class { constructor(...a) { this[INNER] = new Native(...prepare(a, ctor)) } } }[name]
-  for (const [method, [structured, result]] of Object.entries(methods)) {
-    const out = convert(result)
-    Wrapped.prototype[method] = function (...a) { return out(this[INNER][method](...prepare(a, structured))) }
-  }
-  module.exports[name] = Wrapped
 }
 "#;

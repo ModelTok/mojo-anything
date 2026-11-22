@@ -1,4 +1,4 @@
-//! mojo-anything: plan, bridge, verify and ship incremental migrations to Rust.
+//! mojo-anything: plan, bridge, verify and ship incremental migrations to Mojo.
 //!
 //! The steps (`analyze`, `bridge`, `harness`, `shadow`, `gate`) are language-neutral in shape;
 //! each source language is a plugin module. TypeScript/JavaScript (`ts`) is the first.
@@ -25,7 +25,6 @@ pub mod codegen_mojo_node;
 pub mod codegen_mojo_py;
 pub mod codegen_py;
 pub mod codegen_ruby;
-pub mod codegen_tswire;
 pub mod crates;
 pub mod doctor;
 pub mod effects;

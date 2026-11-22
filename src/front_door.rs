@@ -891,7 +891,7 @@ fn refuse_mojo_unit(repo: &Path, unit: &str) -> Result<()> {
         let named = dir == repo.join(unit) || dir == Path::new(unit) || dir == mojo.join(unit);
         if matches!(
             m.kind,
-            crate::bridge::Kind::MojoPy | crate::bridge::Kind::CAbi
+            crate::bridge::Kind::MojoPy | crate::bridge::Kind::CAbi | crate::bridge::Kind::MojoNode
         ) && (named || m.unit.trim_end_matches('/') == wanted)
         {
             bail!(

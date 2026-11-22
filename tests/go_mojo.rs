@@ -57,7 +57,6 @@ fn bridged(tag: &str, unit: &str) -> (PathBuf, PathBuf) {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     (root, out)
@@ -291,7 +290,6 @@ fn go_batch_not_yet() {
         lang: None,
         batch: vec!["Echo:s".into()],
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap_err()
     .to_string();

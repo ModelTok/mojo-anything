@@ -191,7 +191,6 @@ fn bridged(repo: &Path) -> PathBuf {
         lang: Some(mojo_anything::lang::Lang::C),
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap()
     .crate_dir

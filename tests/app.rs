@@ -910,7 +910,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let base = std::env::temp_dir().join(format!("mojo-anything-strip-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
-    // Go and Ruby units are Mojo ports: lifting them comes with the Mojo front door.
+    // TS/JS, Go and Ruby units are Mojo ports: lifting them comes with the Mojo front door.
     let units = [
         ("mini", "packages/a/src/util.ts", "ts"),
         ("go", "strkit/", "go"),
@@ -918,7 +918,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
         ("java", "src/main/java/com/example/text/", "java"),
     ];
     for (fixture, unit, lang) in units {
-        let mojo = lang == "go" || lang == "ruby";
+        let mojo = lang != "java";
         let dir = base.join(lang);
         mojo_anything::bridge::bridge(&mojo_anything::bridge::Options {
             root: &fixtures.join(fixture),
@@ -931,17 +931,8 @@ fn lift_strips_bridge_bindings_in_every_language() {
             lang: None,
             batch: Vec::new(),
             as_json: Vec::new(),
-            allocator: Default::default(),
         })
         .unwrap();
-        if lang == "ts" {
-            let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-            std::fs::write(
-                dir.join("src/port.rs"),
-                format!("{port}\n#[allow(unused_imports)]\nuse crate::utf16;\n"),
-            )
-            .unwrap();
-        }
         if mojo {
             let err = lift::strip_unit(&dir).unwrap_err().to_string();
             assert!(err.contains("Mojo front door"), "{lang}: {err}");
@@ -954,12 +945,7 @@ fn lift_strips_bridge_bindings_in_every_language() {
             assert!(!cargo.contains(binding), "{lang}: {cargo}");
         }
         let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-        let expected = if lang == "ts" {
-            "pub mod port;\npub mod utf16;\n"
-        } else {
-            "pub mod port;\n"
-        };
-        assert_eq!(lib, expected, "{lang}");
+        assert_eq!(lib, "pub mod port;\n", "{lang}");
         for generated in [
             "build.rs",
             "index.cjs",

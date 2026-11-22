@@ -41,7 +41,6 @@ fn record(root: &Path) -> anyhow::Result<()> {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })?;
     let manifest = bridge::Manifest::load(&out)?;
     assert_eq!(

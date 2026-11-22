@@ -72,7 +72,6 @@ fn records_a_kotlin_unit_on_a_connected_device() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let outcome = harness::record_android(

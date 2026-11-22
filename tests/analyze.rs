@@ -95,7 +95,7 @@ fn picks_status_and_bridge() {
     // `b` uses no Node API, so its code can run anywhere.
     assert_eq!(
         unit(&report, "packages/b/src/index.ts").bridge,
-        Bridge::WasmBindgen
+        Bridge::Wasm
     );
     let order: Vec<(&str, usize)> = report
         .packages

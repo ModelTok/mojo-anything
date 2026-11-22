@@ -44,7 +44,6 @@ fn record(root: &Path) -> anyhow::Result<()> {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })?;
     let recording = harness::record(&harness::RecordOptions {
         crate_dir: &out,

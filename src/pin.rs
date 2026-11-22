@@ -50,7 +50,7 @@ impl Default for Pin {
 pub fn supported(m: &Manifest) -> bool {
     match m.language {
         Lang::Python => true,
-        Lang::Ts => matches!(m.kind, Kind::Napi | Kind::MojoNode),
+        Lang::Ts => m.kind == Kind::MojoNode,
         _ => false,
     }
 }
@@ -79,7 +79,7 @@ pub fn set(crate_dir: &Path, on: bool) -> Result<Option<PathBuf>> {
     let manifest = Manifest::load(crate_dir)?;
     if !supported(&manifest) {
         bail!(
-            "`--pin-clock` covers TS/JS units with the node or napi bridge and Python units; this crate is \
+            "`--pin-clock` covers TS/JS units with the node bridge and Python units; this crate is \
              {:?} with the {:?} bridge",
             manifest.language,
             manifest.kind

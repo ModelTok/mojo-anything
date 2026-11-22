@@ -23,108 +23,14 @@ fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
     root
 }
 
-/// Bridge `unit`, record the original, port `name` with `body`, build, and replay.
-fn round_trip(root: &Path, unit: &str, kind: Kind, name: &str, body: &str) {
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root,
-        unit,
-        kind: Some(kind),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let recorded = harness::record(&RecordOptions {
-        crate_dir: &dir,
-        count: 30,
-        inputs: None,
-        module: None,
-        resolve_from: None,
-        node_args: &[],
-    })
-    .unwrap();
-    assert!(recorded.cases > 0, "{recorded:?}");
-
-    let port_path = dir.join("src/port.rs");
-    let port = std::fs::read_to_string(&port_path).unwrap();
-    let start = port
-        .find(&format!("pub fn {name}("))
-        .unwrap_or_else(|| panic!("no {name} in\n{port}"));
-    let open = start + port[start..].find('{').unwrap();
-    let close = open + port[open..].find("\n}").unwrap();
-    let ported = format!("{}{{\n    {body}{}", &port[..open], &port[close..]);
-    std::fs::write(&port_path, ported).unwrap();
-
-    harness::build(&dir).unwrap();
-    let outcome = harness::diff(&DiffOptions {
-        crate_dir: &dir,
-        module: None,
-        ignore_key_order: false,
-        node_args: &[],
-        float_tolerance: None,
-    })
-    .unwrap();
-    assert_eq!(
-        (outcome.failed, outcome.passed),
-        (0, outcome.total),
-        "{:#?}",
-        outcome.mismatches
-    );
-
-    std::fs::write(&port_path, std::fs::read(&port_path).unwrap()).unwrap();
-    let stale = harness::diff(&DiffOptions {
-        crate_dir: &dir,
-        module: None,
-        ignore_key_order: false,
-        node_args: &[],
-        float_tolerance: None,
-    })
-    .unwrap_err();
-    assert!(
-        format!("{stale:#}").contains("mojo-anything build"),
-        "{stale:#}"
-    );
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn napi_addon_builds_loads_and_matches_in_space_and_unicode_path() {
-    if !common::have("node") {
-        return;
-    }
-    let root = project(
-        "napi path with spaces ünïcøde",
-        &[
-            ("package.json", r#"{"name":"shout","version":"0.1.0"}"#),
-            (
-                "src/shout.ts",
-                "export function shout(text: string): string {\n  return text + \"!\";\n}\n",
-            ),
-        ],
-    );
-    round_trip(
-        &root,
-        "src/shout.ts",
-        Kind::Napi,
-        "shout",
-        "Ok(format!(\"{text}!\"))",
-    );
-}
-
 /// A freshly bridged crate is all `unimplemented!` stubs: replaying it must pass no case, even
 /// where the original throws the same kind of error a panic turns into.
 fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
     if !common::have(program) {
         return;
     }
-    // Go and Ruby units are Mojo ports.
-    if matches!(program, "go" | "ruby") && !common::have_mojo() {
+    // Go, Ruby and TS/JS units are Mojo ports.
+    if matches!(program, "go" | "ruby" | "node") && !common::have_mojo() {
         return;
     }
     let dir = std::env::temp_dir().join(format!(
@@ -144,7 +50,6 @@ fn stubs_fail(root: &Path, unit: &str, kind: Option<Kind>, program: &str) {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let recorded = harness::record(&RecordOptions {
@@ -182,10 +87,11 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn unported_stubs_never_match_in_typescript() {
+    // Every call of  throws in the original (no such file); the Mojo stub raises too.
     stubs_fail(
-        &fixture("classes"),
-        "src/stats.ts",
-        Some(Kind::Napi),
+        &fixture("mini"),
+        "packages/a/src/fs.ts",
+        Some(Kind::MojoNode),
         "node",
     );
 }
@@ -259,161 +165,6 @@ fn unported_stubs_never_match_a_go_panic() {
 }
 
 #[test]
-fn napi_errors_keep_their_class_and_async_exports_reject() {
-    if !common::have("node") {
-        return;
-    }
-    let root = project(
-        "napi-errors",
-        &[
-            ("package.json", r#"{"name":"guard","version":"0.1.0"}"#),
-            (
-                "src/guard.ts",
-                "export function check(text: string): string {\n  if (text === '') throw new TypeError('empty');\n  return text;\n}\n\
-                 export async function later(text: string): Promise<string> {\n  return text;\n}\n",
-            ),
-        ],
-    );
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/guard.ts",
-        kind: Some(Kind::Napi),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    let port = port
-        .replacen(
-            "unimplemented!(\"port `check` from src/guard.ts\")",
-            "if text.is_empty() { return Err(\"TypeError: empty\".into()); }\n    Ok(text)",
-            1,
-        )
-        .replacen(
-            "unimplemented!(\"port `later` from src/guard.ts\")",
-            "panic!(\"boom\")",
-            1,
-        );
-    std::fs::write(dir.join("src/port.rs"), &port).unwrap();
-    harness::build(&dir).unwrap();
-    let script = r#"
-const m = require(process.argv[1])
-const out = []
-try { m.check('') } catch (e) { out.push(e instanceof TypeError, e.message) }
-try { m.check('a\uD800') } catch (e) { out.push(e instanceof TypeError && /lone surrogate/.test(e.message)) }
-let threw = false
-const p = (() => { try { return m.later(5) } catch { threw = true } })()
-out.push(!threw && p instanceof Promise)
-;(p ? p.catch(e => e.name) : Promise.resolve(null)).then(name => {
-  out.push(name)
-  return m.later('x').catch(e => e.code)
-}).then(code => { out.push(code); console.log(JSON.stringify(out)) })
-"#;
-    let output = Command::new("node")
-        .args(["-e", script])
-        .arg(dir.join("index.cjs"))
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(
-        stdout.trim(),
-        r#"[true,"empty",true,true,"TypeError","RUST_PANIC"]"#,
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn napi_carries_bytes_maps_sets_dates_and_bigints() {
-    if !common::have("node") {
-        return;
-    }
-    let root = project(
-        "napi-types",
-        &[
-            ("package.json", r#"{"name":"types","version":"0.1.0"}"#),
-            (
-                "src/types.ts",
-                "export function size(m: Map<string, number>): number { return m.size }\n\
-                 export function echo(b: Uint8Array): Uint8Array { return b }\n\
-                 export function big(n: bigint): bigint { return n * 2n }\n\
-                 export function day(d: Date): Date { return d }\n\
-                 export function keys(s: Set<string>): Set<string> { return s }\n",
-            ),
-        ],
-    );
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/types.ts",
-        kind: Some(Kind::Napi),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let mut port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    for (name, body) in [
-        (
-            "size",
-            "Ok(m[\"$map\"].as_array().map_or(0, Vec::len) as f64)",
-        ),
-        ("echo", "Ok(b)"),
-        (
-            "big",
-            "let n: i128 = n[\"$bigint\"].as_str().ok_or(\"not a bigint\")?.parse().map_err(|e| format!(\"{e}\"))?;\n    Ok(serde_json::json!({ \"$bigint\": (n * 2).to_string() }))",
-        ),
-        ("day", "Ok(d)"),
-        ("keys", "Ok(s)"),
-    ] {
-        let stub = format!("unimplemented!(\"port `{name}` from src/types.ts\")");
-        assert!(port.contains(&stub), "{port}");
-        port = port.replacen(&stub, body, 1);
-    }
-    std::fs::write(dir.join("src/port.rs"), &port).unwrap();
-    harness::build(&dir).unwrap();
-    let script = r#"
-const m = require(process.argv[1])
-const bytes = m.echo(new Uint8Array([0, 7, 255]))
-const buffer = m.echo(Buffer.from('hi'))
-const when = new Date('2024-02-29T12:00:00.000Z')
-console.log(JSON.stringify([
-  m.size(new Map([['a', 1], ['b', 2]])),
-  bytes instanceof Uint8Array && [...bytes].join(','),
-  Buffer.isBuffer(buffer) && buffer.toString(),
-  String(m.big(9007199254740993n)),
-  m.day(when) instanceof Date && m.day(when).getTime() === when.getTime(),
-  [...m.keys(new Set(['x', 'y']))].join(','),
-]))
-"#;
-    let output = Command::new("node")
-        .args(["-e", script])
-        .arg(dir.join("index.cjs"))
-        .output()
-        .unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        r#"[2,"0,7,255","hi","18014398509481986",true,"x,y"]"#,
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
 fn java_records_with_the_bridge_crate_inside_the_project() {
     if !common::have("javac") {
         return;
@@ -442,7 +193,6 @@ fn java_records_with_the_bridge_crate_inside_the_project() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert!(outcome.crate_dir.ends_with("rust/smoke-rs"), "{outcome:?}");
@@ -471,7 +221,6 @@ fn bridge_python(root: &Path, unit: &str) -> anyhow::Result<bridge::Outcome> {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
 }
 
@@ -627,123 +376,6 @@ fn one_file_of_a_unit_can_be_bridged_alone() {
     assert!(format!("{missing:#}").contains("no unit or source file"));
 }
 
-#[test]
-fn napi_batches_take_structured_parameters() {
-    if !common::have("node") {
-        return;
-    }
-    let root = project(
-        "batch-options",
-        &[
-            ("package.json", r#"{"name":"fmt","version":"0.1.0"}"#),
-            (
-                "src/fmt.ts",
-                "export function label(n: number, options?: { long?: boolean }): string {\n  return options?.long ? `${n} units` : `${n}u`;\n}\n",
-            ),
-        ],
-    );
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/fmt.ts",
-        kind: Some(Kind::Napi),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: vec!["label:n".into()],
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    let port = port.replacen(
-        "unimplemented!(\"port `label` from src/fmt.ts\")",
-        "let long = options\n        .as_ref()\n        .and_then(|o| o.get(\"long\"))\n        .and_then(serde_json::Value::as_bool)\n        .unwrap_or(false);\n    Ok(if long { format!(\"{n} units\") } else { format!(\"{n}u\") })",
-        1,
-    );
-    std::fs::write(dir.join("src/port.rs"), &port).unwrap();
-    harness::build(&dir).unwrap();
-    let script = r#"
-const { LabelBatch } = require(process.argv[1])
-const batch = new LabelBatch([1, 2])
-const refused = [() => new LabelBatch(3), () => new LabelBatch([1, '2'])].map(f => { try { f(); return 'no' } catch (e) { return e.name } })
-console.log(JSON.stringify([batch.run(), batch.run({ long: true }), batch instanceof LabelBatch, refused]))
-"#;
-    let output = Command::new("node")
-        .args(["-e", script])
-        .arg(dir.join("index.cjs"))
-        .output()
-        .unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        r#"[["1u","2u"],["1 units","2 units"],true,["TypeError","TypeError"]]"#,
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn napi_string_batches_cross_joined() {
-    if !common::have("node") {
-        return;
-    }
-    let root = project(
-        "batch-strings",
-        &[
-            ("package.json", r#"{"name":"wrap","version":"0.1.0"}"#),
-            (
-                "src/wrap.ts",
-                "export function wrap(s: string): string {\n  return `<${s}>`;\n}\n",
-            ),
-        ],
-    );
-    let dir = root.join("port");
-    bridge::bridge(&bridge::Options {
-        root: &root,
-        unit: "src/wrap.ts",
-        kind: Some(Kind::Napi),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: vec!["wrap:s".into()],
-        as_json: Vec::new(),
-        allocator: Default::default(),
-    })
-    .unwrap();
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    let port = port.replacen(
-        "unimplemented!(\"port `wrap` from src/wrap.ts\")",
-        "Ok(format!(\"<{s}>\"))",
-        1,
-    );
-    std::fs::write(dir.join("src/port.rs"), &port).unwrap();
-    harness::build(&dir).unwrap();
-    let script = r#"
-const { WrapBatch } = require(process.argv[1])
-const items = ['', 'a', 'é', '😀x', '日本', 'b\uD800c', 'ascii only']
-const batch = new WrapBatch(items)
-const refused = [() => new WrapBatch('ab'), () => new WrapBatch(['a', 1])].map(f => { try { f(); return 'no' } catch (e) { return e.name } })
-console.log(JSON.stringify([batch.run(), batch instanceof WrapBatch, refused, new WrapBatch([]).run()]))
-"#;
-    let output = Command::new("node")
-        .args(["-e", script])
-        .arg(dir.join("index.cjs"))
-        .output()
-        .unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        r#"[["<>","<a>","<é>","<😀x>","<日本>","<b�c>","<ascii only>"],true,["TypeError","TypeError"],[]]"#,
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
 fn have_node_mojo() -> bool {
     common::have("node") && common::have("cc") && common::have_mojo()
 }
@@ -762,7 +394,6 @@ fn mojo_node_unit(root: &Path, unit: &str, port: &str) -> PathBuf {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     std::fs::write(dir.join("port.mojo"), port).unwrap();
@@ -937,7 +568,6 @@ fn mojo_node_batch_unit(root: &Path, unit: &str, batch: &str, port: &str) -> Pat
         lang: None,
         batch: vec![batch.into()],
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     std::fs::write(dir.join("port.mojo"), port).unwrap();

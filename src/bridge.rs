@@ -1,9 +1,9 @@
-//! Step 2: scaffold a Rust crate for one unit, with JS bindings and a manifest the later
-//! steps read.
+//! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
+//! later steps read.
 //!
-//! The crate splits bindings from logic: `src/lib.rs` holds thin `#[napi]` or
-//! `#[wasm_bindgen]` wrappers, `src/port.rs` holds the port in plain Rust with
-//! `#![forbid(unsafe_code)]`, so it can be tested without a JS runtime.
+//! The port (`port.mojo`, or `src/port.rs` for Java and Kotlin until they move to Mojo) holds the
+//! logic; the generated layers around it (dispatcher, Node-API shim, Python extension, JNI
+//! wrapper) are rewritten by `refresh` and never edited by hand.
 
 use crate::walk::Canonical;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::analyze::{self, Bridge, Status};
 use crate::codegen;
-use crate::risks::Risk;
 use crate::ts::exports::{
     ExportedClass, ExportedFn, LocalType, exported_classes, exported_functions, local_types,
 };
@@ -26,8 +25,6 @@ pub const OLD_MANIFEST: &str = "rust-anything.json";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
-    Napi,
-    Wasm,
     /// `extern "C"` functions with the original names: a drop-in replacement for C code.
     #[serde(rename = "c-abi")]
     CAbi,
@@ -48,32 +45,15 @@ pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     match kind {
         Kind::MojoPy | Kind::CAbi | Kind::MojoNode => true,
         Kind::Ffi => matches!(language, Lang::Go | Lang::Ruby),
-        Kind::Napi | Kind::Wasm => false,
     }
 }
 
 /// Why `--batch` fails for Go and Ruby units.
 pub const BATCH_NOT_YET: &str = "not yet: batches for Go and Ruby come after correctness";
 
-/// The global allocator of a crate with batches (`bridge --allocator`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-pub enum Allocator {
-    /// mimalloc, built from C with `cc`. Wasm crates keep Rust's default allocator.
-    #[default]
-    #[serde(rename = "mimalloc")]
-    #[value(name = "mimalloc")]
-    Mimalloc,
-    /// rusty_alloc, a pure-Rust remake of mimalloc: no C compiler, and wasm crates get it too.
-    #[serde(rename = "rusty_alloc")]
-    #[value(name = "rusty_alloc", alias = "rusty-alloc")]
-    RustyAlloc,
-}
-
-impl Allocator {
-    fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
+/// Why `bridge --kind wasm` fails.
+pub const WASM_NOT_YET: &str =
+    "not yet: the wasm bridge through Mojo-to-wasm is M4 Task 8; bridge with `--kind node` for now";
 
 /// What `bridge` generated; every later step starts from it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,9 +83,6 @@ pub struct Manifest {
     /// Functions run over many items kept in Rust (`--batch function:param`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub batches: Vec<crate::codegen_batch::Batch>,
-    /// The global allocator when the crate has batches (`bridge --allocator`).
-    #[serde(default, skip_serializing_if = "Allocator::is_default")]
-    pub allocator: Allocator,
     /// Floats match within this relative tolerance (`record --float-tolerance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub float_tolerance: Option<f64>,
@@ -214,11 +191,18 @@ impl Manifest {
                 path.display()
             )
         })?;
-        if serde_json::from_str::<serde_json::Value>(&text)
-            .is_ok_and(|v| v["kind"] == serde_json::json!("pyo3"))
-        {
+        let old_kind = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v["kind"].as_str().map(str::to_string));
+        let old_bridge = match old_kind.as_deref() {
+            Some("pyo3") => Some("PyO3"),
+            Some("napi") => Some("napi-rs"),
+            Some("wasm") => Some("wasm-bindgen"),
+            _ => None,
+        };
+        if let Some(old) = old_bridge {
             bail!(
-                "{} was bridged with PyO3, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
+                "{} was bridged with {old}, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
                 path.display()
             );
         }
@@ -272,8 +256,6 @@ pub struct Options<'a> {
     /// Type parameters the app only fills with data: bridged as JSON values instead of keeping
     /// the export in TS.
     pub as_json: Vec<String>,
-    /// The global allocator for crates with batches.
-    pub allocator: Allocator,
 }
 
 #[derive(Debug, Serialize)]
@@ -713,10 +695,6 @@ pub fn resolve_aliases(ts: &str, types: &[LocalType]) -> String {
     out
 }
 
-fn needs_js(api: &codegen::PortApi) -> bool {
-    api.needs_json()
-}
-
 /// The reason given with `--keep name` or `--keep "name: reason"`, if `name` is kept.
 fn keep_reason(keep: &[String], name: &str) -> Option<String> {
     keep.iter().find_map(|k| {
@@ -756,22 +734,6 @@ fn format_wrapper(crate_dir: &Path) {
             .arg(crate_dir.join("go"))
             .output();
     }
-}
-
-/// `lib.rs` of a JS crate: the bindings, and the binary wire when functions use it.
-fn js_lib_rs(m: &Manifest, api: &codegen::PortApi, modules: &codegen::Modules) -> Result<String> {
-    let mut lib = with_allocator(m, codegen::lib_rs(m, api, modules));
-    if !m.batches.is_empty() {
-        lib.push_str(&crate::codegen_batch::js_rs(m, api).map_err(anyhow::Error::msg)?);
-    }
-    if !crate::codegen_tswire::uses_wire(m, api) {
-        return Ok(lib);
-    }
-    Ok(lib.replacen(
-        "pub mod port;",
-        "pub mod port;\npub mod wire;\n\n#[allow(unused_imports)]\nuse serde_json::Value;",
-        1,
-    ) + &crate::codegen_tswire::napi_rs(m, api))
 }
 
 fn parse_batches(specs: &[String]) -> Result<Vec<crate::codegen_batch::Batch>> {
@@ -831,93 +793,38 @@ fn with_template_deps(cargo: &str, template: &str) -> Result<String> {
     Ok(doc.to_string())
 }
 
-/// The global allocator of a crate, if it sets one: crates with batches allocate from all cores
-/// at once (the system allocator serializes them: 1.6x on 4 cores instead of 3.2x). mimalloc
-/// leaves wasm alone, which runs on one thread; rusty_alloc also replaces Rust's wasm allocator.
-/// Only Rust code uses this heap; every buffer that crosses the bridge is copied or freed by Rust.
-fn global_allocator(m: &Manifest) -> Option<Allocator> {
-    if m.batches.is_empty() {
-        return None;
-    }
-    match m.allocator {
-        Allocator::Mimalloc if m.kind == Kind::Wasm => None,
-        a => Some(a),
-    }
-}
-
-/// `lib.rs` with the [`global_allocator`].
+/// `lib.rs` with mimalloc as the global allocator when the crate has batches: they allocate
+/// from all cores at once, and the system allocator serializes them (1.6x on 4 cores instead of
+/// 3.2x). Only Rust code uses this heap; every buffer that crosses the bridge is copied.
 fn with_allocator(m: &Manifest, lib: String) -> String {
-    let line = match global_allocator(m) {
-        None => return lib,
-        Some(Allocator::Mimalloc) => {
-            "/// Batches allocate on all cores at once; mimalloc keeps that from serializing.\n\
-             #[global_allocator]\nstatic GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;\n"
-        }
-        Some(Allocator::RustyAlloc) => {
-            "/// Batches allocate on all cores at once; rusty_alloc keeps that from serializing.\n\
-             #[global_allocator]\n\
-             static GLOBAL: rusty_alloc_api::RustyAlloc = rusty_alloc_api::RustyAlloc;\n"
-        }
-    };
-    lib.replacen("pub mod port;", &format!("pub mod port;\n\n{line}"), 1)
+    if m.batches.is_empty() {
+        return lib;
+    }
+    lib.replacen(
+        "pub mod port;",
+        "pub mod port;
+
+         /// Batches allocate on all cores at once; mimalloc keeps that from serializing.
+         #[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+",
+        1,
+    )
 }
 
-/// Cargo.toml with rayon (and the global allocator) when batches run on all cores.
+/// Cargo.toml with rayon and mimalloc when batches run on all cores.
 fn with_rayon(m: &Manifest, cargo: String) -> Result<String> {
+    if m.batches.is_empty() {
+        return Ok(cargo);
+    }
     let mut doc: toml_edit::DocumentMut = cargo.parse().context("Cargo.toml")?;
     let deps = doc["dependencies"].or_insert(toml_edit::table());
-    // Batch methods take their other parameters as napi values; structured ones need serde.
-    if m.kind == Kind::Napi
-        && !m.batches.is_empty()
-        && let Some(napi) = deps.get_mut("napi")
-    {
-        let mut table = toml_edit::InlineTable::new();
-        match napi {
-            toml_edit::Item::Value(toml_edit::Value::String(v)) => {
-                table.insert("version", v.value().clone().into());
-            }
-            toml_edit::Item::Value(toml_edit::Value::InlineTable(t)) => table = t.clone(),
-            _ => {}
+    for (name, version) in [("rayon", "1"), ("mimalloc", "0.1")] {
+        if deps.get(name).is_none() {
+            deps[name] = toml_edit::value(version);
         }
-        let mut features = table
-            .get("features")
-            .and_then(|f| f.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if !features.iter().any(|f| f.as_str() == Some("serde-json")) {
-            features.push("serde-json");
-        }
-        table.insert("features", toml_edit::Value::Array(features));
-        *napi = toml_edit::value(table);
-    }
-    if !crate::codegen_batch::needs_rayon(m) {
-        return Ok(doc.to_string());
-    }
-    if deps.get("rayon").is_none() {
-        deps["rayon"] = toml_edit::value("1");
-    }
-    let allocator = match global_allocator(m) {
-        Some(Allocator::Mimalloc) => Some(("mimalloc", "0.1")),
-        Some(Allocator::RustyAlloc) => Some(("rusty_alloc-api", "2.6")),
-        None => None,
-    };
-    if let Some((name, version)) = allocator
-        && deps.get(name).is_none()
-    {
-        deps[name] = toml_edit::value(version);
     }
     Ok(doc.to_string())
-}
-
-/// The language-side loader, `index.cjs`.
-fn loader_file(m: &Manifest, api: &codegen::PortApi) -> (String, String) {
-    (
-        "index.cjs".into(),
-        codegen::index_cjs(m, api)
-            + &crate::codegen_tswire::index_cjs(m, api)
-            + &crate::codegen_batch::index_cjs(m, api)
-            + &codegen::guard_cjs(api, &crate::codegen_tswire::wired(m, api)),
-    )
 }
 
 /// A port function whose doc line does not name an export (`/// Port of \`Integer.toString\``)
@@ -945,8 +852,9 @@ pub struct Refreshed {
     pub files: Vec<String>,
 }
 
-/// Regenerates the binding layer (`lib.rs`, `index.cjs`, `js.rs`) from the signatures in
-/// `port.rs`, and adds the dependencies they need to Cargo.toml. Never touches `port.rs`.
+/// Regenerates the binding layers from the signatures in the port (`port.mojo`, or `src/port.rs`
+/// for Java and Kotlin, whose Cargo.toml also gets the dependencies they need). Never touches the
+/// port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
     if manifest.kind == Kind::MojoPy {
@@ -1006,66 +914,22 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
             files: files.into_iter().map(|(p, _)| p).collect(),
         });
     }
-    if manifest.kind == Kind::Ffi {
-        let port = std::fs::read_to_string(crate_dir.join("src/port.rs"))
-            .context("reading src/port.rs")?;
-        let mut api = codegen::parse_port(&port);
-        match_export_names(&manifest, &mut api);
-        let mut files = ffi_bindings(&manifest, &api)?;
-        let cargo =
-            std::fs::read_to_string(crate_dir.join("Cargo.toml")).context("reading Cargo.toml")?;
-        let template = crate::codegen_ffi::cargo_toml(&manifest);
-        let cargo = with_template_deps(&cargo, &template)?;
-        files.push(("Cargo.toml".into(), with_rayon(&manifest, cargo)?));
-        write_files(crate_dir, &files)?;
-        format_rust(crate_dir);
-        format_wrapper(crate_dir);
-        return Ok(Refreshed {
-            functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
-            files: files.into_iter().map(|(p, _)| p).collect(),
-        });
-    }
+    // A Java or Kotlin unit: a Rust JNI crate until those languages move to Mojo.
     let port =
         std::fs::read_to_string(crate_dir.join("src/port.rs")).context("reading src/port.rs")?;
-    let mut fns = codegen::parse_port(&port);
-    match_export_names(&manifest, &mut fns);
-    if fns.functions.is_empty() && fns.classes.is_empty() {
-        bail!("src/port.rs has no `pub fn` or ported class: nothing to bind");
-    }
-    let modules = codegen::Modules {
-        utf16: crate_dir.join("src/utf16.rs").exists(),
-        js: needs_js(&fns) || crate_dir.join("src/js.rs").exists(),
-    };
-    let mut files: Vec<(String, String)> = vec![
-        ("src/lib.rs".into(), js_lib_rs(&manifest, &fns, &modules)?),
-        loader_file(&manifest, &fns),
-    ];
-    if modules.js {
-        files.push(("src/js.rs".into(), codegen::JS_RS.to_string()));
-    }
-    if crate::codegen_tswire::uses_wire(&manifest, &fns) {
-        files.push(("src/wire.rs".into(), crate::wire::WIRE_RS.into()));
-    }
-    let cargo_path = crate_dir.join("Cargo.toml");
-    let cargo = std::fs::read_to_string(&cargo_path).context("reading Cargo.toml")?;
-    let cargo = codegen::ensure_deps(&cargo, manifest.kind, &fns).map_err(anyhow::Error::msg)?;
-    let cargo = with_rayon(&manifest, cargo)?;
-    files.push(("Cargo.toml".into(), cargo));
-    for (path, text) in &files {
-        let target = crate_dir.join(path);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&target, text).with_context(|| format!("writing {path}"))?;
-    }
+    let mut api = codegen::parse_port(&port);
+    match_export_names(&manifest, &mut api);
+    let mut files = ffi_bindings(&manifest, &api)?;
+    let cargo =
+        std::fs::read_to_string(crate_dir.join("Cargo.toml")).context("reading Cargo.toml")?;
+    let template = crate::codegen_ffi::cargo_toml(&manifest);
+    let cargo = with_template_deps(&cargo, &template)?;
+    files.push(("Cargo.toml".into(), with_rayon(&manifest, cargo)?));
+    write_files(crate_dir, &files)?;
     format_rust(crate_dir);
+    format_wrapper(crate_dir);
     Ok(Refreshed {
-        functions: fns
-            .functions
-            .iter()
-            .map(|f| f.js_name.clone())
-            .chain(fns.classes.iter().map(|c| format!("class {}", c.js_name)))
-            .collect(),
+        functions: api.functions.iter().map(|f| f.js_name.clone()).collect(),
         files: files.into_iter().map(|(p, _)| p).collect(),
     })
 }
@@ -1127,12 +991,11 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         );
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {
-        Bridge::WasmBindgen => Kind::Wasm,
         Bridge::MojoPy => Kind::MojoPy,
         Bridge::CAbi => Kind::CAbi,
         Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
-        // `mojo-node` units are bridged by default once their bridge exists (M4 Task 3).
-        _ => Kind::Napi,
+        // Code the plan would put in wasm also goes to Node until the wasm bridge exists.
+        _ => Kind::MojoNode,
     });
 
     let mut exports = Vec::new();
@@ -1323,9 +1186,6 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         );
     }
 
-    // UTF-16 helpers matter for JS strings only; Python indexes code points, like `chars()`.
-    let utf16 =
-        lang == crate::lang::Lang::Ts && unit.risks.iter().any(|r| r.risk == Risk::StringOffsets);
     let manifest = Manifest {
         schema: SCHEMA.into(),
         root: root.clone(),
@@ -1338,103 +1198,15 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         classes: classes.clone(),
         js_only: js_only.clone(),
         batches: parse_batches(&opts.batch)?,
-        allocator: opts.allocator,
         float_tolerance: None,
     };
-    if kind == Kind::CAbi {
-        return bridge_c(&manifest, &crate_dir, &js_only);
+    match kind {
+        Kind::CAbi => bridge_c(&manifest, &crate_dir, &js_only),
+        Kind::Ffi if mojo_unit(kind, lang) => bridge_ffi_mojo(&manifest, &crate_dir, &js_only),
+        Kind::Ffi => bridge_ffi(&manifest, &crate_dir, &js_only),
+        Kind::MojoPy => bridge_mojo_py(&manifest, &crate_dir, &js_only),
+        Kind::MojoNode => bridge_mojo_node(&manifest, &crate_dir, &js_only),
     }
-    if kind == Kind::Ffi && mojo_unit(kind, lang) {
-        return bridge_ffi_mojo(&manifest, &crate_dir, &js_only);
-    }
-    if kind == Kind::Ffi {
-        return bridge_ffi(&manifest, &crate_dir, &js_only);
-    }
-    if kind == Kind::MojoPy {
-        return bridge_mojo_py(&manifest, &crate_dir, &js_only);
-    }
-    if kind == Kind::MojoNode {
-        return bridge_mojo_node(&manifest, &crate_dir, &js_only);
-    }
-    let port = codegen::port_rs(&manifest);
-    let fns = codegen::parse_port(&port);
-    let modules = codegen::Modules {
-        utf16,
-        js: needs_js(&fns),
-    };
-    let mut files: Vec<(String, String)> = vec![
-        (
-            "Cargo.toml".into(),
-            with_rayon(&manifest, codegen::cargo_toml(&manifest, &fns))?,
-        ),
-        ("src/lib.rs".into(), js_lib_rs(&manifest, &fns, &modules)?),
-        ("src/port.rs".into(), port),
-        loader_file(&manifest, &fns),
-        (
-            ".gitignore".into(),
-            "target/\n*.node\npkg/\n.mojo-anything/\n*.so\n*.pyd\n__pycache__/\n".into(),
-        ),
-        ("README.md".into(), readme(&manifest)),
-        (
-            MANIFEST.into(),
-            serde_json::to_string_pretty(&manifest)? + "\n",
-        ),
-    ];
-    if kind == Kind::Napi {
-        files.push((
-            "build.rs".into(),
-            "fn main() {\n    napi_build::setup();\n}\n".into(),
-        ));
-    }
-    if utf16 {
-        files.push(("src/utf16.rs".into(), UTF16_RS.into()));
-    }
-    if modules.js {
-        files.push(("src/js.rs".into(), codegen::JS_RS.into()));
-    }
-    if crate::codegen_tswire::uses_wire(&manifest, &fns) {
-        files.push(("src/wire.rs".into(), crate::wire::WIRE_RS.into()));
-    }
-    for (path, text) in &files {
-        let target = crate_dir.join(path);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&target, text).with_context(|| format!("writing {}", target.display()))?;
-    }
-
-    format_rust(&crate_dir);
-    let mut notes = vec![format!(
-        "Port each function in src/port.rs, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
-        crate_dir.display()
-    )];
-    if utf16 {
-        notes.push("The unit works with string offsets: src/utf16.rs has UTF-16 helpers that match JS indexing.".into());
-    }
-    for j in &js_only {
-        notes.push(format!(
-            "`{}` stays in {}: {}. The shadow module re-exports the original.",
-            j.name,
-            lang.name(),
-            j.reason
-        ));
-    }
-    if exports.iter().any(codegen::is_async) {
-        notes.push(
-            "Async TS functions are `async fn` in the port; the bindings return promises.".into(),
-        );
-    }
-    Ok(Outcome {
-        crate_dir,
-        kind,
-        files: files.into_iter().map(|(p, _)| p).collect(),
-        exports: exports
-            .iter()
-            .map(|f| f.name.clone())
-            .chain(classes.iter().map(|c| format!("class {}", c.name)))
-            .collect(),
-        notes,
-    })
 }
 
 /// The generated layers of a Python unit's Mojo port: the extension module, `PyNum` when the
@@ -1949,8 +1721,6 @@ fn readme(m: &Manifest) -> String {
             "Rust"
         },
         kind = match m.kind {
-            Kind::Napi => "napi-rs",
-            Kind::Wasm => "wasm-bindgen",
             Kind::MojoPy => "a Mojo Python extension",
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
@@ -1958,79 +1728,6 @@ fn readme(m: &Manifest) -> String {
         },
     )
 }
-
-const UTF16_RS: &str = r#"//! JS string indexing in Rust.
-//!
-//! JS strings are indexed in UTF-16 code units; Rust `str` in UTF-8 bytes. A port that returns
-//! or consumes offsets must use these helpers, or non-ASCII text gets wrong results silently.
-
-#![forbid(unsafe_code)]
-
-/// The UTF-16 code units of `s`, as JS sees the string.
-pub fn units(s: &str) -> Vec<u16> {
-    s.encode_utf16().collect()
-}
-
-/// The string `units[start..end]` decodes to, like JS `slice` (lone surrogates become U+FFFD).
-pub fn slice(units: &[u16], start: usize, end: usize) -> String {
-    let end = end.min(units.len());
-    let start = start.min(end);
-    String::from_utf16_lossy(&units[start..end])
-}
-
-/// JS `haystack.indexOf(needle, from)`, in UTF-16 code units.
-pub fn index_of(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
-    let from = from.min(haystack.len());
-    if needle.is_empty() {
-        return Some(from);
-    }
-    haystack[from..]
-        .windows(needle.len())
-        .position(|w| w == needle)
-        .map(|i| i + from)
-}
-
-/// JS `haystack.lastIndexOf(needle)`, in UTF-16 code units.
-pub fn last_index_of(haystack: &[u16], needle: &[u16]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(haystack.len());
-    }
-    haystack.windows(needle.len()).rposition(|w| w == needle)
-}
-
-/// UTF-8 byte offset of a UTF-16 offset in `s`, for slicing a Rust `str`.
-pub fn byte_offset(s: &str, utf16_offset: usize) -> usize {
-    let mut seen = 0;
-    for (byte, c) in s.char_indices() {
-        if seen >= utf16_offset {
-            return byte;
-        }
-        seen += c.len_utf16();
-    }
-    s.len()
-}
-
-/// UTF-16 offset of a UTF-8 byte offset in `s`, for returning ranges to JS.
-pub fn utf16_offset(s: &str, byte_offset: usize) -> usize {
-    s[..byte_offset.min(s.len())].encode_utf16().count()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn matches_js_indexing() {
-        let s = units("a👍b");
-        assert_eq!(s.len(), 4);
-        assert_eq!(index_of(&s, &units("b"), 0), Some(3));
-        assert_eq!(last_index_of(&s, &units("a")), Some(0));
-        assert_eq!(slice(&s, 3, 4), "b");
-        assert_eq!(byte_offset("a👍b", 3), 5);
-        assert_eq!(utf16_offset("a👍b", 5), 3);
-    }
-}
-"#;
 
 #[cfg(test)]
 mod tests {
@@ -2120,6 +1817,28 @@ Rust port of `u`"
     }
 
     #[test]
+    fn napi_manifest_says_rebridge() {
+        for kind in ["napi", "wasm"] {
+            let dir = std::env::temp_dir().join(format!(
+                "mojo-anything-{kind}-rebridge-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join(MANIFEST),
+                format!(
+                    r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "{kind}", "crate_name": "x-rs", "exports": []}}"#
+                ),
+            )
+            .unwrap();
+            let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
+            assert!(err.contains("bridge again"), "{kind}: {err}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
     fn rust_c_unit_says_rebridge() {
         let dir = std::env::temp_dir().join(format!("mojo-anything-rust-c-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2145,11 +1864,11 @@ Rust port of `u`"
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(OLD_MANIFEST),
-            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "napi", "crate_name": "x-rs", "exports": []}"#,
+            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "mojo-node", "crate_name": "x-mojo", "exports": []}"#,
         )
         .unwrap();
         let m = Manifest::load(&dir).unwrap();
-        assert_eq!(m.crate_name, "x-rs");
+        assert_eq!(m.crate_name, "x-mojo");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2161,7 +1880,7 @@ Rust port of `u`"
         std::fs::create_dir_all(&crate_dir).unwrap();
         std::fs::write(
             crate_dir.join(MANIFEST),
-            r#"{"schema": "mojo-anything/bridge@1", "root": "../..", "unit": "src/x.ts", "kind": "napi", "crate_name": "x-rs", "exports": []}"#,
+            r#"{"schema": "mojo-anything/bridge@1", "root": "../..", "unit": "src/x.ts", "kind": "mojo-node", "crate_name": "x-rs", "exports": []}"#,
         )
         .unwrap();
         let m = Manifest::load(&crate_dir).unwrap();

@@ -89,8 +89,7 @@ folder):
 
 Go and Java are left out: they can run the original on 4 threads just as easily, and measured
 that way the Java original beats the Rust batch ([#110](https://github.com/erkamyaman/rust-anything/issues/110)). Batch crates allocate with
-mimalloc: with the system allocator the Go batch was slower than one thread. `bridge --allocator
-rusty_alloc` opts into a pure-Rust allocator instead. Demo: [`demo/x18n-search`](../demo/x18n-search/README.md).
+mimalloc: with the system allocator the Go batch was slower than one thread. Demo: [`demo/x18n-search`](../demo/x18n-search/README.md).
 
 ## What `bridge` decides
 

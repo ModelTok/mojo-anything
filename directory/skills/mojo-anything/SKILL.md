@@ -152,8 +152,7 @@ Close the batch when done in Go and Java (finalizers are only a fallback).
   pre-sized `String`, avoid intermediate copies. Keep `diff` passing.
 - Items and other arguments: numbers, booleans and strings (Ruby: any value); results: numbers,
   booleans or strings. Not for C.
-- Batch crates allocate with mimalloc, which is built from C. Pass `--allocator rusty_alloc` to
-  `bridge` if the target has no C compiler.
+- Java and Kotlin batch crates allocate with mimalloc, which is built from C.
 
 ## 3. Prove it
 

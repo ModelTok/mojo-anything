@@ -441,7 +441,7 @@ impl<'a> Reader<'a> {
         Ok(bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b)).collect())
     }
 
-    /// A JS string; lone surrogates become U+FFFD, as napi's own conversion does.
+    /// A JS string; lone surrogates become U+FFFD.
     pub fn string16(&mut self) -> Result<String, String> {
         Ok(String::from_utf16_lossy(&self.units()?))
     }

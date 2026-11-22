@@ -20,31 +20,30 @@ Read-only.
 
 Tool `bridge` · CLI `mojo-anything bridge`
 
-Scaffold a Rust crate for one unit: napi-rs or wasm-bindgen bindings in src/lib.rs, stubs to port in src/port.rs, UTF-16 helpers when the unit uses string offsets. Never overwrites an existing folder.
+Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java and Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `root` | string | yes |  |
 | `unit` | string | yes | Unit id from analyze. |
-| `kind` | string |  | Defaults to the plan's bridge. |
-| `out` | string |  | Crate folder; defaults to <root>/rust/<name>. |
-| `name` | string |  | Crate name; defaults to `<unit>-rs`. |
+| `kind` | string |  | Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet. |
+| `out` | string |  | Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin). |
+| `name` | string |  | Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin). |
 | `force` | boolean |  | Bridge a unit the plan marks blocked or keep. |
 | `keep` | string[] |  | Exports to keep in the source language: `name` or `name: reason`. |
-| `batch` | string[] |  | Batch classes, `function:param`: the function runs over many `param` values kept in Rust, on all cores, in one call. A `<Function>Index` struct in port.rs replaces the default per-item loop. |
+| `batch` | string[] |  | Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call. |
 | `as_json` | string[] |  | Type parameters the app only fills with data (`T` in `paginate<T>(items: T[])`): bridged as JSON values instead of keeping the export in TS. |
-| `allocator` | string |  | Global allocator for crates with batches. mimalloc (default) is C and leaves wasm alone; rusty_alloc is pure Rust (no C compiler) and also serves wasm. |
 
 ## Regenerate bindings
 
 Tool `refresh` · CLI `mojo-anything refresh`
 
-Regenerate a crate's bindings (lib.rs, index.cjs, js.rs) from the signatures in src/port.rs, after changing them, adding any new batch classes. Never touches port.rs.
+Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Java and Kotlin), after changing them, adding any new batch classes. Never touches the port.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `crate` | string | yes | Folder of the generated crate (holds mojo-anything.json). |
-| `batch` | string[] |  | Batch classes to add, `function:param`: the function runs over many `param` values kept in Rust, on all cores, in one call. A `<Function>Index` struct in port.rs replaces the default per-item loop. |
+| `batch` | string[] |  | Batch classes to add, `function:param`: the function runs over many `param` values kept on the native side, in one call. |
 
 ## Record original behavior
 
@@ -66,13 +65,13 @@ Runs the original's code or commands.
 | `test_command` | string[] |  | TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. ["npx", "jest"] or ["pytest"]. Runs in the original's folder. |
 | `profile` | string |  | Record on this machine (default) or on a connected Android device (JVM crates). |
 | `device` | string |  | Android device serial; picked automatically when only one is connected. |
-| `pin_clock` | boolean |  | TS/JS (node or napi) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning. |
+| `pin_clock` | boolean |  | TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning. |
 
 ## Build crate
 
 Tool `build` · CLI `mojo-anything build`
 
-Build the crate: the napi-rs .node, wasm-bindgen output, Python extension or shared library. With `profile: "android"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).
+Build the port: the Node-API addon, Python extension or shared library. With `profile: "android"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).
 
 Runs the original's code or commands.
 
@@ -181,7 +180,7 @@ Read-only.
 
 Tool `package` · CLI `mojo-anything package`
 
-Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. napi: a main npm package whose loader picks `<name>-<platform>` from optionalDependencies and falls back to the original JS, one package per platform (this machine's binary copied in when built). wasm: one npm package with the built pkg/. napi also gets a GitHub Actions workflow building macOS (arm64, x86_64), Linux (x86_64, aarch64) and Windows.
+Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Not yet for any kind: npm packages of Mojo ports and Python wheels come with the packaging plan (M7).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -189,7 +188,6 @@ Lay out installable packages for a gated port; writes files only, never builds o
 | `name` | string |  | Package name on npm or PyPI; defaults to the crate name. |
 | `version` | string |  | Package version; defaults to the original package's. |
 | `out` | string |  | Output folder; defaults to <crate>/package. |
-| `fallback` | string |  | napi: module to load where no binary fits; defaults to the original file when it is plain JS that imports nothing. |
 | `dry_run` | boolean |  | List the files, write nothing. |
 
 ## Check definition of done

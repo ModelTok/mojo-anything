@@ -30,9 +30,8 @@ fn bridged(root: &Path) -> anyhow::Result<(PathBuf, String)> {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })?;
-    let port = std::fs::read_to_string(out.join("src/port.rs"))?;
+    let port = std::fs::read_to_string(out.join("port.mojo"))?;
     Ok((out, port))
 }
 
@@ -50,7 +49,7 @@ fn jsdoc_types_untyped_parameters() {
         let (out, port) = bridged(&root)?;
         assert!(
             port.contains(
-                "pub fn parse(source: String, delimiter: Option<String>) -> Result<Vec<String>, String>"
+                "def parse(source: String, delimiter: Optional[String]) raises -> List[String]:"
             ),
             "{port}"
         );
@@ -94,11 +93,8 @@ fn a_sibling_declaration_file_types_a_js_module() {
     std::fs::remove_dir_all(&root).unwrap();
     let (_, port) = result.unwrap();
     assert!(
-        port.contains("pub fn count(text: String, needle: Option<String>) -> Result<f64, String>"),
+        port.contains("def count(text: String, needle: Optional[String]) raises -> Float64:"),
         "{port}"
     );
-    assert!(
-        port.contains("pub fn flag(x: bool) -> Result<bool, String>"),
-        "{port}"
-    );
+    assert!(port.contains("def flag(x: Bool) raises -> Bool:"), "{port}");
 }

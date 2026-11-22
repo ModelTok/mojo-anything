@@ -160,8 +160,8 @@ impl Risk {
                  same JS error shape."
             }
             Self::Async => {
-                "Promises become futures. Bridge with napi-rs `async fn` or `wasm-bindgen-futures`, \
-                 or keep the async shell in JS and port the sync core."
+                "Promises have no Mojo counterpart across the bridge: keep the async shell in JS and \
+                 port the sync core."
             }
             Self::Generators => {
                 "Lazy generators become iterators, or return a collected Vec across the bridge."
@@ -237,7 +237,7 @@ impl Risk {
             Self::ClockAndRandom => {
                 "Results that depend on the time or on random numbers differ on every run, so a \
                  plain recording cannot pin them down. Record with `record --pin-clock` (TS/JS with \
-                 the node or napi bridge, Python): `Date.now()`, `new Date()` and `Math.random` \
+                 the node bridge, Python): `Date.now()`, `new Date()` and `Math.random` \
                  (`time.time`, `datetime.now` and `random`) then return fixed values during \
                  record, diff and gate, and the port reads the same ones from `pinned.mojo` \
                  (`now_ms()`, `random()`, a documented mulberry32; `src/port/pinned.rs` for a \

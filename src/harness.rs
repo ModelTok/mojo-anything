@@ -456,22 +456,12 @@ pub(crate) fn install(built: &Path, dest: &Path) -> Result<()> {
 /// would otherwise test the previous port.
 fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
     let built = match manifest.kind {
-        Kind::Napi => crate_dir.join(format!("{}.node", manifest.lib_name())),
-        Kind::MojoPy => {
-            let built = crate::harness_mojo_py::native_file(crate_dir, manifest);
-            return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
-        }
-        Kind::CAbi => {
-            let built = crate::harness_mojo_c::library_path(crate_dir, manifest, false);
-            return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
-        }
-        Kind::MojoNode => {
-            let built = crate::harness_mojo_node::addon_path(crate_dir, manifest);
-            return crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built);
-        }
-        _ => return None,
+        Kind::MojoPy => crate::harness_mojo_py::native_file(crate_dir, manifest),
+        Kind::CAbi => crate::harness_mojo_c::library_path(crate_dir, manifest, false),
+        Kind::MojoNode => crate::harness_mojo_node::addon_path(crate_dir, manifest),
+        Kind::Ffi => return None,
     };
-    sources_newer_than(crate_dir, &built).then_some(built)
+    crate::harness_mojo_py::sources_newer_than(crate_dir, &built).then_some(built)
 }
 
 /// True when `Cargo.toml` or any `.rs` file under `src/` is newer than `built`.
@@ -529,82 +519,6 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
         }
         Kind::Ffi => crate::harness_cargo::build(crate_dir, &manifest),
         Kind::MojoNode => crate::harness_mojo_node::build(crate_dir, &manifest),
-        Kind::Napi => {
-            let target = crate_dir.join("target");
-            run(
-                Command::new("cargo")
-                    .args(["build", "--release", "--manifest-path"])
-                    .arg(crate_dir.join("Cargo.toml"))
-                    .env("CARGO_TARGET_DIR", &target),
-                "cargo build",
-            )?;
-            let lib = manifest.lib_name();
-            let release = target.join("release");
-            let built = [
-                format!("lib{lib}.so"),
-                format!("lib{lib}.dylib"),
-                format!("{lib}.dll"),
-            ]
-            .iter()
-            .map(|name| release.join(name))
-            .find(|p| p.exists())
-            .with_context(|| format!("no native library for `{lib}` in {}", release.display()))?;
-            let artifact = crate_dir.join(format!("{lib}.node"));
-            install(&built, &artifact)?;
-            Ok(artifact)
-        }
-        Kind::Wasm => {
-            let target = crate_dir.join("target");
-            run(
-                Command::new("cargo")
-                    .args([
-                        "build",
-                        "--release",
-                        "--target",
-                        "wasm32-unknown-unknown",
-                        "--manifest-path",
-                    ])
-                    .arg(crate_dir.join("Cargo.toml"))
-                    .env("CARGO_TARGET_DIR", &target),
-                "cargo build --target wasm32-unknown-unknown (needs `rustup target add wasm32-unknown-unknown`)",
-            )?;
-            // wasm-bindgen's CLI must match the crate's wasm-bindgen version exactly.
-            let lock = std::fs::read_to_string(crate_dir.join("Cargo.lock")).unwrap_or_default();
-            let wanted = locked_version(&lock, "wasm-bindgen")
-                .context("wasm-bindgen missing from Cargo.lock")?;
-            let installed = Command::new("wasm-bindgen")
-                .arg("--version")
-                .output()
-                .ok()
-                .map(|o| {
-                    String::from_utf8_lossy(&o.stdout)
-                        .trim()
-                        .rsplit(' ')
-                        .next()
-                        .unwrap_or_default()
-                        .to_string()
-                });
-            if installed.as_deref() != Some(wanted.as_str()) {
-                bail!(
-                    "the crate uses wasm-bindgen {wanted}; the CLI must match:\n  cargo install wasm-bindgen-cli --version {wanted} --locked{}",
-                    installed
-                        .map(|v| format!(" (found {v})"))
-                        .unwrap_or_default()
-                );
-            }
-            let lib = manifest.lib_name();
-            let wasm = target
-                .join("wasm32-unknown-unknown/release")
-                .join(format!("{lib}.wasm"));
-            run(
-                Command::new("wasm-bindgen")
-                    .args(["--target", "nodejs", "--out-dir"])
-                    .arg(crate_dir.join("pkg"))
-                    .arg(&wasm),
-                "wasm-bindgen",
-            )?;
-            Ok(crate_dir.join("pkg").join(format!("{lib}.js")))
-        }
     }
 }
 
@@ -963,22 +877,6 @@ pub(crate) fn diff_exact(opts: &DiffOptions) -> Result<DiffOutcome> {
     run(&mut cmd, "node")?;
     let text = std::fs::read_to_string(&out)?;
     Ok(serde_json::from_str(&text)?)
-}
-
-/// The version of `package` in a Cargo.lock.
-fn locked_version(lock: &str, package: &str) -> Option<String> {
-    let mut lines = lock.lines();
-    while let Some(line) = lines.next() {
-        if line.trim() == format!("name = \"{package}\"") {
-            let version = lines
-                .next()?
-                .trim()
-                .strip_prefix("version = \"")?
-                .strip_suffix('"')?;
-            return Some(version.to_string());
-        }
-    }
-    None
 }
 
 /// Deterministic inputs for one function: edge cases first, then seeded random mixes.
@@ -2127,8 +2025,11 @@ const scenario = async (Class, c) => {
   }
   return results
 }
+// A stub that is not ported yet, or a panic in the port, never agrees with an error the
+// original threw: `index.cjs` throws them as `not ported: <name>` and `panic in <name>: ...`.
+const unported = error => error.startsWith('not ported: ') || /^panic in [^:]*: /.test(error)
 const stepsMatch = (want, got) => want.length === got.length && want.every((w, i) =>
-  ('error' in w && 'error' in got[i] && !got[i].error.startsWith('Rust panic:')) || ('ok' in w && 'ok' in got[i] && same(w.ok, got[i].ok, keyOrder === 'sort')))
+  ('error' in w && 'error' in got[i] && !unported(got[i].error)) || ('ok' in w && 'ok' in got[i] && same(w.ok, got[i].ok, keyOrder === 'sort')))
 for (const [index, c] of cases.entries()) {
   pinCase(index)
   if (c.class) {
@@ -2164,7 +2065,7 @@ for (const [index, c] of cases.entries()) {
   }
   const expected = 'error' in c ? { error: c.error } : { ok: c.ok }
   // Both sides throwing counts as agreement: error messages are not part of the contract.
-  const panicked = 'error' in actual && actual.error.startsWith('Rust panic:')
+  const panicked = 'error' in actual && unported(actual.error)
   const pass = !panicked && ('error' in expected && 'error' in actual) || ('ok' in expected && 'ok' in actual && same(expected.ok, actual.ok, keyOrder === 'sort'))
   if (pass) {
     summary.passed++

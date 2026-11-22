@@ -36,6 +36,7 @@ struct Cli {
 enum KindArg {
     /// A Mojo port behind a Node-API addon.
     Node,
+    /// A Mojo port compiled to wasm (not yet: M4 Task 8).
     Wasm,
 }
 
@@ -68,7 +69,7 @@ enum Cmd {
         #[arg(long)]
         whole_app: bool,
     },
-    /// 2. Scaffold a Rust crate with JS bindings for one unit.
+    /// 2. Scaffold the port of one unit, with the bindings its callers need.
     Bridge {
         /// Repository root.
         root: PathBuf,
@@ -77,10 +78,11 @@ enum Cmd {
         /// Bridge to generate; defaults to the plan's choice.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
-        /// Crate folder; defaults to `<root>/rust/<name>`.
+        /// Port folder; defaults to `<root>/mojo/<name>` (`<root>/rust/<name>` for Java and
+        /// Kotlin).
         #[arg(long, short)]
         out: Option<PathBuf>,
-        /// Crate name; defaults to `<unit>-rs`.
+        /// Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin).
         #[arg(long)]
         name: Option<String>,
         /// Bridge a unit the plan marks blocked or keep.
@@ -89,25 +91,21 @@ enum Cmd {
         /// Keep an export in TS: `name` or `"name: reason"`. Repeatable.
         #[arg(long)]
         keep: Vec<String>,
-        /// Add a batch class: `function:param` runs `function` over many `param` values kept in
-        /// Rust, on all cores (what `profile` recommends for leaves called in loops).
+        /// Add a batch class: `function:param` runs `function` over many `param` values kept on
+        /// the native side (what `profile` recommends for leaves called in loops).
         #[arg(long)]
         batch: Vec<String>,
         /// Bridge a type parameter as JSON values (`--as-json T`) when the app only fills it
         /// with data, instead of keeping the generic export in TS. Repeatable.
         #[arg(long, value_name = "TYPE_PARAM")]
         as_json: Vec<String>,
-        /// Global allocator for crates with batches: `mimalloc` (C; wasm keeps Rust's default)
-        /// or `rusty_alloc` (pure Rust, no C compiler; wasm too). Kept in `mojo-anything.json`.
-        #[arg(long, value_enum, default_value = "mimalloc")]
-        allocator: bridge::Allocator,
     },
-    /// 2b. Regenerate the bindings (`lib.rs`, `index.cjs`, `js.rs`) from the signatures in `port.rs`.
+    /// 2b. Regenerate the bindings from the signatures in the port (`port.mojo`, or `port.rs`).
     Refresh {
         #[arg(default_value = ".", value_parser = absolute)]
         crate_dir: PathBuf,
-        /// Add a batch class: `function:param` runs `function` over many `param` values kept in
-        /// Rust, on all cores. Repeat for more.
+        /// Add a batch class: `function:param` runs `function` over many `param` values kept on
+        /// the native side. Repeat for more.
         #[arg(long)]
         batch: Vec<String>,
     },
@@ -148,8 +146,8 @@ enum Cmd {
         /// Android device serial; picked automatically when only one is connected.
         #[arg(long)]
         device: Option<String>,
-        /// Pin the clock and random numbers while recording and diffing (TS/JS with the node or
-        /// napi bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
+        /// Pin the clock and random numbers while recording and diffing (TS/JS with the node
+        /// bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
         /// `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port
         /// reads them from `pinned.mojo` (a Rust port: `src/port/pinned.rs`). Kept for later
         /// runs until `--no-pin-clock`.
@@ -159,7 +157,7 @@ enum Cmd {
         #[arg(long)]
         no_pin_clock: bool,
     },
-    /// 3b. Build the crate's JS module (napi-rs `.node`, wasm-bindgen output) or, with
+    /// 3b. Build the port (Node-API addon, Python extension, shared library) or, with
     /// `--profile android`, the JNI library for Android ABIs into `jniLibs/`.
     Build {
         #[arg(default_value = ".", value_parser = absolute)]
@@ -293,10 +291,6 @@ enum Cmd {
         /// Output folder; defaults to `<crate>/package`.
         #[arg(long, value_parser = absolute)]
         out: Option<PathBuf>,
-        /// napi: the module to load where no binary fits (defaults to the original file when it
-        /// imports nothing).
-        #[arg(long)]
-        fallback: Option<String>,
         /// List the files, write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -590,15 +584,14 @@ fn run() -> Result<ExitCode> {
             keep,
             batch,
             as_json,
-            allocator,
         } => {
+            if matches!(kind, Some(KindArg::Wasm)) {
+                anyhow::bail!("{}", bridge::WASM_NOT_YET);
+            }
             let outcome = bridge::bridge(&bridge::Options {
                 root: &root,
                 unit: &unit,
-                kind: kind.map(|k| match k {
-                    KindArg::Node => bridge::Kind::MojoNode,
-                    KindArg::Wasm => bridge::Kind::Wasm,
-                }),
+                kind: kind.map(|_| bridge::Kind::MojoNode),
                 out,
                 name,
                 force,
@@ -606,7 +599,6 @@ fn run() -> Result<ExitCode> {
                 lang: None,
                 batch,
                 as_json,
-                allocator,
             })?;
             say!(
                 "Created {} ({:?}) for {}",
@@ -1039,7 +1031,6 @@ fn run() -> Result<ExitCode> {
             name,
             version,
             out,
-            fallback,
             dry_run,
             json,
         } => {
@@ -1049,7 +1040,6 @@ fn run() -> Result<ExitCode> {
                 version,
                 out,
                 dry_run,
-                fallback,
             })?;
             if json {
                 say!("{}", serde_json::to_string_pretty(&outcome)?);

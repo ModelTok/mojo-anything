@@ -257,7 +257,7 @@ comes next.
 ## Learn more
 
 - [How it works](docs/how-it-works.md): the loop, what `bridge` and `analyze` decide, hot paths, what it can't catch, what a real port takes, and keeping up with the original (`map`)
-- [Ship a port as a package](docs/packaging.md): maturin wheels and napi-rs per-platform npm packages, with the CI that builds them
+- [Ship a port as a package](docs/packaging.md): not yet; npm packages of Mojo ports and Python wheels come with the packaging plan
 - [Port a whole app](docs/whole-apps.md): servers, CLIs and libraries, from the front door to `app lift`
 - [Examples and case studies](docs/examples.md): x18n, and real code in six languages
 - [Real-world ports](docs/real-world.md): json-server, Fuse.js, vercel/ms, with benchmarks

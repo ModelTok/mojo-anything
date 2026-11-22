@@ -28,7 +28,6 @@ fn bridged(tag: &str) -> PathBuf {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::MojoPy);

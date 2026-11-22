@@ -35,7 +35,6 @@ fn bridged(name: &str, file: &str, source: &str, port: &str) -> (PathBuf, PathBu
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     std::fs::write(dir.join("port.mojo"), port).unwrap();

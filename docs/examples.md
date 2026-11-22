@@ -22,8 +22,9 @@ Report: [`docs/real-world-languages.md`](real-world-languages.md).
 
 ## Example: a real module from x18n
 
-`packages/core/src/fuzzy.ts` from [x18n](https://github.com/x18n-dev/x18n), ported both ways in
-[`demo/`](../demo):
+`packages/core/src/fuzzy.ts` from [x18n](https://github.com/x18n-dev/x18n), ported to Rust before
+mojo-anything targeted Mojo (the napi-rs and wasm-bindgen crates were removed with those bridges;
+the TS/JS example in Mojo is [`demo/real-world/vercel-ms-mojo`](../demo/real-world/vercel-ms-mojo)):
 
 ```sh
 rust-anything analyze ../x18n                                      # fuzzy.ts: ready, wasm-bindgen (core runs in browsers)
@@ -40,8 +41,8 @@ A first port that indexed by Rust `char` passed simple tests but failed `diff`:
 - fuzzyScore("b😀", "a😀b😀c"): expected {"ok":1997}, got {"ok":1998}
 ```
 
-JS `indexOf` counts UTF-16 code units, so an emoji is two positions. The port in
-`demo/*/src/port.rs` uses the generated `utf16` helpers and passes 2000/2000 cases and the gate,
-as napi-rs (`demo/fuzzy-napi`) and as wasm-bindgen (`demo/fuzzy-rs`).
+JS `indexOf` counts UTF-16 code units, so an emoji is two positions. The Rust port used
+the generated `utf16` helpers and passed 2000/2000 cases and the gate, as napi-rs and as
+wasm-bindgen.
 
 The plan rust-anything writes for all of x18n: [`docs/examples/x18n.md`](examples/x18n.md).

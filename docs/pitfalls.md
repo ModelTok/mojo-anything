@@ -124,6 +124,12 @@ in `file_open.c`, and `record` loads the original with every symbol resolved, so
 failed before the first case. `prepare.sh` now copies `file_open.c`; ffmpeg's configure also needs
 `nasm`. When `record` reports an undefined symbol, add the file that defines it to the tree.
 
+**An unported Mojo stub matched every case where the original throws.** The TS driver only
+refused errors starting with napi-rs's `Rust panic:`, so once TS/JS units moved to Mojo, a stub
+raising `not ported: <name>` agreed with all 33 thrown cases of `fs.ts`. The driver now refuses
+`not ported: ` and `panic in <name>: ` answers; when a bridge changes how it reports stubs or
+panics, run `unported_stubs_never_match_*` on that kind.
+
 ## Numbers and claims
 
 **Benchmarks taken while other builds ran were off by a wide margin.** Run `bench` on a quiet

@@ -187,7 +187,6 @@ pub fn run() -> Report {
         .unwrap_or_else(|_| PathBuf::from(NAME));
     let mut checks: Vec<Check> = std::thread::scope(|s| {
         let probes: Vec<_> = RUNTIMES.iter().map(|r| s.spawn(|| runtime(r))).collect();
-        let wasm = s.spawn(wasm_target);
         let ndk = s.spawn(android_ndk);
         let android_targets = s.spawn(android_targets);
         let mcp = s.spawn(|| mcp_self_test(&exe));
@@ -195,7 +194,6 @@ pub fn run() -> Report {
             .into_iter()
             .map(|p| p.join().expect("a runtime probe panicked"))
             .collect();
-        checks.push(wasm.join().expect("the wasm probe panicked"));
         checks.push(ndk.join().expect("the NDK probe panicked"));
         checks.push(
             android_targets
@@ -377,19 +375,6 @@ const RUNTIMES: &[Runtime] = &[
             "install the .NET SDK from https://dotnet.microsoft.com/download",
         ],
     },
-    Runtime {
-        name: "wasm-bindgen",
-        program: "wasm-bindgen",
-        args: &["--version"],
-        minimum: None,
-        required: false,
-        java: false,
-        fix: [
-            "cargo install wasm-bindgen-cli --version <the crate's wasm-bindgen version> --locked",
-            "cargo install wasm-bindgen-cli --version <the crate's wasm-bindgen version> --locked",
-            "cargo install wasm-bindgen-cli --version <the crate's wasm-bindgen version> --locked",
-        ],
-    },
 ];
 
 /// Where a fix runs: [`Runtime::fix`] has one command for each, in this order.
@@ -491,31 +476,6 @@ fn runtime(r: &Runtime) -> Check {
         required: r.required,
         detail,
         fix: runtime_fix(r, status, Platform::HERE),
-    }
-}
-
-fn wasm_target() -> Check {
-    const TARGET: &str = "wasm32-unknown-unknown";
-    let installed = crate::process::output(
-        Command::new("rustup").args(["target", "list", "--installed"]),
-        crate::process::QUICK,
-    )
-    .ok()
-    .filter(|o| o.success())
-    .map(|o| o.stdout_text());
-    let (status, detail) = match installed {
-        None => (Status::Missing, "`rustup` not found or did not run".into()),
-        Some(list) if list.lines().any(|l| l.trim() == TARGET) => {
-            (Status::Ok, format!("{TARGET} installed"))
-        }
-        Some(_) => (Status::Missing, format!("{TARGET} not installed")),
-    };
-    Check {
-        name: TARGET.into(),
-        status,
-        required: false,
-        detail,
-        fix: (status != Status::Ok).then(|| format!("rustup target add {TARGET}")),
     }
 }
 
@@ -913,7 +873,7 @@ pub fn text(r: &Report) -> String {
         }
     }
     out.push_str(if r.ok() {
-        "\nEverything required is in place. Language runtimes and wasm are optional: each matters only for the languages you port.\n"
+        "\nEverything required is in place. Language runtimes are optional: each matters only for the languages you port.\n"
     } else {
         "\nSomething required is missing: cargo, the MCP server, or the setup of an agent found here. Run the fix commands above.\n"
     });

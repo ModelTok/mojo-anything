@@ -47,7 +47,6 @@ fn recorded(tag: &str) -> (PathBuf, PathBuf, harness::RecordOutcome) {
         lang: Some(mojo_anything::lang::Lang::Ruby),
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let inputs = fixture().join("inputs.jsonl");

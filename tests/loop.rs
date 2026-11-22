@@ -1,7 +1,7 @@
 //! The bridge -> record -> diff -> shadow loop on the fixture repo.
 //!
-//! A hand-written JS module stands in for the built Rust module, so these tests check the
-//! harness itself without compiling a native crate. They need `node` on PATH.
+//! A hand-written JS module stands in for the built port, so most of these tests check the
+//! harness itself without compiling one. They need `node` on PATH.
 
 mod common;
 
@@ -23,7 +23,7 @@ fn bridged(name: &str) -> PathBuf {
     bridge::bridge(&bridge::Options {
         root: &fixture(),
         unit: "packages/a/src/util.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -31,7 +31,6 @@ fn bridged(name: &str) -> PathBuf {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     dir
@@ -53,39 +52,12 @@ fn stand_in(dir: &Path, buggy: bool) {
 }
 
 #[test]
-fn refresh_keeps_the_original_name_for_raw_rust_identifiers() {
-    let dir = bridged("raw-identifiers");
-    let mut manifest = Manifest::load(&dir).unwrap();
-    manifest.exports.truncate(1);
-    manifest.exports[0].name = "Type".into();
-    manifest.save(&dir).unwrap();
-    std::fs::write(dir.join("src/port.rs"), "pub fn r#type() -> f64 { 1.0 }\n").unwrap();
-
-    let refreshed = bridge::refresh(&dir).unwrap();
-    assert_eq!(refreshed.functions, ["Type"]);
-    let bindings = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(bindings.contains(r#"js_name = "Type""#), "{bindings}");
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
 fn bridge_writes_a_crate_and_never_overwrites_it() {
     let dir = bridged("bridge");
     let manifest = Manifest::load(&dir).unwrap();
     let names: Vec<&str> = manifest.exports.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["rangeOf", "words", "count"]);
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    // Structured results cross as JSON text; string lists cross natively.
-    assert!(lib.contains("pub fn range_of(text: String, word: String) -> napi::Result<String>"));
-    assert!(lib.contains("pub fn words(text: String) -> napi::Result<Vec<String>>"));
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    assert!(port.contains(
-        "pub fn range_of(text: String, word: String) -> Result<serde_json::Value, String>"
-    ));
-    assert!(
-        dir.join("src/utf16.rs").exists(),
-        "util.ts uses string offsets"
-    );
+    assert!(dir.join("port.mojo").is_file() && dir.join("index.cjs").is_file());
     let again = bridge::bridge(&bridge::Options {
         root: &fixture(),
         unit: "packages/a/src/util.ts",
@@ -97,7 +69,6 @@ fn bridge_writes_a_crate_and_never_overwrites_it() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     });
     assert!(again.unwrap_err().to_string().contains("never overwrites"));
     let blocked = bridge::bridge(&bridge::Options {
@@ -111,7 +82,6 @@ fn bridge_writes_a_crate_and_never_overwrites_it() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     });
     assert!(blocked.unwrap_err().to_string().contains("Blocked"));
     std::fs::remove_dir_all(&dir).unwrap();
@@ -315,7 +285,7 @@ fn record_follows_bundler_style_imports() {
     bridge::bridge(&bridge::Options {
         root: &fixture(),
         unit: "packages/a/src/fs.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -323,7 +293,6 @@ fn record_follows_bundler_style_imports() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let recorded = harness::record(&RecordOptions {
@@ -362,55 +331,6 @@ fn record_registers_its_resolver_from_a_path_with_url_delimiters() {
 }
 
 #[test]
-fn async_functions_get_async_bindings() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/async");
-    for kind in [Kind::Napi, Kind::Wasm] {
-        let dir = std::env::temp_dir().join(format!(
-            "mojo-anything-async-{kind:?}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        bridge::bridge(&bridge::Options {
-            root: &root,
-            unit: "src/pipeline.ts",
-            kind: Some(kind),
-            out: Some(dir.clone()),
-            name: None,
-            force: false,
-            keep: Vec::new(),
-            lang: None,
-            batch: Vec::new(),
-            as_json: Vec::new(),
-            allocator: Default::default(),
-        })
-        .unwrap();
-        let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-        assert!(port.contains("pub async fn count_words(text: String) -> Result<f64, String>"));
-        assert!(port.contains("pub fn upper(text: String) -> Result<String, String>"));
-        let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-        assert!(
-            lib.contains("pub async fn count_words(text: String)"),
-            "{lib}"
-        );
-        let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        match kind {
-            Kind::Napi => {
-                assert!(cargo.contains("features = [\"async\"]") && cargo.contains("futures"))
-            }
-            Kind::Wasm => assert!(cargo.contains("wasm-bindgen-futures")),
-            Kind::MojoPy | Kind::CAbi | Kind::Ffi | Kind::MojoNode => {}
-        }
-        let index = std::fs::read_to_string(dir.join("index.cjs")).unwrap();
-        assert!(
-            index.contains("normalize: [[1, 0], 'json', true]"),
-            "{index}"
-        );
-        assert!(index.contains("  countWords: [true, [0]],"), "{index}");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
-
-#[test]
 fn benchmark_awaits_async_typescript_calls_and_counts_rejections() {
     if !common::have("node") {
         return;
@@ -430,7 +350,7 @@ fn benchmark_awaits_async_typescript_calls_and_counts_rejections() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "main.mts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -438,7 +358,6 @@ fn benchmark_awaits_async_typescript_calls_and_counts_rejections() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     std::fs::write(
@@ -475,7 +394,7 @@ fn classes_are_bridged_recorded_and_replayed() {
     let outcome = bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/stats.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -483,22 +402,24 @@ fn classes_are_bridged_recorded_and_replayed() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
-    assert_eq!(outcome.exports, ["class TextStats", "class LruCache"]);
+    // Classes are not ported to Mojo yet (they stay in TS), but the manifest keeps them, so
+    // record and diff still cover them.
+    assert!(
+        outcome.notes.iter().any(|n| n.contains("Class `LruCache`")),
+        "{:?}",
+        outcome.notes
+    );
     let manifest = Manifest::load(&dir).unwrap();
+    let classes: Vec<&str> = manifest.classes.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(classes, ["TextStats", "LruCache"]);
     assert!(
         manifest
             .js_only
             .iter()
             .any(|j| j.name == "Blocked" && j.reason.contains("extends"))
     );
-    let port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    assert!(port.contains("pub fn new(capacity: f64) -> Result<Self, String>"));
-    assert!(port.contains("pub fn get(&mut self, key: String) -> Result<Option<String>, String>"));
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("#[napi(constructor)]") && lib.contains("inner: port::LruCache"));
 
     // Record scenarios (the TS uses parameter properties: Node needs to transform it).
     let recorded = harness::record(&RecordOptions {
@@ -563,7 +484,7 @@ fn recording_substitutes_typescript_extensions_from_emitted_module_imports() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "main.mts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -571,7 +492,6 @@ fn recording_substitutes_typescript_extensions_from_emitted_module_imports() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let result = harness::record(&RecordOptions {
@@ -606,7 +526,7 @@ fn tsconfig_aliases_are_followed() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/greet.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -614,7 +534,6 @@ fn tsconfig_aliases_are_followed() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let recorded = harness::record(&RecordOptions {
@@ -656,7 +575,7 @@ fn record_prefers_an_exact_tsconfig_alias_to_a_matching_wildcard() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "src/main.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -664,7 +583,6 @@ fn record_prefers_an_exact_tsconfig_alias_to_a_matching_wildcard() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let result = harness::record(&RecordOptions {
@@ -693,7 +611,7 @@ fn record_resolves_workspace_packages_to_source() {
     bridge::bridge(&bridge::Options {
         root: &root,
         unit: "packages/b/src/titles.ts",
-        kind: Some(Kind::Napi),
+        kind: Some(Kind::MojoNode),
         out: Some(dir.clone()),
         name: None,
         force: false,
@@ -701,7 +619,6 @@ fn record_resolves_workspace_packages_to_source() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let recorded = harness::record(&RecordOptions {
@@ -751,7 +668,6 @@ fn c_bridge_string_helper_does_not_collide_with_source_names() {
         lang: Some(mojo_anything::lang::Lang::C),
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     let exports = std::fs::read_to_string(dir.join("exports.mojo")).unwrap();
@@ -830,7 +746,6 @@ fn c_units_bridge_record_and_diff() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::CAbi);
@@ -901,7 +816,6 @@ fn go_packages_bridge_record_and_diff() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::Ffi);
@@ -976,7 +890,6 @@ fn ruby_modules_bridge_record_and_diff() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::Ffi);
@@ -1050,7 +963,6 @@ fn java_classes_bridge_record_and_diff() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::Ffi);
@@ -1136,7 +1048,6 @@ fn kotlin_functions_bridge_record_and_diff() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     assert_eq!(outcome.kind, Kind::Ffi);
@@ -1234,7 +1145,6 @@ fn android_build_installs_a_jni_library() {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     // Also exercise --jni-libs: Gradle's default is src/main/jniLibs, not the crate root.
@@ -1263,67 +1173,6 @@ fn android_build_installs_a_jni_library() {
     // call + the five exported functions.
     assert_eq!(library.entry_points, 6, "{library:?}");
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn batches_keep_items_in_rust() {
-    let dir = bridged("batch");
-    std::fs::write(
-        dir.join("src/port.rs"),
-        "pub fn range_of(text: String, word: String) -> Result<serde_json::Value, String> { let _ = (text, word); Ok(serde_json::Value::Null) }\n\
-         pub fn words(text: String) -> Vec<String> { vec![text] }\n\
-         pub fn count(text: String) -> f64 { text.matches(' ').count() as f64 }\n",
-    )
-    .unwrap();
-    // Structured results cannot be batched, and a refused batch leaves the crate as it was.
-    let refused = bridge::add_batches(&dir, &["rangeOf:text".into()]).unwrap_err();
-    assert!(
-        format!("{refused:#}").contains("numbers, booleans or strings"),
-        "{refused:#}"
-    );
-    assert!(Manifest::load(&dir).unwrap().batches.is_empty());
-    assert!(bridge::add_batches(&dir, &["count:nope".into()]).is_err());
-
-    bridge::add_batches(&dir, &["count:text".into()]).unwrap();
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("#[napi(js_name = \"CountBatch\")]"), "{lib}");
-    assert!(lib.contains("pub struct CountDefaultIndex"));
-    assert!(lib.contains("par_iter()"), "napi batches run on all cores");
-    assert!(
-        lib.contains("Float64Array"),
-        "number results cross as one typed array"
-    );
-    assert!(lib.contains("pub fn rank("));
-    let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-    assert!(cargo.contains("rayon"));
-
-    // An index in port.rs replaces the default one.
-    let mut port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    port.push_str(
-        "pub struct CountIndex(Vec<String>);\n\
-         impl CountIndex {\n    pub fn new(items: Vec<String>) -> Self { Self(items) }\n    \
-         pub fn run(&self) -> Result<Vec<f64>, String> { Ok(self.0.iter().map(|t| count(t.clone())).collect()) }\n}\n",
-    );
-    std::fs::write(dir.join("src/port.rs"), port).unwrap();
-    bridge::refresh(&dir).unwrap();
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("inner: port::CountIndex,"));
-    assert!(!lib.contains("CountDefaultIndex"));
-    assert!(
-        lib.contains("self.inner.run()"),
-        "no `rank` of its own yet: {lib}"
-    );
-    // An index with its own `rank` (say, narrowing as the user types) is called for `rank`.
-    let mut port = std::fs::read_to_string(dir.join("src/port.rs")).unwrap();
-    port = port.replace(
-        "    pub fn run(&self)",
-        "    pub fn rank(&self, min: f64) -> Result<Vec<u32>, String> {\n        let _ = min;\n        Ok(Vec::new())\n    }\n    pub fn run(&self)",
-    );
-    std::fs::write(dir.join("src/port.rs"), port).unwrap();
-    bridge::refresh(&dir).unwrap();
-    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("self.inner.rank(min)"), "{lib}");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1358,99 +1207,6 @@ fn diff_compares_own_proto_named_properties_in_arguments_and_results() {
     assert_eq!(changed.failed, 1);
 }
 
-/// A crate for `util.ts` with a `count:text` batch, bridged as `kind` with `allocator`.
-fn batch_crate(name: &str, kind: Kind, allocator: bridge::Allocator) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mojo-anything-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    bridge::bridge(&bridge::Options {
-        root: &fixture(),
-        unit: "packages/a/src/util.ts",
-        kind: Some(kind),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator,
-    })
-    .unwrap();
-    std::fs::write(
-        dir.join("src/port.rs"),
-        "pub fn count(text: String) -> f64 { text.matches(' ').count() as f64 }\n",
-    )
-    .unwrap();
-    bridge::add_batches(&dir, &["count:text".into()]).unwrap();
-    dir
-}
-
-#[test]
-fn batches_use_the_chosen_allocator() {
-    let read = |dir: &Path, file: &str| std::fs::read_to_string(dir.join(file)).unwrap();
-
-    // The default stays mimalloc, and the manifest does not mention it.
-    let dir = batch_crate("alloc-mi", Kind::Napi, bridge::Allocator::Mimalloc);
-    assert!(read(&dir, "src/lib.rs").contains("static GLOBAL: mimalloc::MiMalloc"));
-    assert!(read(&dir, "Cargo.toml").contains("mimalloc = \"0.1\""));
-    assert!(!read(&dir, "mojo-anything.json").contains("allocator"));
-    std::fs::remove_dir_all(&dir).unwrap();
-
-    // rusty_alloc replaces it, and `refresh` keeps the choice from the manifest.
-    let dir = batch_crate("alloc-ra", Kind::Napi, bridge::Allocator::RustyAlloc);
-    for _ in 0..2 {
-        let lib = read(&dir, "src/lib.rs");
-        assert!(
-            lib.contains(
-                "static GLOBAL: rusty_alloc_api::RustyAlloc = rusty_alloc_api::RustyAlloc;"
-            ),
-            "{lib}"
-        );
-        assert!(!lib.contains("mimalloc"), "{lib}");
-        let cargo = read(&dir, "Cargo.toml");
-        assert!(cargo.contains("rusty_alloc-api = \"2.6\""), "{cargo}");
-        assert!(!cargo.contains("mimalloc"), "{cargo}");
-        assert!(read(&dir, "mojo-anything.json").contains("\"allocator\": \"rusty_alloc\""));
-        assert_eq!(
-            Manifest::load(&dir).unwrap().allocator,
-            bridge::Allocator::RustyAlloc
-        );
-        bridge::refresh(&dir).unwrap();
-    }
-    std::fs::remove_dir_all(&dir).unwrap();
-
-    // wasm keeps Rust's allocator under the default, and takes rusty_alloc when asked.
-    let dir = batch_crate("alloc-wasm-mi", Kind::Wasm, bridge::Allocator::Mimalloc);
-    assert!(!read(&dir, "src/lib.rs").contains("global_allocator"));
-    assert!(!read(&dir, "Cargo.toml").contains("mimalloc"));
-    std::fs::remove_dir_all(&dir).unwrap();
-    let dir = batch_crate("alloc-wasm-ra", Kind::Wasm, bridge::Allocator::RustyAlloc);
-    assert!(read(&dir, "src/lib.rs").contains("static GLOBAL: rusty_alloc_api::RustyAlloc"));
-    assert!(read(&dir, "Cargo.toml").contains("rusty_alloc-api"));
-    std::fs::remove_dir_all(&dir).unwrap();
-
-    // Without batches there is no global allocator to choose.
-    let dir = std::env::temp_dir().join(format!("mojo-anything-alloc-none-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    bridge::bridge(&bridge::Options {
-        root: &fixture(),
-        unit: "packages/a/src/util.ts",
-        kind: Some(Kind::Napi),
-        out: Some(dir.clone()),
-        name: None,
-        force: false,
-        keep: Vec::new(),
-        lang: None,
-        batch: Vec::new(),
-        as_json: Vec::new(),
-        allocator: bridge::Allocator::RustyAlloc,
-    })
-    .unwrap();
-    assert!(!read(&dir, "src/lib.rs").contains("global_allocator"));
-    assert!(!read(&dir, "Cargo.toml").contains("rusty_alloc"));
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
 /// `util.ts` bridged to a Mojo port behind the Node-API addon.
 fn bridged_mojo(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mojo-anything-{name}-{}", std::process::id()));
@@ -1466,7 +1222,6 @@ fn bridged_mojo(name: &str) -> PathBuf {
         lang: None,
         batch: Vec::new(),
         as_json: Vec::new(),
-        allocator: Default::default(),
     })
     .unwrap();
     dir

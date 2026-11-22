@@ -37,10 +37,11 @@ pub enum Status {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Bridge {
-    NapiRs,
     /// A Mojo port reached from Node through a Node-API C shim.
     MojoNode,
-    WasmBindgen,
+    /// Code that also runs in browsers: a Mojo port compiled to wasm (not built yet, M4 Task 8;
+    /// `bridge` gives it the Node bridge meanwhile).
+    Wasm,
     /// Keep in the source language (named for JS, the first language; applies to all).
     KeepInJs,
     /// A Python extension module written in Mojo.
@@ -60,9 +61,8 @@ pub enum Bridge {
 impl Bridge {
     pub fn label(self) -> &'static str {
         match self {
-            Self::NapiRs => "napi-rs",
             Self::MojoNode => "Mojo (Node-API)",
-            Self::WasmBindgen => "wasm-bindgen",
+            Self::Wasm => "wasm (not yet)",
             Self::KeepInJs => "keep",
             Self::MojoPy => "Mojo (Python extension)",
             Self::CAbi => "C ABI",
@@ -765,13 +765,12 @@ fn score(u: usize, ctx: &Ctx) -> UnitReport {
     } else if ctx.node_reach[u] || ctx.node_packages.contains(&unit.package) {
         Bridge::MojoNode
     } else {
-        Bridge::WasmBindgen
+        Bridge::Wasm
     };
-    if bridge == Bridge::WasmBindgen {
+    if bridge == Bridge::Wasm {
         notes.push(
-            "Portable code: wasm-bindgen keeps it running in browsers and Node. It needs the \
-             wasm32-unknown-unknown target and wasm-bindgen; `bridge --kind node` runs with what \
-             Node already has."
+            "Portable code: a wasm build of the Mojo port would keep it running in browsers and \
+             Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
                 .into(),
         );
     }

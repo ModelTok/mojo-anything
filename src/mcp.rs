@@ -412,26 +412,25 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "bridge",
-            "description": "Scaffold a Rust crate for one unit: napi-rs or wasm-bindgen bindings in src/lib.rs, stubs to port in src/port.rs, UTF-16 helpers when the unit uses string offsets. Never overwrites an existing folder.",
+            "description": "Scaffold the port of one unit: stubs to port in port.mojo (src/port.rs for Java and Kotlin) and the generated layers its callers need (for TS/JS, a Node-API addon over the JSON dispatcher and index.cjs). Never overwrites an existing folder.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string" },
                 "unit": { "type": "string", "description": "Unit id from analyze." },
-                "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge." },
-                "out": { "type": "string", "description": "Crate folder; defaults to <root>/rust/<name>." },
-                "name": { "type": "string", "description": "Crate name; defaults to `<unit>-rs`." },
+                "kind": { "type": "string", "enum": ["node", "wasm"], "description": "Defaults to the plan's bridge. TS/JS: node (a Mojo port behind a Node-API addon); wasm is not built yet." },
+                "out": { "type": "string", "description": "Port folder; defaults to <root>/mojo/<name> (<root>/rust/<name> for Java and Kotlin)." },
+                "name": { "type": "string", "description": "Port name; defaults to `<unit>-mojo` (`<unit>-rs` for Java and Kotlin)." },
                 "force": { "type": "boolean", "description": "Bridge a unit the plan marks blocked or keep." },
                 "keep": { "type": "array", "items": { "type": "string" }, "description": "Exports to keep in the source language: `name` or `name: reason`." },
-                "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes, `function:param`: the function runs over many `param` values kept in Rust, on all cores, in one call. A `<Function>Index` struct in port.rs replaces the default per-item loop." },
+                "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
                 "as_json": { "type": "array", "items": { "type": "string" }, "description": "Type parameters the app only fills with data (`T` in `paginate<T>(items: T[])`): bridged as JSON values instead of keeping the export in TS." },
-                "allocator": { "type": "string", "enum": ["mimalloc", "rusty_alloc"], "description": "Global allocator for crates with batches. mimalloc (default) is C and leaves wasm alone; rusty_alloc is pure Rust (no C compiler) and also serves wasm." },
             }, "required": ["root", "unit"] },
         },
         {
             "name": "refresh",
-            "description": "Regenerate a crate's bindings (lib.rs, index.cjs, js.rs) from the signatures in src/port.rs, after changing them, adding any new batch classes. Never touches port.rs.",
+            "description": "Regenerate a port's generated layers from the signatures in port.mojo (src/port.rs for Java and Kotlin), after changing them, adding any new batch classes. Never touches the port.",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
-                "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes to add, `function:param`: the function runs over many `param` values kept in Rust, on all cores, in one call. A `<Function>Index` struct in port.rs replaces the default per-item loop." },
+                "batch": { "type": "array", "items": { "type": "string" }, "description": "Batch classes to add, `function:param`: the function runs over many `param` values kept on the native side, in one call." },
             }, "required": ["crate"] },
         },
         {
@@ -448,12 +447,12 @@ fn tool_schemas() -> Value {
                 "test_command": { "type": "array", "items": { "type": "string" }, "description": "TS/JS or Python: also record every call the original's own test suite makes to the unit's functions, e.g. [\"npx\", \"jest\"] or [\"pytest\"]. Runs in the original's folder." },
                 "profile": { "type": "string", "enum": ["host", "android"], "description": "Record on this machine (default) or on a connected Android device (JVM crates)." },
                 "device": { "type": "string", "description": "Android device serial; picked automatically when only one is connected." },
-                "pin_clock": { "type": "boolean", "description": "TS/JS (node or napi) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning." },
+                "pin_clock": { "type": "boolean", "description": "TS/JS (node) and Python: true pins the clock and random numbers while recording and diffing (`Date.now()`, `new Date()`, `Math.random`; `time.time`, `datetime.now`, `random`) to the values in pinned.json, and writes pinned.mojo for the port to read them (`from pinned import now_ms, random` in port.mojo; a Rust port gets src/port/pinned.rs). Kept for later runs; false stops pinning." },
             }, "required": ["crate"] },
         },
         {
             "name": "build",
-            "description": "Build the crate: the napi-rs .node, wasm-bindgen output, Python extension or shared library. With `profile: \"android\"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).",
+            "description": "Build the port: the Node-API addon, Python extension or shared library. With `profile: \"android\"`, build the JNI library for Android ABIs into `jniLibs/` (needs the NDK and the Rust Android targets; returned as {ndk, api, libraries} instead of {artifact}).",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "profile": { "type": "string", "enum": ["host", "android"], "description": "Build for this machine (default) or for Android." },
@@ -524,13 +523,12 @@ fn tool_schemas() -> Value {
         },
         {
             "name": "package",
-            "description": "Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. napi: a main npm package whose loader picks `<name>-<platform>` from optionalDependencies and falls back to the original JS, one package per platform (this machine's binary copied in when built). wasm: one npm package with the built pkg/. napi also gets a GitHub Actions workflow building macOS (arm64, x86_64), Linux (x86_64, aarch64) and Windows.",
+            "description": "Lay out installable packages for a gated port; writes files only, never builds other platforms or publishes. Not yet for any kind: npm packages of Mojo ports and Python wheels come with the packaging plan (M7).",
             "inputSchema": { "type": "object", "properties": {
                 "crate": crate_dir,
                 "name": { "type": "string", "description": "Package name on npm or PyPI; defaults to the crate name." },
                 "version": { "type": "string", "description": "Package version; defaults to the original package's." },
                 "out": { "type": "string", "description": "Output folder; defaults to <crate>/package." },
-                "fallback": { "type": "string", "description": "napi: module to load where no binary fits; defaults to the original file when it is plain JS that imports nothing." },
                 "dry_run": { "type": "boolean", "description": "List the files, write nothing." },
             }, "required": ["crate"] },
         },
@@ -605,17 +603,6 @@ fn tool_schemas() -> Value {
     ])
 }
 
-/// `bridge`'s `allocator`: the default when omitted (or null), an error for any other value
-/// than the two names, so a mistyped argument never bridges with an allocator nobody chose.
-fn allocator_arg(args: &Value) -> Result<bridge::Allocator> {
-    Ok(match args.get("allocator") {
-        None | Some(Value::Null) => bridge::Allocator::default(),
-        Some(Value::String(s)) if s == "mimalloc" => bridge::Allocator::Mimalloc,
-        Some(Value::String(s)) if s == "rusty_alloc" => bridge::Allocator::RustyAlloc,
-        Some(other) => anyhow::bail!("`allocator` is \"mimalloc\" or \"rusty_alloc\", not {other}"),
-    })
-}
-
 fn call(name: &str, args: &Value) -> Result<Value> {
     let path = |key: &str| -> Result<PathBuf> {
         args[key]
@@ -650,11 +637,10 @@ fn call(name: &str, args: &Value) -> Result<Value> {
         "bridge" => {
             let kind = match args["kind"].as_str() {
                 Some("node") => Some(bridge::Kind::MojoNode),
-                Some("wasm") => Some(bridge::Kind::Wasm),
+                Some("wasm") => anyhow::bail!("{}", bridge::WASM_NOT_YET),
                 _ => None,
             };
             let root = path("root")?;
-            let allocator = allocator_arg(args)?;
             serde_json::to_value(bridge::bridge(&bridge::Options {
                 root: &root,
                 unit: args["unit"].as_str().context("missing `unit`")?,
@@ -666,7 +652,6 @@ fn call(name: &str, args: &Value) -> Result<Value> {
                 lang: None,
                 batch: strings("batch"),
                 as_json: strings("as_json"),
-                allocator,
             })?)?
         }
         "record" => {
@@ -871,7 +856,6 @@ fn call(name: &str, args: &Value) -> Result<Value> {
                 version: args["version"].as_str().map(str::to_string),
                 out: opt_path("out"),
                 dry_run: args["dry_run"].as_bool().unwrap_or(false),
-                fallback: args["fallback"].as_str().map(str::to_string),
             })?)?
         }
         "gate" => serde_json::to_value(gate::gate(
@@ -953,47 +937,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allocator_defaults_only_when_omitted() {
-        let pick = |v: Value| allocator_arg(&v);
-        assert_eq!(pick(json!({})).unwrap(), bridge::Allocator::Mimalloc);
-        assert_eq!(
-            pick(json!({ "allocator": null })).unwrap(),
-            bridge::Allocator::Mimalloc
-        );
-        assert_eq!(
-            pick(json!({ "allocator": "mimalloc" })).unwrap(),
-            bridge::Allocator::Mimalloc
-        );
-        assert_eq!(
-            pick(json!({ "allocator": "rusty_alloc" })).unwrap(),
-            bridge::Allocator::RustyAlloc
-        );
-        for bad in [
-            json!(false),
-            json!(42),
-            json!("jemalloc"),
-            json!(["rusty_alloc"]),
-        ] {
-            let err = pick(json!({ "allocator": bad.clone() })).unwrap_err();
-            assert!(
-                format!("{err}").contains("\"mimalloc\" or \"rusty_alloc\""),
-                "{bad}: {err}"
-            );
-        }
-    }
-
-    #[test]
-    fn bridge_refuses_a_bad_allocator_before_writing_anything() {
+    fn bridge_kind_wasm_is_not_yet_and_writes_nothing() {
         let out =
-            std::env::temp_dir().join(format!("mojo-anything-mcp-alloc-{}", std::process::id()));
+            std::env::temp_dir().join(format!("mojo-anything-mcp-wasm-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini");
         let err = call(
             "bridge",
-            &json!({ "root": root, "unit": "packages/a/src/util.ts", "out": out, "allocator": 42 }),
+            &json!({ "root": root, "unit": "packages/a/src/util.ts", "out": out, "kind": "wasm" }),
         )
         .unwrap_err();
-        assert!(format!("{err}").contains("`allocator`"), "{err}");
+        assert!(format!("{err}").contains("M4 Task 8"), "{err}");
         assert!(!out.exists(), "a refused bridge must not create the crate");
     }
 
