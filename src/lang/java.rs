@@ -1,4 +1,4 @@
-//! Java: Maven and Gradle modules, imports, risks, the artifact-to-crate table, and `public
+//! Java: Maven and Gradle modules, imports, risks, the artifact-to-Mojo table, and `public
 //! static` methods of public classes with Java types mapped into the TS-like type dialect.
 //! A unit is a package (a folder).
 

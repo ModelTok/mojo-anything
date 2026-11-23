@@ -52,7 +52,7 @@ impl Lang {
     }
 
     /// Where third-party dependencies come from in this language: used when a dependency
-    /// is not in the crate table, so a Python stdlib omission is not reported as `npm`.
+    /// is not in the replacement table, so a Python stdlib omission is not reported as `npm`.
     pub fn registry(self) -> &'static str {
         match self {
             Self::Ts => "npm",

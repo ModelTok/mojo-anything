@@ -81,7 +81,7 @@ fn render(out: &mut String, r: &Report, title: &str) -> std::fmt::Result {
     let s = &r.summary;
     writeln!(
         out,
-        "# Rust migration plan: {title} ({})\n",
+        "# Mojo migration plan: {title} ({})\n",
         r.language.name()
     )?;
     writeln!(

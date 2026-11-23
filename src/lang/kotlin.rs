@@ -1,4 +1,4 @@
-//! Kotlin: Gradle Kotlin DSL modules, imports, risks, the artifact-to-crate table, and the
+//! Kotlin: Gradle Kotlin DSL modules, imports, risks, the artifact-to-Mojo table, and the
 //! JVM-visible functions a Kotlin file exposes.
 //!
 //! Kotlin has no `static` keyword, but it has two ways to produce a JVM static method:

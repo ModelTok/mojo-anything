@@ -1,4 +1,4 @@
-//! The TypeScript/JavaScript language plugin: discovery, parsing and the npm crate table.
+//! The TypeScript/JavaScript language plugin: discovery, parsing and the npm-to-Mojo table.
 
 pub mod deps;
 pub mod discover;

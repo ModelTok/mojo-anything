@@ -1,8 +1,8 @@
 //! `profile`: run a real workload under the language's own profiler and say what to port.
 //!
-//! Porting a leaf function rarely pays: each call into Rust costs more than the leaf's work.
-//! What pays is moving a hot loop with its callers, keeping data on the Rust side, and using all
-//! cores. This step finds those: hot functions in the repository, by inclusive time, with the
+//! Porting a leaf function rarely pays: each call into Mojo costs more than the leaf's work.
+//! What pays is moving a hot loop with its callers, or batching it so the data crosses once.
+//! This step finds those: hot functions in the repository, by inclusive time, with the
 //! callers that spend it, call counts where the profiler has them, and a recommendation each.
 
 use crate::walk::Canonical;
@@ -133,8 +133,8 @@ fn compiled_advice(root: &Path, h: &Hot, compiled: &[Compiled]) -> Option<String
         .find(|c| c.file == h.file && c.name == h.name)
     {
         return Some(format!(
-            "Already compiled by {} (`{}:{}`): a Rust port is unlikely to run it much faster. \
-             Port it for a pure Rust app, not for speed.",
+            "Already compiled by {} (`{}:{}`): a Mojo port is unlikely to run it much faster. \
+             Port it for a pure Mojo app, not for speed.",
             c.by, c.file, c.line
         ));
     }
@@ -1106,13 +1106,13 @@ fn report(
                     match batch {
                         Some(param) => format!(
                             "Called in a loop by `{}` ({}:{}{calls}): a call per item would cost more than the work. \
-                             Batch it, keeping the items in Rust and using all cores: \
-                             `mojo-anything bridge {} {u} --batch {name}:{param}`, then prepare the items once in a \
-                             `{}Index` in port.rs. Better still, port `{}` with it.",
+                             Batch it, so the items cross into Mojo once: \
+                             `mojo-anything bridge {} {u} --batch {name}:{param}`, then build one `{}Batch` per item list, \
+                             not per query. Better still, port `{}` with it.",
                             c.name, c.file, c.line, root.display(), crate::codegen_batch::pascal(&name), c.name
                         ),
                         None => format!(
-                            "Mostly called by `{}` ({}:{}{calls}): port `{}` together with `{name}`, so one call into Rust does the whole loop.",
+                            "Mostly called by `{}` ({}:{}{calls}): port `{}` together with `{name}`, so one call into Mojo does the whole loop.",
                             c.name, c.file, c.line, c.name
                         ),
                     }
@@ -1191,7 +1191,7 @@ pub fn markdown(r: &Report) -> String {
     }
     if !r.compiled.is_empty() {
         out.push_str(
-            "\n## Already compiled\n\nThese run as machine code already; Rust is unlikely to make them \
+            "\n## Already compiled\n\nThese run as machine code already; Mojo is unlikely to make them \
              much faster:\n\n",
         );
         for c in &r.compiled {

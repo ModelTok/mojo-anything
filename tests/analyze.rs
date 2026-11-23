@@ -515,7 +515,11 @@ fn electron_apps_get_a_main_process_decision() {
         .iter()
         .find(|d| d.topic == "desktop shell")
         .unwrap_or_else(|| panic!("{:#?}", app.decisions));
-    assert!(shell.recommendation.contains("Tauri"), "{shell:?}");
+    assert!(
+        shell.recommendation.contains("keep the renderer"),
+        "{shell:?}"
+    );
+    assert!(!shell.recommendation.contains("Rust"), "{shell:?}");
 }
 
 #[test]

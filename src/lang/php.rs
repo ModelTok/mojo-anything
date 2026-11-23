@@ -1,5 +1,5 @@
 //! PHP: composer.json packages and PSR-4 roots, `require`/`use` imports, risks, the
-//! Composer-to-crate table, and exports (functions and public static methods) with native and
+//! Composer-to-Mojo table, and exports (functions and public static methods) with native and
 //! phpdoc types mapped into the TS-like type dialect.
 
 use std::collections::HashMap;

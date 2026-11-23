@@ -1,5 +1,5 @@
 //! `analyze --whole-app`: what a whole-app port needs on top of the unit plan. The app's entry
-//! points and shape, every external dependency (imported or declared) with its Rust crate, the
+//! points and shape, every external dependency (imported or declared) with its Mojo replacement, the
 //! port order as pieces (units that import each other move together), and the decisions to put
 //! to the user in the grilling round.
 
@@ -724,10 +724,11 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
                 "Yes: a Mojo server front door (`app front-door`) takes the server over first"
                     .into()
             }
-            "cli" => {
-                "Yes: a clap front door (`app front-door`) takes every command over first".into()
-            }
-            _ => "Yes: the Rust crate's public API becomes the library's front door".into(),
+            "cli" => "Yes: a Mojo CLI front door (`app front-door`) takes every command over first"
+                .into(),
+            _ => "Yes: a Mojo package re-exporting each ported unit (`app front-door --library`) \
+                  becomes the library's front door"
+                .into(),
         },
     );
     let electron = lang == Lang::Ts
@@ -739,12 +740,11 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
     if electron {
         ask(
             "desktop shell".into(),
-            "This is an Electron app. Its main process is Node code that can move to Rust; its \
+            "This is an Electron app. Its main process is Node code that can move to Mojo; its \
              windows are web pages. Port the main-process logic and keep the web UI?"
                 .into(),
-            "Yes: port the main process piece by piece and keep the renderer as it is. Whether \
-             the UI later moves to Tauri (the same web UI on a Rust backend) is a separate \
-             choice, made once the logic is Rust"
+            "Yes: port the main process piece by piece and keep the renderer as it is. What \
+             the UI runs on later is a separate choice, made once the logic is Mojo"
                 .into(),
         );
     }
@@ -752,20 +752,20 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
         ask(
             format!("keep {}", unit.id),
             format!(
-                "{} stays in the source language ({}). What replaces it in the Rust app, or does it stay outside?",
+                "{} stays in the source language ({}). What replaces it in the Mojo app, or does it stay outside?",
                 unit.id,
                 unit.notes
                     .first()
-                    .map_or("no Rust equivalent", |n| n.trim_end_matches('.'))
+                    .map_or("no Mojo equivalent", |n| n.trim_end_matches('.'))
             ),
-            "Keep it outside the Rust app, behind the front door, and decide its replacement once the rest is Rust".into(),
+            "Keep it outside the Mojo app, behind the front door, and decide its replacement once the rest is Mojo".into(),
         );
     }
     for unit in report.units.iter().filter(|u| u.status == Status::Blocked) {
         ask(
             format!("blocked {}", unit.id),
             format!(
-                "{} is blocked: {}. Rework that part in Rust, or keep the unit outside?",
+                "{} is blocked: {}. Rework that part in Mojo, or keep the unit outside?",
                 unit.id,
                 unit.notes
                     .first()
