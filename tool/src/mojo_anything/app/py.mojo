@@ -704,19 +704,56 @@ def _redact(data, forms):
     return text.encode("utf-8")
 
 
+class _CopyError(Exception):
+    pass
+
+
+def _copy_tree(src, dst):
+    # http.rs copy_tree: folders made, files copied with their permissions
+    # (std::fs::copy); a failed copy names both paths.
+    if os.path.isdir(src):
+        os.makedirs(dst, exist_ok=True)
+        for name in os.listdir(src):
+            _copy_tree(os.path.join(src, name), os.path.join(dst, name))
+    else:
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        try:
+            shutil.copyfile(src, dst)
+            shutil.copymode(src, dst)
+        except OSError as e:
+            raise _CopyError("copying %s to %s: %s" % (src, dst, os_error(e)))
+
+
+def copy_tree(src, dst):
+    # "" or the error the Rust tool prints.
+    try:
+        _copy_tree(src, dst)
+        return ""
+    except _CopyError as e:
+        return str(e)
+    except OSError as e:
+        return os_error(e)
+
+
 def run_in(job):
-    (command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes) = job
+    (command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes, base) = job
     sandbox = temp_dir("run")
     try:
         return _run_in(sandbox, command, repo, args, stdin, env_add, env_remove,
-                       timeout, files_in, removes)
+                       timeout, files_in, removes, base)
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
-def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes):
+def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes,
+            base):
     work = os.path.join(sandbox, "cwd")
     os.makedirs(work, exist_ok=True)
+    if base is not None:
+        # Any failure is a Python exception here, which declines.
+        _copy_tree(base, work)
     for rel in removes:
         target = os.path.join(work, rel)
         if os.path.isdir(target):
@@ -781,6 +818,14 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
                 data = f.read()
         except OSError:
             data = b""
+        if stamp is not None and rel not in files_in and base is not None:
+            # Rewritten with the bytes the snapshot holds: not a written file.
+            try:
+                with open(os.path.join(base, rel), "rb") as f:
+                    if f.read() == data:
+                        continue
+            except OSError:
+                pass
         files[rel] = _redact(data, forms)
     removed = sorted((r for r in before if r not in present), key=path_key)
     try:
@@ -802,9 +847,10 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
 
 
 
-def new_job(command, repo, args, stdin, env_add, env_remove, timeout, files, removes):
+def new_job(command, repo, args, stdin, env_add, env_remove, timeout, files, removes,
+            base=None):
     job = (tuple(command), repo, tuple(args), stdin, tuple(env_add),
-           tuple(env_remove), float(timeout), files, removes)
+           tuple(env_remove), float(timeout), files, removes, base)
     return job
 
 

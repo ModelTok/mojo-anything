@@ -3,7 +3,7 @@
 # app's names, the shell lines in its docs, `--inputs`, semantic traps), two
 # runs of the original per case, the noise between them, and the trycmd files
 # in toml_edit's layout with mojo-anything.json in serde_json's. Servers,
-# effects, `fresh` snapshots, float files, a tolerance and `key-order`, and
+# effects, float files, a tolerance and `key-order`, and
 # anything whose bytes this port cannot be sure to write as the Rust tool
 # does, go to the Phase 1 binary before anything is written.
 
@@ -30,6 +30,8 @@ from mojo_anything.json_text import write_string
 from mojo_anything.walk import walk
 
 comptime MAX_TRAPS = 300
+comptime FRESH_DIR = "files"
+"""The snapshot of the `fresh` paths, in mojo/app-cases."""
 comptime _MAX_TIMEOUT = 2_000_000
 """Seconds: Python's `communicate` waits in `poll`, whose milliseconds stop at
 INT_MAX; a longer limit goes to the Phase 1 binary."""
@@ -1387,7 +1389,7 @@ def config_json(
 ) -> String:
     """`Config` as serde_json's `to_string_pretty` writes it (empty and unset
     fields skipped), for a recording without servers, effects, a tolerance,
-    float files or fresh paths."""
+    or float files."""
     var out = String("{\n")
     out += '  "schema": ' + write_string(SCHEMA) + ",\n"
     out += '  "name": ' + write_string(config.name) + ",\n"
@@ -1417,10 +1419,54 @@ def config_json(
             )
             out += ",\n" if i + 1 < len(unordered_cases) else "\n"
         out += "  }"
+    if len(config.fresh) > 0:
+        out += ',\n  "fresh": ' + _strings_json(config.fresh, "  ")
     return out + "\n}\n"
 
 
 # --- record -------------------------------------------------------------------------------
+
+
+def _all_normal(path: String) -> Bool:
+    """`is_relative()` and every component `Normal`; "" (which Rust lets
+    through, to copy the whole repository) is declined by the caller."""
+    if path.startswith("/"):
+        return False
+    var segs = _split_slash(path)
+    for k in range(len(segs)):
+        if segs[k] == "..":
+            return False
+        if segs[k] == "." and k == 0:
+            return False
+    return True
+
+
+def snapshot_to(
+    h: PythonObject, repo: String, fresh: List[String], dir: String
+) raises:
+    """http.rs `snapshot_to`: the `fresh` paths copied from the repository
+    into `dir`, replacing the last snapshot; a path ending in `/` gives its
+    contents."""
+    for path in fresh:
+        if path == "":
+            raise decline()
+    _ = h["remove_tree"](PythonObject(dir))
+    for path in fresh:
+        if not _all_normal(path):
+            raise Error(
+                "--fresh `"
+                + path
+                + "`: give a path inside the repository, relative to it"
+            )
+        var src = join(repo, path)
+        if not Bool(py=h["exists"](PythonObject(src))):
+            raise Error("--fresh `" + path + "`: no such file or folder")
+        var to = join(dir, path)
+        if path.endswith("/") and Bool(py=h["is_dir"](PythonObject(src))):
+            to = dir
+        var err = String(py=h["copy_tree"](PythonObject(src), PythonObject(to)))
+        if err != "":
+            raise Error(err)
 
 
 def _kind_name(kind: Int) -> String:
@@ -1661,14 +1707,11 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
     # The rest of the checks are Normalizers::new's.
     var norm = Normalizers(h, config)
     # Not ported yet: a tolerance and float files (an f64 and a map in
-    # mojo-anything.json), `fresh` snapshots.
-    if (
-        config.float_tolerance
-        or float_files
-        or len(p.all("fresh")) > 0
-        or len(config.fresh) > 0
-    ):
+    # mojo-anything.json).
+    if config.float_tolerance or float_files:
         raise decline()
+    if len(p.all("fresh")) > 0:
+        config.fresh = p.all("fresh")
     var t = p.value("timeout")
     if t:
         var v = Python.import_module("builtins").int(PythonObject(t.value()))
@@ -1716,6 +1759,10 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
             if plan.push(h, "trap", counts[2] + 1, None, kase):
                 counts[2] += 1
 
+    var dir = join(repo, CASES_DIR)
+    var base = PythonObject(None)
+    if len(config.fresh) > 0:
+        base = PythonObject(dir + "/" + FRESH_DIR)
     var jobs = Python.list()
     for pc in plan.cases:
         if not _runnable(h, pc.kase):
@@ -1731,10 +1778,13 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
                 PythonObject(config.timeout_secs),
                 pc.kase.files,
                 py_list(pc.kase.remove),
+                base,
             )
         )
+    # The snapshot is the first thing written, as in the Rust tool.
+    if len(config.fresh) > 0:
+        snapshot_to(h, repo, config.fresh, dir + "/" + FRESH_DIR)
     var results = h["run_pairs"](jobs)
-    var dir = join(repo, CASES_DIR)
 
     # Every case is settled and its TOML built before anything is written:
     # a decline after this point would leave half a recording.

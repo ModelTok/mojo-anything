@@ -388,7 +388,6 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     var runs = List[List[String]]()
     runs.append(["app", "record", ".", "--inputs", "bad.jsonl"])
     runs.append(["app", "record", ".", "--inputs", "dup.jsonl"])
-    runs.append(["app", "record", ".", "--fresh", "noisy.py"])
     runs.append(["app", "record", ".", "--float-tolerance", "0.1"])
     runs.append(["app", "record", ".", "--float-file", "a=f64le"])
     runs.append(["app", "record", ".", "--normalize", "key-order"])

@@ -433,8 +433,16 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
             )
     else:
         specs = all^
-    if len(config.fresh) > 0 or config.effects:
+    if config.effects:
         raise Error(DECLINE)
+    var base = PythonObject(None)
+    if len(config.fresh) > 0:
+        var files_dir = dir + "/files"
+        if not Bool(py=h["is_dir"](PythonObject(files_dir))):
+            raise Error(
+                "no " + files_dir + ": record again to snapshot the fresh files"
+            )
+        base = PythonObject(files_dir)
     # The report quotes words as Rust's `char::is_alphanumeric` decides.
     if not words_quotable(h, command):
         raise Error(DECLINE)
@@ -467,6 +475,7 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
                 PythonObject(timeout),
                 s.files,
                 py_list(s.remove),
+                base,
             )
         )
         ran.append(i)
