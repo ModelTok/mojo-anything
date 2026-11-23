@@ -562,11 +562,29 @@ def _doc_keep(path: String) -> Bool:
 def find_examples(
     h: PythonObject, repo: String, names: List[String]
 ) raises -> List[Case]:
-    """app.rs `find_examples` over `scan_examples`: shell lines in the
-    repository's Markdown code blocks and `.sh` files, four levels deep."""
+    """app.rs `find_examples`: the doc lines that run the app, as cases."""
     var out = List[Case]()
     if len(names) == 0:
         return out^
+    for dl in doc_lines(h, repo):
+        var kase = parse_example(h, dl.line, names, repo, dl.dir)
+        if kase:
+            out.append(kase.value().copy())
+    return out^
+
+
+@fieldwise_init
+struct DocLine(Copyable, Movable):
+    """A shell line of the docs, and the folder of the doc it is in."""
+
+    var line: String
+    var dir: String
+
+
+def doc_lines(h: PythonObject, repo: String) raises -> List[DocLine]:
+    """app.rs `scan_examples`: shell lines in the repository's Markdown code
+    blocks and `.sh` files, four levels deep, in walk order."""
+    var out = List[DocLine]()
     if Bool(py=h["doc_links"](PythonObject(repo))):
         raise decline()
     var found = walk(repo, _doc_keep)
@@ -632,9 +650,7 @@ def find_examples(
                 candidate = String(line[byte=2:])
             else:
                 candidate = line
-            var kase = parse_example(h, candidate, names, repo, doc_dir)
-            if kase:
-                out.append(kase.value().copy())
+            out.append(DocLine(candidate, doc_dir))
     return out^
 
 
@@ -1369,6 +1385,8 @@ def config_json(
             out += ",\n" if i + 1 < len(config.normalizer_names) else "\n"
         out += "  },\n"
     out += '  "timeout_secs": ' + String(config.timeout_secs)
+    if config.http:
+        out += ',\n  "http": ' + _http_json(config)
     if config.float_tolerance:
         out += ',\n  "float_tolerance": ' + json_number_to_string(
             config.float_tolerance.value()
@@ -1400,6 +1418,29 @@ def config_json(
     if len(config.fresh) > 0:
         out += ',\n  "fresh": ' + _strings_json(config.fresh, "  ")
     return out + "\n}\n"
+
+
+def _http_json(config: Config) -> String:
+    """`HttpConfig` as serde_json's `to_string_pretty` writes it inside the
+    settings, unset and empty fields skipped."""
+    var fields = List[String]()
+    if config.http_port:
+        fields.append(String('    "port": ', config.http_port.value()))
+    if len(config.http_args) > 0:
+        fields.append('    "args": ' + _strings_json(config.http_args, "    "))
+    if len(config.http_fresh) > 0:
+        fields.append(
+            '    "fresh": ' + _strings_json(config.http_fresh, "    ")
+        )
+    if config.http_pace:
+        fields.append(String('    "pace_ms": ', config.http_pace.value()))
+    if len(fields) == 0:
+        return "{}"
+    var out = String("{\n")
+    for i in range(len(fields)):
+        out += fields[i]
+        out += ",\n" if i + 1 < len(fields) else "\n"
+    return out + "  }"
 
 
 def _effects_json(config: Config) -> String:
@@ -1741,9 +1782,70 @@ def _merge_normalizers(mut config: Config, given: List[String]):
             config.normalize.append(n)
 
 
-def record(h: PythonObject, p: Parsed) raises -> Outcome:
-    """The Rust tool's `record` for a CLI: raises its errors, or `DECLINE`
-    for anything this port does not reproduce byte for byte."""
+struct RecordSetup(Movable):
+    """What app.rs `record` settles before it records a CLI or a server: the
+    repository, the merged settings and their normalizers, the app's names."""
+
+    var repo: String
+    var config: Config
+    var norm: Normalizers
+    var names: List[String]
+
+    def __init__(
+        out self,
+        repo: String,
+        var config: Config,
+        var norm: Normalizers,
+        var names: List[String],
+    ):
+        self.repo = repo
+        self.config = config^
+        self.norm = norm^
+        self.names = names^
+
+
+def _merge_http(mut config: Config, p: Parsed) raises:
+    """http.rs `merge_config`: the saved `http`, changed by what this record
+    was given; none when neither is there."""
+    var port = p.value("port")
+    var pace = p.value("pace")
+    var args = p.all("arg")
+    var asked = p.flag("http") or Bool(port) or Bool(pace) or len(args) > 0
+    if not config.http and not asked:
+        return
+    if not config.http:
+        config.http = True
+        config.http_port = None
+        config.http_args = List[String]()
+        config.http_fresh = List[String]()
+        config.http_pace = None
+    var builtins = Python.import_module("builtins")
+    if port:
+        config.http_port = Int(py=builtins.int(PythonObject(port.value())))
+    if len(args) > 0:
+        config.http_args = args^
+    if len(p.all("fresh")) > 0:
+        config.http_fresh = p.all("fresh")
+    if pace:
+        var v = builtins.int(PythonObject(pace.value()))
+        if Bool(py=v > PythonObject(_MAX_PACE_MS)):
+            raise decline()
+        var ms = Int(py=v)
+        if ms > 0:
+            config.http_pace = ms
+        else:
+            config.http_pace = None
+
+
+comptime _MAX_PACE_MS = 1_000_000_000
+"""A pace beyond what Python's `sleep` is sure to take goes to the Phase 1
+binary."""
+
+
+def record_setup(h: PythonObject, p: Parsed) raises -> RecordSetup:
+    """The first half of app.rs `record`, shared by CLIs and servers: raises
+    its errors, or `DECLINE` for anything this port does not reproduce byte
+    for byte."""
     # main.rs reads the effect options before anything else.
     var effects = effects_from_args(p)
     var given = p.value("REPO")
@@ -1764,14 +1866,7 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
     if len(p.rest) > 0:
         config.run = p.rest.copy()
     _merge_normalizers(config, p.all("normalize"))
-    if (
-        p.flag("http")
-        or p.value("port")
-        or p.value("pace")
-        or len(p.all("arg")) > 0
-        or config.http
-    ):
-        raise decline()
+    _merge_http(config, p)
     if effects:
         _set_effects(config, effects.value())
     var tol = p.value("float-tolerance")
@@ -1813,7 +1908,10 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         config.float_file_formats = formats^
     # The rest of the checks are Normalizers::new's.
     var norm = Normalizers(h, config)
-    if len(p.all("fresh")) > 0:
+    if config.http:
+        # A server's fresh paths are `http.fresh`; the CLI's are dropped.
+        config.fresh = List[String]()
+    elif len(p.all("fresh")) > 0:
         config.fresh = p.all("fresh")
     var t = p.value("timeout")
     if t:
@@ -1835,6 +1933,15 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         config.name = "app"
     if not _safe_words(h, config.run):
         raise decline()
+    return RecordSetup(repo, config^, norm^, names^)
+
+
+def record(h: PythonObject, p: Parsed, s: RecordSetup) raises -> Outcome:
+    """The rest of app.rs `record`, for a CLI."""
+    var repo = s.repo
+    var config = s.config.copy()
+    ref norm = s.norm
+    ref names = s.names
     _ = _toml_string(config.name)
 
     var examples = find_examples(h, repo, names)
@@ -1969,20 +2076,3 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         ),
     )
     return outcome^
-
-
-def run_app_record(p: Parsed, argv: List[String]) raises -> Int:
-    """`mojo-anything app record` for a CLI; anything it cannot answer exactly
-    runs the Phase 1 binary."""
-    var h = py_helpers()
-    try:
-        var outcome = record(h, p)
-        if p.flag("json"):
-            print(outcome_json(outcome))
-        else:
-            print(say_record(outcome), end="")
-        return 0
-    except e:
-        if String(e) == DECLINE:
-            return fallback(argv)
-        raise e

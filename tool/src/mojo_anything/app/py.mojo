@@ -475,8 +475,20 @@ def load_config(text):
         return ("odd", None)
     if not isinstance(c, dict):
         return ("odd", None)
-    if c.get("http") is not None:
-        return ("odd", None)
+    hc = c.get("http")
+    if hc is not None:
+        if not isinstance(hc, dict):
+            return ("odd", None)
+        port = hc.get("port")
+        if port is not None and (not _is_int(port) or not 0 <= port <= 65535):
+            return ("odd", None)
+        for key in ("args", "fresh"):
+            if key in hc and not _strs(hc[key]):
+                return ("odd", None)
+        pace = hc.get("pace_ms")
+        # A pace beyond what `sleep` is sure to take is declined.
+        if pace is not None and (not _is_int(pace) or not 0 <= pace <= 1000000000):
+            return ("odd", None)
     e = c.get("effects")
     if e is not None:
         if not isinstance(e, dict):
@@ -534,6 +546,13 @@ def config_unordered(c):
 
 def config_timeout(c):
     return c.get("timeout_secs", 30)
+
+
+def config_http(c):
+    # (port or None, args, fresh, pace_ms or None)
+    hc = c["http"]
+    return (hc.get("port"), list(hc.get("args") or []), list(hc.get("fresh") or []),
+            hc.get("pace_ms"))
 
 
 def config_present(c, key):

@@ -187,6 +187,11 @@ struct Config(Copyable, Movable):
     var normalizer_patterns: List[String]
     var timeout_secs: Int
     var http: Bool
+    """Whether `http` is set (the app is a server); its fields follow."""
+    var http_port: Optional[Int]
+    var http_args: List[String]
+    var http_fresh: List[String]
+    var http_pace: Optional[Int]
     var float_tolerance: Optional[Float64]
     var float_file_paths: List[String]
     """`float_files`' keys, sorted as a BTreeMap."""
@@ -211,6 +216,10 @@ struct Config(Copyable, Movable):
         self.normalizer_patterns = List[String]()
         self.timeout_secs = 30
         self.http = False
+        self.http_port = None
+        self.http_args = List[String]()
+        self.http_fresh = List[String]()
+        self.http_pace = None
         self.float_tolerance = None
         self.float_file_paths = List[String]()
         self.float_file_formats = List[String]()
@@ -284,6 +293,14 @@ def load_config(h: PythonObject, repo: String) raises -> Optional[Config]:
         raise decline()
     out.timeout_secs = Int(py=timeout)
     out.http = Bool(py=h["config_present"](c, PythonObject("http")))
+    if out.http:
+        var hc = h["config_http"](c)
+        if not Bool(py=h["is_none"](hc[0])):
+            out.http_port = Int(py=hc[0])
+        out.http_args = py_strings(hc[1])
+        out.http_fresh = py_strings(hc[2])
+        if not Bool(py=h["is_none"](hc[3])):
+            out.http_pace = Int(py=hc[3])
     out.effects = Bool(py=h["config_present"](c, PythonObject("effects")))
     if out.effects:
         var fx = h["config_effects"](c)

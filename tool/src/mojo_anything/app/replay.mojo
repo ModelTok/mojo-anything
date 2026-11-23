@@ -56,6 +56,9 @@ struct Outcome(Copyable, Movable):
     var failures: List[Failure]
     var reported: Bool
     var fell_back: List[String]
+    var fallback_total: Int
+    """What the fallback rate counts against: the cases, or (a library) the
+    public API's exports (-1: the cases)."""
     var report: String
 
     def __init__(out self, var build: List[String], report: String):
@@ -66,7 +69,12 @@ struct Outcome(Copyable, Movable):
         self.failures = List[Failure]()
         self.reported = False
         self.fell_back = List[String]()
+        self.fallback_total = -1
         self.report = report
+
+    def of(self) -> Int:
+        """`Fallback::total`."""
+        return self.total if self.fallback_total < 0 else self.fallback_total
 
 
 @fieldwise_init
@@ -218,14 +226,14 @@ def report_markdown(h: PythonObject, o: Outcome) raises -> String:
             "Fallback rate: "
             + String(
                 py=h["percent"](
-                    PythonObject(len(o.fell_back)), PythonObject(o.total)
+                    PythonObject(len(o.fell_back)), PythonObject(o.of())
                 )
             )
             + String(
                 "% (",
                 len(o.fell_back),
                 "/",
-                o.total,
+                o.of(),
                 " cases answered by the original)\n\n",
             )
         )
@@ -301,11 +309,11 @@ def outcome_json(h: PythonObject, o: Outcome) raises -> String:
         out += "  ],\n"
     if o.reported:
         var rate = Float64(
-            py=h["rate"](PythonObject(len(o.fell_back)), PythonObject(o.total))
+            py=h["rate"](PythonObject(len(o.fell_back)), PythonObject(o.of()))
         )
         out += '  "fallback": {\n'
         out += String('    "cases": ', len(o.fell_back), ",\n")
-        out += String('    "total": ', o.total, ",\n")
+        out += String('    "total": ', o.of(), ",\n")
         out += '    "rate": ' + write_compact(json_float(rate)) + ",\n"
         out += '    "names": ' + _strings_json(o.fell_back, "    ") + "\n"
         out += "  },\n"
@@ -322,10 +330,10 @@ def say_replay(h: PythonObject, o: Outcome) raises -> String:
             "Fallback rate: "
             + String(
                 py=h["percent"](
-                    PythonObject(len(o.fell_back)), PythonObject(o.total)
+                    PythonObject(len(o.fell_back)), PythonObject(o.of())
                 )
             )
-            + String("% (", len(o.fell_back), "/", o.total, ")\n")
+            + String("% (", len(o.fell_back), "/", o.of(), ")\n")
         )
     for i in range(min(len(o.failures), 20)):
         ref f = o.failures[i]
@@ -423,7 +431,32 @@ def _comparable(
     return True
 
 
-def replay(h: PythonObject, opts: Options) raises -> Outcome:
+struct ReplaySetup(Movable):
+    """What app.rs `replay` settles before it replays a CLI's cases or a
+    server's: the repository, the settings, the build and the time limit."""
+
+    var repo: String
+    var config: Config
+    var norm: Normalizers
+    var command: List[String]
+    var timeout: Int
+
+    def __init__(
+        out self,
+        repo: String,
+        var config: Config,
+        var norm: Normalizers,
+        var command: List[String],
+        timeout: Int,
+    ):
+        self.repo = repo
+        self.config = config^
+        self.norm = norm^
+        self.command = command^
+        self.timeout = timeout
+
+
+def replay_setup(h: PythonObject, opts: Options) raises -> ReplaySetup:
     var canon = h["canonical"](PythonObject(opts.repo))
     if String(py=canon[0]) == "odd":
         raise Error(DECLINE)
@@ -454,8 +487,17 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
     var timeout = (
         opts.timeout_secs.value() if opts.timeout_secs else config.timeout_secs
     )
-    if config.http:
-        raise Error(DECLINE)
+    return ReplaySetup(repo, config^, norm^, command^, timeout)
+
+
+def replay(h: PythonObject, opts: Options, s: ReplaySetup) raises -> Outcome:
+    """The rest of app.rs `replay`, for a CLI's cases."""
+    var repo = s.repo
+    var dir = join(repo, CASES_DIR)
+    ref config = s.config
+    ref norm = s.norm
+    var command = s.command.copy()
+    var timeout = s.timeout
     var all = load_specs(h, dir)
     var specs = List[Spec]()
     if opts.only:
@@ -556,33 +598,3 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
     if err != "":
         raise Error("writing " + outcome.report + ": " + err)
     return outcome^
-
-
-def run_app_replay(p: Parsed, argv: List[String]) raises -> Int:
-    """`mojo-anything app replay`: the Rust tool's output, exit 1 on any
-    mismatch; anything it cannot answer exactly runs the Phase 1 binary."""
-    var timeout: Optional[Int] = None
-    var t = p.value("timeout")
-    if t:
-        var builtins = Python.import_module("builtins")
-        var v = builtins.int(PythonObject(t.value()))
-        if Bool(py=v > PythonObject(Int(Int64.MAX))):
-            return fallback(argv)
-        timeout = Int(py=v)
-    var repo = String(".")
-    var given = p.value("REPO")
-    if given:
-        repo = given.value()
-    var opts = Options(repo, p.value("build"), timeout, p.value("case"))
-    var h = py_helpers()
-    try:
-        var outcome = replay(h, opts)
-        if p.flag("json"):
-            print(outcome_json(h, outcome))
-        else:
-            print(say_replay(h, outcome), end="")
-        return 1 if len(outcome.failures) > 0 else 0
-    except e:
-        if String(e) == DECLINE:
-            return fallback(argv)
-        raise e

@@ -269,8 +269,15 @@ def _check(value: String, d: ArgDef, mut text: String) -> Int:
                 text = head + ": invalid digit found in string\n\n" + MORE_INFO
                 return _INVALID
         var digits = len(bytes) - start
-        if (d.kind == "u16" and digits > 4) or digits > 19:
+        if digits > 19 or (d.kind == "u16" and digits > 18):
             return _UNSURE
+        if d.kind == "u16":
+            # An i64 in 0..=65535; clap's text for one beyond is not built.
+            var n = 0
+            for i in range(start, len(bytes)):
+                n = n * 10 + Int(bytes[i]) - 48
+            if n > 65535:
+                return _UNSURE
         return _VALID
     if d.kind == "f64":
         if rust_float(value):

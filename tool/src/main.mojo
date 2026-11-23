@@ -12,8 +12,7 @@ from mojo_anything.cli_parse import PARSED, USAGE_ERROR, Parsed, parse
 from mojo_anything.fallback import fallback, report_owned
 from mojo_anything.doctor import run_doctor
 from mojo_anything.setup import run_setup
-from mojo_anything.app.record import run_app_record
-from mojo_anything.app.replay import run_app_replay
+from mojo_anything.app.commands import run_app_record, run_app_replay
 
 
 def owned() -> List[String]:

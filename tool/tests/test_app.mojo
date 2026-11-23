@@ -432,7 +432,7 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     var configs = List[String]()
     # serde_json refuses this before the unknown normalizer is looked at.
     configs.append(head + ', "http": 5, "normalize": ["bogus"]}')
-    configs.append(head + ', "http": {"port": 1}}')
+    configs.append(head + ', "http": {"port": 70000}}')
     configs.append(head + ', "timeout_secs": -0}')
     configs.append(head + ', "timeout_secs": 3000000}')
     for i in range(len(configs)):
@@ -446,6 +446,22 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
         )
         assert_equal(log, "app replay .\n", configs[i])
         _ = t["gone"](PythonObject(d))
+    # A server's settings are read in Mojo now (no `http/` cases: an error).
+    var owned = _cli_fixture(t, "server-settings")
+    _ = t["put"](
+        PythonObject(owned + "/mojo/app-cases/mojo-anything.json"),
+        PythonObject(head + ', "http": {"port": 1}}'),
+    )
+    assert_equal(
+        _both(
+            t,
+            ["app", "replay", "."],
+            owned,
+            owned + "/mojo/app-cases/replay-report.md",
+        ),
+        "",
+    )
+    _ = t["gone"](PythonObject(owned))
     var d = _cli_fixture(t, "decline-timeout")
     var r = d + "/mojo/app-cases/replay-report.md"
     assert_equal(
