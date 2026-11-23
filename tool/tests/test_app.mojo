@@ -394,6 +394,67 @@ def test_replay_of_a_server_goes_to_the_phase1_binary() raises:
     _ = t["gone"](PythonObject(d))
 
 
+def test_record_checks_match_the_phase1_binary() raises:
+    var t = _py()
+    var d = String(py=t["fixture"](PythonObject("record"), PythonObject("")))
+    var r = d + "/mojo/app-cases/mojo-anything.json"
+    var runs = List[List[String]]()
+    runs.append(["app", "record"])
+    runs.append(["app", "record", "missing-dir", "--", "true"])
+    runs.append(["app", "record", ".", "--float-file", "x", "--", "true"])
+    runs.append(["app", "record", ".", "--float-file", "a=f16le", "--", "true"])
+    runs.append(
+        [
+            "app",
+            "record",
+            ".",
+            "--float-file",
+            "a=b=f64le",
+            "--float-file",
+            "c",
+            "--",
+            "true",
+        ]
+    )
+    runs.append(["app", "record", ".", "--normalize", "nope", "--", "true"])
+    runs.append(
+        [
+            "app",
+            "record",
+            ".",
+            "--normalize",
+            "id=x",
+            "--normalize",
+            "uuids",
+            "--normalize",
+            "z",
+            "--",
+            "true",
+        ]
+    )
+    for i in range(len(runs)):
+        assert_equal(_both(t, runs[i], d, r), "", "fell back")
+    _ = t["gone"](PythonObject(d))
+
+
+def test_a_recording_goes_to_the_phase1_binary() raises:
+    var t = _py()
+    var d = String(
+        py=t["fixture"](
+            PythonObject("record-run"),
+            PythonObject("mojo/app-cases/app-record-cli-python.in"),
+        )
+    )
+    var log = _both(
+        t,
+        ["app", "record", ".", "--no-traps", "--", "python3", "tcli.py"],
+        d,
+        d + "/mojo/app-cases/example-001-upper.stdout",
+    )
+    assert_equal(log, "app record .\n")
+    _ = t["gone"](PythonObject(d))
+
+
 def main() raises:
     test_reports_do_not_carry_sandbox_paths()
     test_unordered_lines_pair_up_by_value_within_the_tolerance()
@@ -410,4 +471,6 @@ def main() raises:
     test_replay_matches_the_phase1_binary_on_a_cli()
     test_replay_without_cases_matches_the_phase1_binary()
     test_replay_of_a_server_goes_to_the_phase1_binary()
-    print("test_app: 15 passed")
+    test_record_checks_match_the_phase1_binary()
+    test_a_recording_goes_to_the_phase1_binary()
+    print("test_app: 17 passed")
