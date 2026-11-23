@@ -295,6 +295,18 @@ def test_c_plans_match_the_phase1_binary() raises:
         body += "    return n;\n}\n"
         many.append(String("m", i, "/m", i, ".c=") + body)
     _both_ways(t, "many", many, dot)
+    # One struct defined alike in two files: the walk's order cannot matter.
+    _both_ways(
+        t,
+        "same-struct",
+        [
+            "Makefile=x\n",
+            "a.h=struct P { int x; int y; };\n",
+            "vendor/b.h=struct P { int x; int y; };\n",
+            'a.c=#include "a.h"\nint f(struct P p) { return p.x; }\n',
+        ],
+        dot,
+    )
     _both_ways(
         t,
         "unreadable",

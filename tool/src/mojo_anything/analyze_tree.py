@@ -2246,7 +2246,7 @@ def c_use_types(root, rels):
             for name in opaque:
                 seen.setdefault(name, []).append(None)
             for name, got in seen.items():
-                if name in per_name or any(g != got[0] for g in got):
+                if per_name.get(name, got[0]) != got[0] or any(g != got[0] for g in got):
                     return 0
                 per_name[name] = got[0]
             for name, target in aliases:

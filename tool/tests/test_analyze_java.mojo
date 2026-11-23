@@ -66,6 +66,9 @@ def run(binary, args, cwd, log):
                        stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
     out = p.stdout.decode("utf-8", "replace").replace(cwd, "<D>")
     err = p.stderr.decode("utf-8", "replace").replace(cwd, "<D>")
+    # A Rust panic names its thread id, which differs between runs.
+    import re
+    err = re.sub(r"thread 'main' \\(\\d+\\)", "thread 'main'", err)
     return (p.returncode, out, err)
 
 def log_text(path):
@@ -427,6 +430,7 @@ def test_what_tree_sitter_may_read_otherwise_goes_to_the_phase1_binary() raises:
     var t = _py()
     var cases = List[Tuple[String, String]]()
     cases.append(("syntax", "A.java=public class A { int f( }\n"))
+    cases.append(("orphan", "core/pom.xml=<project/>\n|A.java=class A {}\n"))
     cases.append(
         (
             "two-manifests",

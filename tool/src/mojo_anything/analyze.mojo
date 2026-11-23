@@ -1519,7 +1519,18 @@ def tree_plan(
     mut declined: Bool,
 ) raises -> Report:
     """The plan of a workspace of a tree-sitter language with source files;
-    `declined` when a file's tree has an error."""
+    `declined` when a file's tree has an error, or a source file lies outside
+    the folder of the package it went to (no root package: Rust's unit_id
+    slices its path by that folder, which panics or makes a garbled id)."""
+    for f in ws.files:
+        ref d = ws.packages[f.package].dir
+        if (
+            not f.test
+            and d.byte_length() > 0
+            and not f.path.startswith(d + "/")
+        ):
+            declined = True
+            return Report(lang)
     var th = tree_helpers()
     if lang == "c":
         # use_typedefs: every `.h` and `.c` file the unfiltered walk keeps.
