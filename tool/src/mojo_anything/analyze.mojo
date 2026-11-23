@@ -29,6 +29,7 @@ from mojo_anything.plan import (
     join_dir,
     markdown,
     to_json,
+    trim_end_matches,
 )
 from mojo_anything.python_lang import Facts, py_helpers, read_facts
 from mojo_anything.tree_lang import read_tree_facts, tree_helpers
@@ -1047,6 +1048,112 @@ def go_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def _is_ruby_test(rel: String, name: String) -> Bool:
+    if (
+        name.endswith("_test.rb")
+        or name.endswith("_spec.rb")
+        or name.startswith("test_")
+    ):
+        return True
+    for part in rel.split("/"):
+        if part == "test" or part == "spec" or part == "features":
+            return True
+    return False
+
+
+def ruby_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """ruby.rs `discover`: a package per folder with a .gemspec or a Gemfile
+    (named by the gemspec, else its folder; `lib` its source root when it
+    has one) plus the root's, and the `.rb` files the walk keeps; declined
+    as java_workspace is, and for a folder with two gemspecs (the walk's
+    order would pick the name)."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("ruby"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("ruby", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if name.endswith(".gemspec") or name == "Gemfile":
+            manifests.append(rel)
+        elif name.endswith(".rb"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    var dirs = List[String]()
+    var names = List[String]()
+    var gemspecs = List[Int]()
+    var deps = List[List[String]]()
+    for rel in manifests:
+        var dir = _dir_of(rel)
+        var file = _name_of(rel)
+        var k = -1
+        for i in range(len(dirs)):
+            if dirs[i] == dir:
+                k = i
+        if k < 0:
+            k = len(dirs)
+            dirs.append(dir)
+            if dir.byte_length() == 0:
+                names.append(_root_name(root))
+            else:
+                names.append(dir)
+            gemspecs.append(0)
+            deps.append(List[String]())
+        if file.endswith(".gemspec"):
+            gemspecs[k] += 1
+            if gemspecs[k] > 1:
+                ws.declined = True
+                return ws^
+            names[k] = trim_end_matches(file, ".gemspec")
+        var m = th["ruby_manifest"](PythonObject(root + "/" + rel))
+        for i in range(Int(py=Python.import_module("builtins").len(m))):
+            deps[k].append(String(py=m[i]))
+    var has_root = False
+    for i in range(len(dirs)):
+        var src_root = dirs[i]
+        if isdir(root + "/" + join_dir(dirs[i], "lib")):
+            src_root = join_dir(dirs[i], "lib")
+        if dirs[i].byte_length() == 0:
+            has_root = True
+        ws.packages.append(Package(names[i], dirs[i], src_root, deps[i].copy()))
+    if not has_root:
+        var src_root = String("")
+        if isdir(root + "/lib"):
+            src_root = "lib"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(
+            SourceFile(rel, best, _is_ruby_test(rel, _name_of(rel)))
+        )
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1146,12 +1253,14 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         elif len(ws.files) > 0:
             out.report = python_plan(root, ws, pyh, out.declined)
             out.planned = not out.declined
-    elif lang == "java" or lang == "go":
+    elif lang == "java" or lang == "go" or lang == "ruby":
         var ws: Workspace
         if lang == "java":
             ws = java_workspace(root, py)
-        else:
+        elif lang == "go":
             ws = go_workspace(root, py)
+        else:
+            ws = ruby_workspace(root, py)
         if ws.declined:
             out.declined = True
         elif len(ws.files) > 0:

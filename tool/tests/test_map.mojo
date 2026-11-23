@@ -225,6 +225,19 @@ def _go_repo() -> List[String]:
     return spec^
 
 
+def _ruby_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append("kit.gemspec=spec.add_dependency 'nokogiri'\n")
+    for i in range(6):
+        var body = String("module M", i, "\n  def self.f(s)\n")
+        for _ in range(i * 2):
+            body += "    s = s[1..] + s\n"
+        body += "    s\n  end\nend\n"
+        spec.append(String("lib/m", i, ".rb=") + body)
+    spec.append("test/m1_test.rb=require 'm1'\n")
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
@@ -232,6 +245,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     var repos = List[Tuple[String, List[String]]]()
     repos.append(("java", _java_repo()))
     repos.append(("go", _go_repo()))
+    repos.append(("ruby", _ruby_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -242,6 +256,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
             _owned(t, r[0], r[1], f)
     var bad = List[Tuple[String, String]]()
     bad.append(("java-bad", "pom.xml=x\n|A.java=class A { int f( }\n"))
+    bad.append(("ruby-bad", "Gemfile=x\n|a.rb=def f(\n"))
     bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()
@@ -265,7 +280,7 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     var t = _py()
     var cases = List[Tuple[String, String]]()
     cases.append(("crate", "go.mod=x\n|port/mojo-anything.json={}\n"))
-    cases.append(("source", "Gemfile=x\n|a.rb=x = 1\n"))
+    cases.append(("source", "package.json={}\n|a.ts=export const x = 1;\n"))
     cases.append(("glue", "go.mod=x\n|mojo/app/glue/a.mojo=x\n"))
     cases.append(("bad-json", "package.json={\n"))
     for c in cases:

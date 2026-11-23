@@ -19,7 +19,7 @@ import sys
 _LANGUAGES = {}
 
 # The grammar module of each language.
-_GRAMMARS = {"java": "tree_sitter_java", "go": "tree_sitter_go"}
+_GRAMMARS = {"java": "tree_sitter_java", "go": "tree_sitter_go", "ruby": "tree_sitter_ruby"}
 
 
 class Decline(Exception):
@@ -687,6 +687,238 @@ def _go_exports(root):
     return out
 
 
+# ---- Ruby (src/lang/ruby.rs) -------------------------------------------------------------
+
+
+def _ruby_quoted(rest):
+    s = trim(rest)
+    while s.startswith("("):
+        s = s[1:]
+    pieces = s.replace("'", '"').split('"')
+    return [pieces[1]] if len(pieces) > 1 else []
+
+
+_RUBY_DEPS = ("spec.add_dependency", "spec.add_runtime_dependency", "s.add_dependency", "gem ")
+_RUBY_DEV = ("spec.add_development_dependency", "s.add_development_dependency")
+
+
+def ruby_gem_names(text):
+    """ruby.rs `gem_names`: (deps, dev) of `spec.add_dependency "name"` and `gem "name"`."""
+    deps, dev = [], []
+    for line in _lines(text):
+        line = trim(line)
+        hit = next((p for p in _RUBY_DEPS if line.startswith(p)), None)
+        if hit is not None:
+            deps.extend(_ruby_quoted(line[len(hit) :]))
+            continue
+        hit = next((p for p in _RUBY_DEV if line.startswith(p)), None)
+        if hit is not None:
+            dev.extend(_ruby_quoted(line[len(hit) :]))
+    return deps, dev
+
+
+def ruby_manifest(path):
+    """The gem names of a .gemspec or Gemfile (deps then dev_deps), read as
+    read_to_string(...).unwrap_or_default()."""
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        text = ""
+    deps, dev = ruby_gem_names(text)
+    return deps + dev
+
+
+_RUBY_CORE = (
+    "String", "Array", "Hash", "Integer", "Float", "Numeric", "Object", "Kernel", "Symbol",
+    "NilClass", "Comparable", "Enumerable", "Module", "Class", "Time", "Range", "Proc",
+)
+
+_RUBY_META = (
+    "define_method", "method_missing", "respond_to_missing?", "instance_variable_set",
+    "instance_variable_get", "class_eval", "module_eval", "instance_eval", "const_set",
+    "remove_method", "alias_method", "prepend", "refine",
+)
+
+_RUBY_LOOPS = (
+    "each", "map", "each_with_index", "times", "each_char", "select", "reduce", "inject",
+    "each_with_object", "flat_map",
+)
+
+_RUBY_REFLECTION = (
+    "send", "public_send", "__send__", "method", "const_get", "respond_to?", "is_a?",
+    "kind_of?", "instance_of?",
+)
+
+
+def _ruby_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    for node in _walk(root):
+        kind = node.type
+        if kind == "call":
+            m = node.child_by_field_name("method")
+            method = _text(m) if m is not None else ""
+            receiver = node.child_by_field_name("receiver")
+            if method in ("require", "require_relative", "load") and receiver is None:
+                a = node.child_by_field_name("arguments")
+                first = _named(a)[0] if a is not None and _named(a) else None
+                if first is not None and first.type == "string" and "#{" not in _text(first):
+                    spec = _text(first).strip("\"'")
+                    imports.append("./" + spec if method == "require_relative" else spec)
+                else:
+                    add("dynamic-code", node)
+            elif method in ("eval", "instance_exec", "class_exec"):
+                add("dynamic-code", node)
+            elif method in _RUBY_REFLECTION:
+                add("reflection", node)
+            elif method in _RUBY_META:
+                add("monkeypatching", node)
+            elif method in _RUBY_LOOPS:
+                loops += 1
+            elif method in ("sort_by", "sort", "uniq", "group_by", "tally"):
+                add("ordered-collections", node)
+            elif method == "new" and receiver is not None and _text(receiver) in ("Thread", "Mutex", "Queue", "Ractor"):
+                add("concurrency", node)
+            elif method == "new" and receiver is not None and _text(receiver) == "Regexp":
+                add("dynamic-regex", node)
+            elif method in ("to_json", "parse", "generate") and "JSON" in _text(node):
+                add("json", node)
+            elif method in ("raise", "fail"):
+                add("exceptions", node)
+        elif kind in ("class", "module"):
+            if node.child_by_field_name("superclass") is not None:
+                add("class-inheritance", node)
+            n = node.child_by_field_name("name")
+            name = _text(n) if n is not None else ""
+            parent = node.parent
+            if name in _RUBY_CORE and parent is not None and parent.type == "program":
+                add("monkeypatching", node)
+        elif kind == "singleton_class":
+            add("monkeypatching", node)
+        elif kind == "regex":
+            pattern = _text(node)
+            body = pattern
+            if pattern.startswith("/") and "/" in pattern[1:]:
+                body = pattern[1:].rsplit("/", 1)[0]
+            if regex_needs_fancy(body, "") or "\\h" in body:
+                add("regex-syntax", node)
+        elif kind == "element_reference":
+            add("string-offsets", node)
+        elif kind == "binary":
+            o = node.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            if op in ("/", "%"):
+                add("division-semantics", node)
+            elif op in ("**", "<<"):
+                add("integer-semantics", node)
+        elif kind in ("rescue", "ensure"):
+            add("exceptions", node)
+        elif kind in ("block", "do_block", "lambda", "block_parameter"):
+            add("callbacks", node)
+        elif kind == "yield":
+            add("generators", node)
+        elif kind == "nil":
+            add("null-references", node)
+        elif kind == "hash":
+            add("ordered-collections", node)
+        elif kind in ("while", "until", "for"):
+            loops += 1
+        elif kind in ("method", "singleton_method"):
+            add("dynamic-typing", node)
+    return imports, list(risks.items()), loops
+
+
+def _ruby_method(node):
+    """Whether method_fn gives an export (it has a name) and whether it is blocked. The
+    parameter and return types it reads from YARD tags, defaults and arithmetic are always
+    ones js_only_reason passes (string, int, number, boolean, undefined, unknown, arrays,
+    records and unions of them), so they do not change what counts as bridgeable."""
+    n = node.child_by_field_name("name")
+    if n is None:
+        return None
+    name = _text(n)
+    first = name[:1]
+    if first and not first.isascii():
+        raise Decline("a method name outside ASCII")
+    blocked = name.endswith("=") or name.endswith("!") or not (first and ("a" <= first <= "z" or first == "_"))
+    params = node.child_by_field_name("parameters")
+    for p in _named(params) if params is not None else []:
+        if p.type in ("identifier", "optional_parameter", "keyword_parameter"):
+            continue
+        blocked = True
+    body = node.child_by_field_name("body")
+    if body is not None and any(x.type == "yield" for x in _walk(body)):
+        blocked = True
+    return (name, node.start_point[0], blocked)
+
+
+def _ruby_namespace(node, out):
+    """ruby.rs `namespace`: the module functions of one module or class and the namespaces
+    nested in it, as (name, row, blocked)."""
+    if node.child_by_field_name("name") is None:
+        return
+    is_module = node.type == "module"
+    module_function = False
+    private = False
+    hidden = []
+    found = []
+    instance = []
+    body = node.child_by_field_name("body")
+    for item in _named(body) if body is not None else []:
+        kind = item.type
+        t = _text(item)
+        if kind == "identifier" and t == "module_function" and is_module:
+            module_function = True
+        elif kind == "identifier" and t in ("private", "protected"):
+            private = True
+        elif kind == "call" and t.startswith("private_class_method"):
+            hidden.append(t)
+        elif kind == "call" and is_module and t.startswith("module_function"):
+            for m in instance:
+                mn = m.child_by_field_name("name")
+                if ":" + (_text(mn) if mn is not None else "") in t:
+                    f = _ruby_method(m)
+                    if f is not None:
+                        found.append(f)
+        elif kind == "singleton_method" and item.child_by_field_name("object") is not None and _text(item.child_by_field_name("object")) == "self":
+            f = _ruby_method(item)
+            if f is not None:
+                found.append(f)
+        elif kind == "method" and module_function and not private:
+            f = _ruby_method(item)
+            if f is not None:
+                found.append(f)
+        elif kind == "method" and not private:
+            instance.append(item)
+        elif kind == "singleton_class":
+            private_here = False
+            sb = item.child_by_field_name("body")
+            for m in _named(sb) if sb is not None else []:
+                if m.type == "identifier" and _text(m) == "private":
+                    private_here = True
+                if m.type == "method" and not private_here:
+                    f = _ruby_method(m)
+                    if f is not None:
+                        found.append(f)
+        elif kind in ("module", "class"):
+            _ruby_namespace(item, out)
+    out.extend(f for f in found if not any(":" + f[0] in h for h in hidden))
+
+
+def _ruby_exports(root):
+    out = []
+    for child in _named(root):
+        if child.type in ("module", "class"):
+            _ruby_namespace(child, out)
+    return [(f[2], []) for f in out]
+
+
 # ---- the entry point ---------------------------------------------------------------------
 
 
@@ -712,6 +944,9 @@ def read_file(lang, path):
             imports, risks, loops = _go_scan(root)
             go = path.endswith(".go") and not path.endswith("_test.go")
             exports = _go_exports(root) if go else []
+        elif lang == "ruby":
+            imports, risks, loops = _ruby_scan(root)
+            exports = _ruby_exports(root) if path.endswith(".rb") else []
         else:
             raise Decline("no reader for " + lang)
         for _, types in exports:

@@ -310,7 +310,7 @@ struct Crates(Movable):
 # ---- resolution of the tree-sitter languages ---------------------------------
 
 
-def _trim_end_matches(s: String, suffix: String) -> String:
+def trim_end_matches(s: String, suffix: String) -> String:
     var out = s
     while out.endswith(suffix):
         var cut = String(
@@ -340,7 +340,7 @@ def java_resolve(
         or spec.startswith("com.sun.")
     ):
         return Resolution(STDLIB, -1, "")
-    var path = _trim_end_matches(spec, ".*").replace(".", "/")
+    var path = trim_end_matches(spec, ".*").replace(".", "/")
     for p in packages:
         var file = join_dir(p.src_root, path + ".java")
         if file in index:
@@ -432,7 +432,117 @@ def _target(
         return java_resolve(spec, index, paths, packages, crates)
     if lang == "go":
         return go_resolve(spec, index, paths, packages)
+    if lang == "ruby":
+        return ruby_resolve(from_path, spec, index, packages)
     return resolve(from_path, spec, index, paths, roots)
+
+
+def _normalize(path: String, mut ok: Bool) -> String:
+    """analyze::normalize: `.` and `..` collapsed; `ok` is False when the
+    path leaves the root."""
+    var parts = List[String]()
+    for p in path.split("/"):
+        var part = String(p)
+        if part.byte_length() == 0 or part == ".":
+            continue
+        if part == "..":
+            if len(parts) == 0:
+                ok = False
+                return ""
+            _ = parts.pop()
+            continue
+        parts.append(part)
+    return _join(parts, "/")
+
+
+def ruby_stdlib() -> List[String]:
+    """ruby.rs STDLIB."""
+    return [
+        "json",
+        "set",
+        "time",
+        "date",
+        "securerandom",
+        "digest",
+        "base64",
+        "erb",
+        "fileutils",
+        "pathname",
+        "tempfile",
+        "stringio",
+        "strscan",
+        "uri",
+        "net/http",
+        "open3",
+        "optparse",
+        "logger",
+        "yaml",
+        "psych",
+        "csv",
+        "bigdecimal",
+        "forwardable",
+        "singleton",
+        "observer",
+        "English",
+        "shellwords",
+        "zlib",
+        "socket",
+        "timeout",
+        "benchmark",
+        "pp",
+        "prettyprint",
+        "ostruct",
+        "open-uri",
+        "tmpdir",
+        "etc",
+        "io/console",
+        "monitor",
+        "weakref",
+        "objspace",
+        "ripper",
+        "coverage",
+        "digest/sha2",
+        "digest/md5",
+        "openssl",
+        "cgi",
+        "rbconfig",
+    ]
+
+
+def ruby_resolve(
+    from_path: String,
+    spec: String,
+    index: Dict[String, Int],
+    packages: List[Package],
+) raises -> Resolution:
+    """ruby.rs `resolve`: `./` relative to the requiring file, else a file
+    under a package's source root, else the standard library, else the gem
+    (the first path element)."""
+    var with_ext = spec
+    if not spec.endswith(".rb"):
+        with_ext = spec + ".rb"
+    if spec.startswith("./"):
+        var rel = String(spec[byte=2:])
+        if not rel.endswith(".rb"):
+            rel += ".rb"
+        var dir = String("")
+        var slash = from_path.rfind("/")
+        if slash >= 0:
+            dir = String(from_path[byte=0:slash])
+        var ok = True
+        var path = _normalize(join_dir(dir, rel), ok)
+        if ok and path in index:
+            return Resolution(FILE, index[path], "")
+        return Resolution(UNRESOLVED, -1, "")
+    for p in packages:
+        var candidate = join_dir(p.src_root, with_ext)
+        if candidate in index:
+            return Resolution(FILE, index[candidate], "")
+    var first = String(spec.split("/")[0])
+    var std = ruby_stdlib()
+    if spec in std or first in std:
+        return Resolution(STDLIB, -1, "")
+    return Resolution(EXTERNAL, -1, first)
 
 
 # ---- waves -------------------------------------------------------------------
