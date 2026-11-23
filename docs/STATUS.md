@@ -38,6 +38,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `app record` of CLIs, `fresh` snapshots for record and replay | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-4.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, float files, a float tolerance, `key-order` and effects in `app record` and `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-5.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, servers in `app record` and `app replay`, a library's `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-6.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of workspaces with no source file, `map` of repositories with no port and no unit | 524 | 524 | 57.4% (301/524), [log](measurements/2026-11-23-phase2-replay-7.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -92,6 +93,22 @@ arguments the report cannot quote go to the Phase 1 binary; all but the state ar
 the server or the units' `diff` ran, which then run again under the Phase 1 binary
 ([log](measurements/2026-11-23-phase2-replay-6.md)).
 
+Since the seventh row (M9, `docs/superpowers/plans/2026-11-21-m9-self-port-commands.md`,
+Task 1 in slices), `analyze` answers a workspace with no source file of its language: the
+language is detected as `Lang::detect` does, each language's discovery counts the packages its
+manifests make, and the empty plan is written in Markdown or JSON, to stdout or `--out`; a
+missing root and a file root get the Rust tool's errors. `map` answers a repository with no
+port and nothing for `analyze` to list, in Markdown, JSON or `mojo/PORT_MAP.md`. `analyze` now
+falls back in 106 of its 147 cases and `map` in 98 of 137
+([log](measurements/2026-11-23-phase2-replay-7.md)); `tool/tests/test_analyze.mojo` and
+`test_map.mojo` run both binaries on copies of the same projects (`pixi run check-tool`: 18
+test files, 128 tests). A source file of the language anywhere under the root, a compiled file,
+an ignore file with alternates (or, for TS, a class), a `package.json` serde_json might read
+otherwise, `--whole-app`, any port (`mojo-anything.json`), front-door glue and `--crates` go to
+the Phase 1 binary before anything is written. Parsing source needs tree-sitter's grammars,
+which the pixi environment does not have yet, so every other `analyze` and `map` case, and the
+commands that build on `analyze`'s exports, still fall back.
+
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
 back in none of its 25 cases; `doctor` in 2 of 5 (`doctor` and `doctor --json`, whose MCP self-test starts the Phase 1
@@ -110,7 +127,8 @@ toml_edit re-formats, JSON numbers serde_json reads otherwise); `doctor` falls b
 `record`, and since the fifth row `canon` and `floats`, since the sixth `server` and `library`;
 118 tests in all). That completes M8, the foundation plan
 (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`), but for `map`, which moves
-with `analyze` in M9. Not yet in Mojo: `map`, `diff` and every other subcommand.
+with `analyze` in M9. Not yet in Mojo: `diff` and every other subcommand (`analyze` and `map`
+in part since the seventh row).
 
 `setup` through the Mojo tool registers the Mojo binary, not `tool/fallback/mojo-anything`
 (`tests/mojo_front_door.rs` `setup_registers_the_mojo_binary`, which failed before `setup` was
