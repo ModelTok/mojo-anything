@@ -19,7 +19,12 @@ import sys
 _LANGUAGES = {}
 
 # The grammar module of each language.
-_GRAMMARS = {"java": "tree_sitter_java", "go": "tree_sitter_go", "ruby": "tree_sitter_ruby"}
+_GRAMMARS = {
+    "java": "tree_sitter_java",
+    "go": "tree_sitter_go",
+    "ruby": "tree_sitter_ruby",
+    "csharp": "tree_sitter_c_sharp",
+}
 
 
 class Decline(Exception):
@@ -919,6 +924,321 @@ def _ruby_exports(root):
     return [(f[2], []) for f in out]
 
 
+# ---- C# (src/lang/csharp.rs) -------------------------------------------------------------
+
+
+def _without_xml_comments(text):
+    """syntax::without_xml_comments."""
+    out = ""
+    rest = text
+    while True:
+        start = rest.find("<!--")
+        if start < 0:
+            break
+        out += rest[:start]
+        end = rest.find("-->", start)
+        if end < 0:
+            rest = ""
+            break
+        rest = rest[end + 3 :]
+    return out + rest
+
+
+def _cs_attribute(tag, name):
+    at = tag.find(name + '="')
+    if at < 0:
+        return None
+    start = at + len(name) + 2
+    end = tag.find('"', start)
+    if end < 0:
+        return None
+    return tag[start:end]
+
+
+def _cs_package_references(text):
+    text = _without_xml_comments(text)
+    out = []
+    for tag in text.split("<PackageReference")[1:]:
+        a = _cs_attribute(tag.split(">")[0], "Include")
+        if a is not None:
+            out.append(a)
+    return out
+
+
+def _cs_element(text, tag):
+    parts = text.split("<" + tag + ">")
+    if len(parts) < 2:
+        return None
+    value = trim(parts[1].split("</" + tag + ">")[0])
+    return value if value else None
+
+
+_CS_TEST_PACKAGES = ("xunit", "NUnit", "MSTest.TestFramework", "Microsoft.NET.Test.Sdk")
+
+
+def csharp_manifest(path, stem):
+    """(name, is_test, deps) of a .csproj, read as read_to_string(...).unwrap_or_default()."""
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        text = ""
+    deps = _cs_package_references(text)
+    clean = _without_xml_comments(text)
+    is_test = any(d.startswith(t) for d in _cs_package_references(clean) for t in _CS_TEST_PACKAGES)
+    is_test = is_test or _cs_element(clean, "IsTestProject") == "true"
+    name = _cs_element(text, "AssemblyName")
+    return (stem if name is None else name, 1 if is_test else 0, deps)
+
+
+def _cs_pattern_risk(pattern):
+    if pattern is not None and pattern.type == "string_literal":
+        literal = _text(pattern).strip('"').replace("\\\\", "\\")
+    elif pattern is not None and pattern.type == "verbatim_string_literal":
+        literal = _text(pattern).lstrip("@").strip('"')
+    else:
+        return "dynamic-regex"
+    return "regex-syntax" if regex_needs_fancy(literal, "") else None
+
+
+def _nth_named(node, n):
+    if node is None:
+        return None
+    kids = _named(node)
+    return kids[n] if len(kids) > n else None
+
+
+_CS_OFFSETS = ("Substring", "IndexOf", "LastIndexOf", "Remove", "Insert", "PadLeft", "PadRight")
+_CS_REFLECTION = ("GetType", "GetMethod", "GetProperty", "Invoke", "CreateInstance")
+
+
+def _cs_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    for node in _walk(root):
+        kind = node.type
+        if kind == "using_directive":
+            names = [c for c in _named(node) if c.type in ("qualified_name", "identifier")]
+            if not names:
+                continue
+            spec = _text(names[-1])
+            is_static = "using static" in _text(node)
+            if spec.startswith("System.Reflection"):
+                add("reflection", node)
+            elif spec.startswith("System.Threading"):
+                add("concurrency", node)
+            elif spec.startswith("System.Text.RegularExpressions"):
+                add("regex-syntax", node)
+            if not is_static or "." in spec:
+                imports.append(spec)
+        elif kind == "lock_statement":
+            add("concurrency", node)
+        elif kind == "modifier" and _text(node) == "volatile":
+            add("concurrency", node)
+        elif kind == "modifier" and _text(node) == "async":
+            add("async", node)
+        elif kind == "modifier" and _text(node) == "unsafe":
+            add("pointers", node)
+        elif kind in ("unsafe_statement", "pointer_type", "fixed_statement"):
+            add("pointers", node)
+        elif kind == "await_expression":
+            add("async", node)
+        elif kind in ("yield_statement", "query_expression"):
+            add("generators", node)
+        elif kind == "null_literal":
+            add("null-references", node)
+        elif kind in ("is_pattern_expression", "is_expression", "as_expression", "cast_expression"):
+            add("dynamic-typing", node)
+        elif kind == "identifier" and _text(node) == "dynamic":
+            add("dynamic-typing", node)
+        elif kind == "predefined_type" and _text(node) == "decimal":
+            add("number-semantics", node)
+        elif kind in ("lambda_expression", "anonymous_method_expression"):
+            add("callbacks", node)
+        elif kind in ("throw_statement", "throw_expression", "try_statement", "catch_clause"):
+            add("exceptions", node)
+        elif kind == "base_list":
+            add("class-inheritance", node)
+        elif kind == "binary_expression":
+            o = node.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            if op in ("/", "%"):
+                add("division-semantics", node)
+            elif op in ("<<", ">>", ">>>", "*"):
+                add("integer-semantics", node)
+        elif kind == "object_creation_expression":
+            t = node.child_by_field_name("type")
+            ty = _text(t) if t is not None else ""
+            if ty == "Regex":
+                pattern = _nth_named(_nth_named(node.child_by_field_name("arguments"), 0), 0)
+                risk = _cs_pattern_risk(pattern)
+                if risk is not None:
+                    add(risk, node)
+            elif ty in ("HashSet", "Dictionary") or ty.startswith("HashSet<") or ty.startswith("Dictionary<"):
+                add("unordered-iteration", node)
+        elif kind == "invocation_expression":
+            f = node.child_by_field_name("function")
+            callee = _text(f) if f is not None else ""
+            if callee.startswith("Regex.") and any(
+                callee.endswith("." + m) for m in ("IsMatch", "Match", "Matches", "Replace", "Split")
+            ):
+                pattern = _nth_named(_nth_named(node.child_by_field_name("arguments"), 1), 0)
+                risk = _cs_pattern_risk(pattern)
+                if risk is not None:
+                    add(risk, node)
+                continue
+            method = callee.split(".")[-1]
+            if method in _CS_OFFSETS:
+                add("string-offsets", node)
+            elif method in _CS_REFLECTION:
+                add("reflection", node)
+            elif method == "GetHashCode":
+                add("integer-semantics", node)
+        elif kind in ("for_statement", "foreach_statement", "while_statement", "do_statement"):
+            loops += 1
+    return imports, list(risks.items()), loops
+
+
+def _cs_split_top(text):
+    out = []
+    depth = 0
+    current = ""
+    for c in text:
+        if c in "<(":
+            depth += 1
+        elif c in ">)":
+            depth -= 1
+        elif c == "," and depth == 0:
+            out.append(trim(current))
+            current = ""
+            continue
+        current += c
+    if trim(current):
+        out.append(trim(current))
+    return out
+
+
+_CS_INTS = ("int", "long", "short", "byte", "sbyte", "uint", "ushort", "Int32", "Int64", "Int16",
+            "Byte", "SByte", "UInt32", "UInt16")
+
+
+def csharp_to_ts(t):
+    """csharp.rs `csharp_to_ts`; raises _NotBridgeable where it returns Err."""
+    t = trim(t)
+    if t.endswith("?"):
+        return csharp_to_ts(t[:-1]) + " | undefined"
+    if t.endswith("[]"):
+        i = csharp_to_ts(t[:-2])
+        return "(" + i + ")[]" if " " in i else i + "[]"
+    if t.startswith("("):
+        raise _NotBridgeable("tuple")
+    i = t.find("<")
+    if i >= 0 and t.endswith(">"):
+        head, args = t[:i], _cs_split_top(t[i + 1 : -1])
+    else:
+        head, args = t, []
+    head = trim(head).split(".")[-1]
+
+    def arg(k):
+        if k >= len(args):
+            raise _NotBridgeable("raw")
+        return csharp_to_ts(args[k])
+
+    if head in ("string", "String"):
+        return "string"
+    if head in _CS_INTS:
+        return "int"
+    if head in ("double", "float", "Double", "Single"):
+        return "number"
+    if head in ("bool", "Boolean"):
+        return "boolean"
+    if head == "void":
+        return "void"
+    if head in ("List", "IList", "IReadOnlyList", "ICollection", "IReadOnlyCollection", "IEnumerable",
+                "HashSet", "ISet"):
+        inner = arg(0)
+        return "(" + inner + ")[]" if " " in inner else inner + "[]"
+    if head in ("Dictionary", "IDictionary", "IReadOnlyDictionary", "SortedDictionary"):
+        if arg(0) != "string":
+            raise _NotBridgeable("keys")
+        return "Record<string, " + arg(1) + ">"
+    if head == "Nullable":
+        return arg(0) + " | undefined"
+    raise _NotBridgeable(head)
+
+
+def _cs_modifiers(node):
+    return [_text(c) for c in _named(node) if c.type == "modifier"]
+
+
+def _cs_method(method, out):
+    mods = _cs_modifiers(method)
+    if not ("public" in mods and "static" in mods):
+        return
+    n = method.child_by_field_name("name")
+    if n is None:
+        return
+    name = _text(n)
+    blocked = method.child_by_field_name("type_parameters") is not None
+    types = []
+    params = method.child_by_field_name("parameters")
+    for p in _named(params) if params is not None else []:
+        if p.type != "parameter":
+            blocked = True
+            continue
+        words = _split_ws(_text(p))
+        if words and words[0] in ("ref", "out", "in", "params"):
+            blocked = True
+        t = p.child_by_field_name("type")
+        try:
+            types.append(csharp_to_ts(_text(t) if t is not None else ""))
+        except _NotBridgeable:
+            blocked = True
+            types.append("unknown")
+    r = method.child_by_field_name("returns")
+    try:
+        types.append(csharp_to_ts(_text(r) if r is not None else "void"))
+    except _NotBridgeable:
+        blocked = True
+        types.append("unknown")
+    # A later declaration of a name already exported is an overload (the first one is not
+    # blocked by it).
+    if any(f[0] == name for f in out):
+        blocked = True
+    out.append((name, blocked, types))
+
+
+def _cs_collect(node, namespace, out):
+    for child in _named(node):
+        if child.type == "file_scoped_namespace_declaration":
+            n = child.child_by_field_name("name")
+            namespace = _text(n) if n is not None else ""
+        elif child.type == "namespace_declaration":
+            body = child.child_by_field_name("body")
+            if body is not None:
+                _cs_collect(body, namespace, out)
+        elif child.type == "class_declaration":
+            if "public" not in _cs_modifiers(child):
+                continue
+            if child.child_by_field_name("name") is None:
+                continue
+            body = child.child_by_field_name("body")
+            for member in _named(body) if body is not None else []:
+                if member.type == "method_declaration":
+                    _cs_method(member, out)
+
+
+def _cs_exports(root):
+    out = []
+    _cs_collect(root, "", out)
+    return [(f[1], f[2]) for f in out]
+
+
 # ---- the entry point ---------------------------------------------------------------------
 
 
@@ -947,6 +1267,9 @@ def read_file(lang, path):
         elif lang == "ruby":
             imports, risks, loops = _ruby_scan(root)
             exports = _ruby_exports(root) if path.endswith(".rb") else []
+        elif lang == "csharp":
+            imports, risks, loops = _cs_scan(root)
+            exports = _cs_exports(root) if path.endswith(".cs") else []
         else:
             raise Decline("no reader for " + lang)
         for _, types in exports:

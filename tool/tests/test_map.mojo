@@ -238,6 +238,20 @@ def _ruby_repo() -> List[String]:
     return spec^
 
 
+def _csharp_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append("Kit.csproj=<Project></Project>\n")
+    for i in range(6):
+        var body = String("namespace Kit.M", i, ";\npublic class M", i, " {\n")
+        body += "  public static string F(string s) {\n"
+        for _ in range(i * 2):
+            body += "    s = s.Substring(1) + s;\n"
+        body += "    return s;\n  }\n}\n"
+        spec.append(String("M", i, "/M.cs=") + body)
+    spec.append("M1Tests.cs=using Kit.M1;\nclass M1Tests {}\n")
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
@@ -246,6 +260,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     repos.append(("java", _java_repo()))
     repos.append(("go", _go_repo()))
     repos.append(("ruby", _ruby_repo()))
+    repos.append(("csharp", _csharp_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -257,6 +272,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     var bad = List[Tuple[String, String]]()
     bad.append(("java-bad", "pom.xml=x\n|A.java=class A { int f( }\n"))
     bad.append(("ruby-bad", "Gemfile=x\n|a.rb=def f(\n"))
+    bad.append(("csharp-bad", "Kit.csproj=x\n|A.cs=class A { int F( }\n"))
     bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()

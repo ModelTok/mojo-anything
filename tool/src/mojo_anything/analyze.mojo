@@ -1154,6 +1154,80 @@ def ruby_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def csharp_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """csharp.rs `discover`: a package per .csproj (named by its
+    AssemblyName, else the file's stem; a test project when it references a
+    test framework or says IsTestProject), and the `.cs` files the walk
+    keeps; declined as java_workspace is, and for a folder with two projects
+    (dedup keeps the walk's first)."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("csharp"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("csharp", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if name.endswith(".csproj"):
+            manifests.append(rel)
+        elif name.endswith(".cs"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    var dirs = List[String]()
+    var tests = List[String]()
+    for rel in manifests:
+        var dir = _dir_of(rel)
+        if dir in dirs:
+            ws.declined = True
+            return ws^
+        dirs.append(dir)
+        var file = _name_of(rel)
+        var stem = String(file[byte = 0 : file.byte_length() - 7])
+        var m = th["csharp_manifest"](
+            PythonObject(root + "/" + rel), PythonObject(stem)
+        )
+        if Int(py=m[1]) == 1:
+            tests.append(dir)
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(m[2]))):
+            deps.append(String(py=m[2][i]))
+        ws.packages.append(Package(String(py=m[0]), dir, dir, deps^))
+    if len(ws.packages) == 0:
+        ws.packages.append(Package(_root_name(root), "", "", List[String]()))
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        var name = _name_of(rel)
+        var test = (
+            ws.packages[best].dir in tests
+            or name.endswith("Tests.cs")
+            or name.endswith("Test.cs")
+        )
+        ws.files.append(SourceFile(rel, best, test))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1253,14 +1327,16 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         elif len(ws.files) > 0:
             out.report = python_plan(root, ws, pyh, out.declined)
             out.planned = not out.declined
-    elif lang == "java" or lang == "go" or lang == "ruby":
+    elif lang == "java" or lang == "go" or lang == "ruby" or lang == "csharp":
         var ws: Workspace
         if lang == "java":
             ws = java_workspace(root, py)
         elif lang == "go":
             ws = go_workspace(root, py)
-        else:
+        elif lang == "ruby":
             ws = ruby_workspace(root, py)
+        else:
+            ws = csharp_workspace(root, py)
         if ws.declined:
             out.declined = True
         elif len(ws.files) > 0:

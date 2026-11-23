@@ -434,7 +434,67 @@ def _target(
         return go_resolve(spec, index, paths, packages)
     if lang == "ruby":
         return ruby_resolve(from_path, spec, index, packages)
+    if lang == "csharp":
+        return csharp_resolve(spec, paths, packages)
     return resolve(from_path, spec, index, paths, roots)
+
+
+def _namespace_dir(namespace: String, project: String) -> String:
+    """csharp.rs `namespace_dir`."""
+    var rest = namespace
+    if namespace.startswith(project):
+        rest = String(namespace[byte = project.byte_length() :])
+        while rest.startswith("."):
+            var cut = String(rest[byte=1:])
+            rest = cut^
+    return rest.replace(".", "/")
+
+
+def csharp_resolve(
+    spec: String, paths: List[String], packages: List[Package]
+) raises -> Resolution:
+    """csharp.rs `resolve`: the platform's namespaces, a file in the folder a
+    namespace names under a project, a project's own name, else the package
+    (the first two segments)."""
+    var parts = spec.split(".")
+    var first = String(parts[0])
+    if first == "System" or (
+        first == "Microsoft"
+        and not spec.startswith("Microsoft.Extensions")
+        and not spec.startswith("Microsoft.AspNetCore")
+        and not spec.startswith("Microsoft.EntityFrameworkCore")
+    ):
+        return Resolution(STDLIB, -1, "")
+    for p in packages:
+        var dirs: List[String] = [
+            _namespace_dir(spec, p.name),
+            spec.replace(".", "/"),
+        ]
+        for dir in dirs:
+            if dir.byte_length() == 0:
+                continue
+            var best = -1
+            for i in range(len(paths)):
+                ref f = paths[i]
+                var slash = f.rfind("/")
+                var folder = String("")
+                if slash >= 0:
+                    folder = String(f[byte=0:slash])
+                var under = p.dir.byte_length() == 0 or folder.startswith(
+                    p.dir + "/"
+                )
+                var named = folder == dir or folder.endswith("/" + dir)
+                if under and named and (best < 0 or f < paths[best]):
+                    best = i
+            if best >= 0:
+                return Resolution(FILE, best, "")
+    for p in packages:
+        if spec == p.name:
+            return Resolution(STDLIB, -1, "")
+    var external = first
+    if len(parts) > 1:
+        external += "." + String(parts[1])
+    return Resolution(EXTERNAL, -1, external)
 
 
 def _normalize(path: String, mut ok: Bool) -> String:
