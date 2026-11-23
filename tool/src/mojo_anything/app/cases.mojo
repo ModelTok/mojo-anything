@@ -193,6 +193,14 @@ struct Config(Copyable, Movable):
     var float_file_formats: List[String]
     var unordered: Dict[String, List[String]]
     var effects: Bool
+    """Whether `effects` is set; its fields follow."""
+    var fx_http: Bool
+    var fx_smtp: Bool
+    var fx_env_vars: List[String]
+    """`effects.env`'s keys, sorted as a BTreeMap."""
+    var fx_env_kinds: List[String]
+    var fx_db_reset: Optional[String]
+    var fx_db_dump: Optional[String]
     var fresh: List[String]
 
     def __init__(out self):
@@ -208,7 +216,45 @@ struct Config(Copyable, Movable):
         self.float_file_formats = List[String]()
         self.unordered = Dict[String, List[String]]()
         self.effects = False
+        self.fx_http = False
+        self.fx_smtp = False
+        self.fx_env_vars = List[String]()
+        self.fx_env_kinds = List[String]()
+        self.fx_db_reset = None
+        self.fx_db_dump = None
         self.fresh = List[String]()
+
+    def serial(self) -> Bool:
+        """`EffectsConfig::serial`: cases run one at a time."""
+        return self.effects and (
+            Bool(self.fx_db_reset) or Bool(self.fx_db_dump)
+        )
+
+    def effects_job(self) raises -> PythonObject:
+        """The effects for py.mojo's `new_job`, or None."""
+        if not self.effects:
+            return PythonObject(None)
+        var pairs = Python.list()
+        for i in range(len(self.fx_env_vars)):
+            var pair = Python.list()
+            pair.append(PythonObject(self.fx_env_vars[i]))
+            pair.append(PythonObject(self.fx_env_kinds[i]))
+            pairs.append(pair)
+        var out = Python.list()
+        out.append(PythonObject(self.fx_http))
+        out.append(PythonObject(self.fx_smtp))
+        out.append(pairs)
+        out.append(
+            PythonObject(
+                self.fx_db_reset.value()
+            ) if self.fx_db_reset else PythonObject(None)
+        )
+        out.append(
+            PythonObject(
+                self.fx_db_dump.value()
+            ) if self.fx_db_dump else PythonObject(None)
+        )
+        return out
 
 
 def load_config(h: PythonObject, repo: String) raises -> Optional[Config]:
@@ -239,6 +285,17 @@ def load_config(h: PythonObject, repo: String) raises -> Optional[Config]:
     out.timeout_secs = Int(py=timeout)
     out.http = Bool(py=h["config_present"](c, PythonObject("http")))
     out.effects = Bool(py=h["config_present"](c, PythonObject("effects")))
+    if out.effects:
+        var fx = h["config_effects"](c)
+        out.fx_http = Bool(py=fx[0])
+        out.fx_smtp = Bool(py=fx[1])
+        for i in range(py_len(fx[2])):
+            out.fx_env_vars.append(String(py=fx[2][i][0]))
+            out.fx_env_kinds.append(String(py=fx[2][i][1]))
+        if not Bool(py=h["is_none"](fx[3])):
+            out.fx_db_reset = String(py=fx[3])
+        if not Bool(py=h["is_none"](fx[4])):
+            out.fx_db_dump = String(py=fx[4])
     var floats = h["config_map"](c, PythonObject("float_files"))
     for i in range(py_len(floats)):
         out.float_file_paths.append(String(py=floats[i][0]))

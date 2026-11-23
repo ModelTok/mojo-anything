@@ -3,8 +3,8 @@
 # app's names, the shell lines in its docs, `--inputs`, semantic traps), two
 # runs of the original per case, the noise between them, and the trycmd files
 # in toml_edit's layout with mojo-anything.json in serde_json's. Servers,
-# effects, and anything whose bytes this port cannot be sure to write as
-# the Rust tool does, go to the Phase 1 binary before anything is written.
+# and anything whose bytes this port cannot be sure to write as the Rust
+# tool does, go to the Phase 1 binary before anything is written.
 
 from std.collections import Set
 from std.python import Python, PythonObject
@@ -1123,8 +1123,12 @@ struct Recorded(Copyable, Movable):
     var noise_fields: List[String]
     var noise_kinds: List[Int]
     var unstable: Bool
+    var has_effects: Bool
+    var effects: PythonObject
 
     def __init__(out self) raises:
+        self.has_effects = False
+        self.effects = PythonObject(None)
         self.stdout = PythonObject(None)
         self.stderr = PythonObject(None)
         self.status = "code"
@@ -1180,6 +1184,15 @@ def settle(
         if noise != NOISE_NONE:
             rec.noise_fields.append(s)
             rec.noise_kinds.append(noise)
+    var fx1 = one["effects"]
+    var fx2 = two["effects"]
+    if not _is_none(h, fx1) and not _is_none(h, fx2):
+        var st = settle_text(h, norm, fx1, fx2)
+        rec.effects = st.data
+        rec.has_effects = True
+        if st.noise != NOISE_NONE:
+            rec.noise_fields.append("effects")
+            rec.noise_kinds.append(st.noise)
     var w1 = h["written"](one, kase.files)
     var w2 = h["written"](two, kase.files)
     var n1 = py_strings(h["file_names"](w1))
@@ -1313,6 +1326,8 @@ def write_case(
         for p in rec.removed:
             list += p + "\n"
         _write(h, base + ".removed", h["utf8"](PythonObject(list)))
+    if rec.has_effects:
+        _write(h, base + ".effects", rec.effects)
     for p in kase.file_names:
         _write(h, base + ".in/" + p, kase.files[PythonObject(p)])
     for p in rec.written_names:
@@ -1335,7 +1350,7 @@ def config_json(
     unordered_fields: List[List[String]],
 ) -> String:
     """`Config` as serde_json's `to_string_pretty` writes it (empty and unset
-    fields skipped), for a recording without servers or effects."""
+    fields skipped), for a recording without servers."""
     var out = String("{\n")
     out += '  "schema": ' + write_string(SCHEMA) + ",\n"
     out += '  "name": ' + write_string(config.name) + ",\n"
@@ -1380,9 +1395,127 @@ def config_json(
             )
             out += ",\n" if i + 1 < len(unordered_cases) else "\n"
         out += "  }"
+    if config.effects:
+        out += ',\n  "effects": ' + _effects_json(config)
     if len(config.fresh) > 0:
         out += ',\n  "fresh": ' + _strings_json(config.fresh, "  ")
     return out + "\n}\n"
+
+
+def _effects_json(config: Config) -> String:
+    """`EffectsConfig` as serde_json's `to_string_pretty` writes it inside
+    the settings, unset fields skipped."""
+    var fields = List[String]()
+    if config.fx_http:
+        fields.append('    "http": true')
+    if config.fx_smtp:
+        fields.append('    "smtp": true')
+    if len(config.fx_env_vars) > 0:
+        var env = String('    "env": {\n')
+        for i in range(len(config.fx_env_vars)):
+            env += (
+                "      "
+                + write_string(config.fx_env_vars[i])
+                + ": "
+                + write_string(config.fx_env_kinds[i])
+            )
+            env += ",\n" if i + 1 < len(config.fx_env_vars) else "\n"
+        fields.append(env + "    }")
+    if config.fx_db_reset:
+        fields.append(
+            '    "db_reset": ' + write_string(config.fx_db_reset.value())
+        )
+    if config.fx_db_dump:
+        fields.append(
+            '    "db_dump": ' + write_string(config.fx_db_dump.value())
+        )
+    if len(fields) == 0:
+        return "{}"
+    var out = String("{\n")
+    for i in range(len(fields)):
+        out += fields[i]
+        out += ",\n" if i + 1 < len(fields) else "\n"
+    return out + "  }"
+
+
+@fieldwise_init
+struct Effects(Copyable, Movable):
+    """`EffectsConfig::from_args`' result."""
+
+    var http: Bool
+    var smtp: Bool
+    var env_vars: List[String]
+    var env_kinds: List[String]
+    var db_reset: Optional[String]
+    var db_dump: Optional[String]
+
+
+comptime _ENV_KINDS = "http-url, smtp-host, smtp-port, smtp-url"
+
+
+def effects_from_args(p: Parsed) raises -> Optional[Effects]:
+    """`EffectsConfig::from_args`: the Rust tool's errors, and None when no
+    effect is asked for."""
+    var fx = Effects(False, False, List[String](), List[String](), None, None)
+    for k in p.all("effects"):
+        var b = k.as_bytes()
+        var start = 0
+        for i in range(len(b) + 1):
+            if i < len(b) and b[i] != 44:
+                continue
+            var kind = _trim(String(k[byte=start:i]))
+            start = i + 1
+            if kind == "http":
+                fx.http = True
+            elif kind == "smtp":
+                fx.smtp = True
+            elif kind != "":
+                raise Error("unknown effect `" + kind + "`: use http or smtp")
+    for pair in p.all("effect-env"):
+        var split = _split_once(pair, "=")
+        if not split:
+            raise Error("--effect-env `" + pair + "`: give VAR=KIND")
+        var name = split.value()[0]
+        var kind = split.value()[1]
+        if (
+            kind != "http-url"
+            and kind != "smtp-host"
+            and kind != "smtp-port"
+            and kind != "smtp-url"
+        ):
+            raise Error(
+                "--effect-env `" + pair + "`: KIND is one of " + _ENV_KINDS
+            )
+        if kind.startswith("http"):
+            fx.http = True
+        else:
+            fx.smtp = True
+        # A BTreeMap: sorted, a later variable wins.
+        var at = 0
+        while at < len(fx.env_vars) and fx.env_vars[at] < name:
+            at += 1
+        if at < len(fx.env_vars) and fx.env_vars[at] == name:
+            fx.env_kinds[at] = kind
+        else:
+            fx.env_vars.insert(at, name)
+            fx.env_kinds.insert(at, kind)
+    fx.db_reset = p.value("db-reset")
+    fx.db_dump = p.value("db-dump")
+    var empty = not fx.http and not fx.smtp and not fx.db_dump
+    if empty and not fx.db_reset:
+        return None
+    return fx^
+
+
+def _set_effects(mut config: Config, fx: Effects):
+    """`EffectsConfig::merge`: given effects replace the saved ones."""
+    config.effects = True
+    config.fx_http = fx.http
+    config.fx_smtp = fx.smtp
+    config.fx_env_vars = fx.env_vars.copy()
+    config.fx_env_kinds = fx.env_kinds.copy()
+    config.fx_db_reset = fx.db_reset
+    config.fx_db_dump = fx.db_dump
 
 
 # --- record -------------------------------------------------------------------------------
@@ -1611,15 +1744,8 @@ def _merge_normalizers(mut config: Config, given: List[String]):
 def record(h: PythonObject, p: Parsed) raises -> Outcome:
     """The Rust tool's `record` for a CLI: raises its errors, or `DECLINE`
     for anything this port does not reproduce byte for byte."""
-    var not_ported: List[String] = [
-        "effects",
-        "effect-env",
-        "db-reset",
-        "db-dump",
-    ]
-    for name in not_ported:
-        if len(p.all(name)) > 0:
-            raise decline()
+    # main.rs reads the effect options before anything else.
+    var effects = effects_from_args(p)
     var given = p.value("REPO")
     var repo_arg = given.value() if given else String(".")
     var canon = h["canonical"](PythonObject(repo_arg))
@@ -1644,9 +1770,10 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         or p.value("pace")
         or len(p.all("arg")) > 0
         or config.http
-        or config.effects
     ):
         raise decline()
+    if effects:
+        _set_effects(config, effects.value())
     var tol = p.value("float-tolerance")
     if tol:
         # clap read it with Rust's f64 grammar; Python's float rounds the
@@ -1755,12 +1882,13 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
                 pc.kase.files,
                 py_list(pc.kase.remove),
                 base,
+                config.effects_job(),
             )
         )
     # The snapshot is the first thing written, as in the Rust tool.
     if len(config.fresh) > 0:
         snapshot_to(h, repo, config.fresh, dir + "/" + FRESH_DIR)
-    var results = h["run_pairs"](jobs)
+    var results = h["run_pairs"](jobs, PythonObject(config.serial()))
 
     # Every case is settled and its TOML built before anything is written:
     # a decline after this point would leave half a recording.

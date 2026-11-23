@@ -1,7 +1,7 @@
 # `mojo-anything app replay` for CLIs (port of `replay`, `check` and the
 # report in src/app.rs, and of `say_replay` in src/main.rs): every recorded
 # case runs against the build in a fresh working directory, and the report
-# names what differs. A server's cases (`http`), a library's, effects and
+# names what differs. A server's cases (`http`), a library's and
 # anything else this port does not read exactly as the Rust tool does go to
 # the Phase 1 binary, decided before a single case runs (or, for an output
 # only the run shows, before anything is written).
@@ -77,6 +77,10 @@ struct Options(Copyable, Movable):
     var only: Optional[String]
 
 
+def _is_none(h: PythonObject, x: PythonObject) raises -> Bool:
+    return Bool(py=h["is_none"](x))
+
+
 def _status_text(kind: String, code: Int) -> String:
     if kind == "code":
         return String("exit code ", code)
@@ -146,7 +150,9 @@ def _check(
             h,
             norm,
             spec.effects,
-            h["utf8"](PythonObject("")),
+            h["utf8"](PythonObject("")) if _is_none(h, run["effects"]) else run[
+                "effects"
+            ],
             spec.binary,
             norm.is_unordered(spec.name, "effects"),
         )
@@ -469,8 +475,6 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
             )
     else:
         specs = all^
-    if config.effects:
-        raise Error(DECLINE)
     var base = PythonObject(None)
     if len(config.fresh) > 0:
         var files_dir = dir + "/files"
@@ -512,10 +516,11 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
                 s.files,
                 py_list(s.remove),
                 base,
+                config.effects_job(),
             )
         )
         ran.append(i)
-    var results = h["run_all"](jobs)
+    var results = h["run_all"](jobs, PythonObject(config.serial()))
     var outcome = Outcome(command^, dir + "/" + REPORT_FILE)
     # The first error, in case order, as the Rust tool's `result?`.
     for k in range(py_len(results)):

@@ -433,7 +433,6 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     # serde_json refuses this before the unknown normalizer is looked at.
     configs.append(head + ', "http": 5, "normalize": ["bogus"]}')
     configs.append(head + ', "http": {"port": 1}}')
-    configs.append(head + ', "effects": {"http": true}}')
     configs.append(head + ', "timeout_secs": -0}')
     configs.append(head + ', "timeout_secs": 3000000}')
     for i in range(len(configs)):

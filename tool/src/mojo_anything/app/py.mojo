@@ -11,8 +11,8 @@
 from std.python import Python, PythonObject
 
 comptime _SOURCE = """
-import concurrent.futures, itertools, json, os, re, shutil, signal, subprocess
-import threading, tomllib, unicodedata
+import concurrent.futures, itertools, json, os, re, shutil, signal, socket
+import subprocess, threading, time, tomllib, unicodedata
 
 FALLBACK_ENV = "MOJO_ANYTHING_FALLBACK_LOG"
 _next = itertools.count()
@@ -475,8 +475,20 @@ def load_config(text):
         return ("odd", None)
     if not isinstance(c, dict):
         return ("odd", None)
-    if c.get("http") is not None or c.get("effects") is not None:
+    if c.get("http") is not None:
         return ("odd", None)
+    e = c.get("effects")
+    if e is not None:
+        if not isinstance(e, dict):
+            return ("odd", None)
+        for key in ("http", "smtp"):
+            if key in e and not isinstance(e[key], bool):
+                return ("odd", None)
+        if "env" in e and not _str_map(e["env"]):
+            return ("odd", None)
+        for key in ("db_reset", "db_dump"):
+            if e.get(key) is not None and not isinstance(e[key], str):
+                return ("odd", None)
     if not isinstance(c.get("schema"), str) or not isinstance(c.get("name"), str):
         return ("odd", None)
     if not _strs(c.get("run")):
@@ -526,6 +538,15 @@ def config_timeout(c):
 
 def config_present(c, key):
     return c.get(key) is not None
+
+
+def config_effects(c):
+    # (http, smtp, env pairs sorted as a BTreeMap, db_reset, db_dump)
+    e = c["effects"]
+    env = e.get("env") or {}
+    pairs = [(k, env[k]) for k in sorted(env, key=lambda k: k.encode("utf-8"))]
+    return (bool(e.get("http", False)), bool(e.get("smtp", False)), pairs,
+            e.get("db_reset"), e.get("db_dump"))
 
 
 def config_tolerance(c):
@@ -865,18 +886,391 @@ def copy_tree(src, dst):
         return None
 
 
+# --- effects: the HTTP sink and the mail server (src/effects.rs) ------------
+# std::net and threads, as in the Rust tool; what each request or mail adds
+# to the case's effects is written here as effects.rs writes it.
+
+_RUST_WS = ("\\t\\n\\x0b\\x0c\\r \\x85\\xa0       "
+            "         　")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_ASCII_UPPER = str.maketrans("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_SETTLE = 2.0
+_IO_TIMEOUT = 5.0
+_QUICK = 60
+_MAX_BODY = 1 << 30
+
+
+class _SinkOdd(Exception):
+    # Something the Rust sinks would do otherwise (abort on a huge body,
+    # print a signal's name, honour MOJO_ANYTHING_COMMAND_TIMEOUT): declined.
+    pass
+
+
+def _rs_split(s):
+    # split_whitespace
+    out, cur = [], []
+    for c in s:
+        if c in _RUST_WS:
+            if cur:
+                out.append("".join(cur))
+                cur = []
+        else:
+            cur.append(c)
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+def _parse_usize(s, radix):
+    # usize::from_str_radix / str::parse::<usize>: an optional `+`, digits.
+    if s.startswith("+"):
+        s = s[1:]
+    allowed = "0123456789" if radix == 10 else "0123456789abcdefABCDEF"
+    if not s or any(c not in allowed for c in s):
+        return None
+    n = int(s, radix)
+    return n if n < (1 << 64) else None
+
+
+class _Reader:
+    def __init__(self, conn):
+        self.f = conn.makefile("rb")
+
+    def line(self):
+        # BufRead::read_line: None for the end, an error, or a line that is
+        # not UTF-8.
+        try:
+            b = self.f.readline()
+        except (OSError, ValueError):
+            return None
+        if not b:
+            return None
+        try:
+            return b.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    def exact(self, n):
+        try:
+            b = self.f.read(n)
+        except (OSError, ValueError):
+            return None
+        return b if b is not None and len(b) == n else None
+
+
+def _send(conn, data):
+    try:
+        conn.sendall(data)
+        return True
+    except OSError:
+        return False
+
+
+def _serve_http(sinks, conn, port):
+    r = _Reader(conn)
+    line = r.line()
+    if line is None:
+        return
+    parts = _rs_split(line)
+    method = parts[0] if parts else ""
+    target = parts[1] if len(parts) > 1 else ""
+    headers = []
+    while True:
+        h = r.line()
+        if h is None:
+            break
+        h = h.rstrip(_RUST_WS)
+        if not h:
+            break
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers.append((k.strip(_RUST_WS).translate(_ASCII_LOWER), v.strip(_RUST_WS)))
+
+    def header(name):
+        for k, v in headers:
+            if k == name:
+                return v
+        return None
+
+    if method.translate(_ASCII_LOWER) == "connect":
+        sinks.push("https CONNECT %s\\n" % target)
+        _send(conn, b"HTTP/1.1 502 Bad Gateway\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n")
+        return
+    body = b""
+    te = header("transfer-encoding")
+    cl = header("content-length")
+    if te is not None and te.translate(_ASCII_LOWER) == "chunked":
+        chunks = []
+        while True:
+            size = r.line()
+            if size is None:
+                break
+            n = _parse_usize(size.strip(_RUST_WS).split(";")[0], 16) or 0
+            if n == 0:
+                break
+            if n > _MAX_BODY:
+                raise _SinkOdd()
+            chunk = r.exact(n + 2)
+            if chunk is None:
+                break
+            chunks.append(chunk[:n])
+        body = b"".join(chunks)
+    elif cl is not None and _parse_usize(cl, 10) is not None:
+        n = _parse_usize(cl, 10)
+        if n > _MAX_BODY:
+            raise _SinkOdd()
+        b = r.exact(n)
+        body = b if b is not None else b""
+    if target.startswith("http://") or target.startswith("https://"):
+        url = target
+    else:
+        url = "http://%s%s" % (header("host") or "", target)
+    url = url.replace("127.0.0.1:%d" % port, "sink").replace("localhost:%d" % port, "sink")
+    event = "http %s %s\\n" % (method, url)
+    ct = header("content-type")
+    if ct is not None:
+        event += "content-type: %s\\n" % ct
+    if body:
+        event += "\\n"
+        try:
+            event += body.decode("utf-8")
+        except UnicodeDecodeError:
+            event += "(%d bytes)" % len(body)
+        if not event.endswith("\\n"):
+            event += "\\n"
+    sinks.push(event)
+    _send(conn, b"HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\nContent-Length: 2\\r\\n"
+                b"Connection: close\\r\\n\\r\\n{}")
+
+
+def _serve_smtp(sinks, conn, port):
+    r = _Reader(conn)
+
+    def say(line):
+        return _send(conn, (line + "\\r\\n").encode("utf-8"))
+
+    if not say("220 mojo-anything ESMTP"):
+        return
+    frm, to = "", []
+    while True:
+        line = r.line()
+        if line is None:
+            return
+        cmd = line.rstrip(_RUST_WS)
+        upper = cmd.translate(_ASCII_UPPER)
+        if upper.startswith("EHLO"):
+            ok = say("250-mojo-anything") and say("250 AUTH PLAIN LOGIN")
+        elif upper.startswith("HELO"):
+            ok = say("250 mojo-anything")
+        elif upper.startswith("MAIL FROM:"):
+            frm = cmd[10:].strip(_RUST_WS)
+            ok = say("250 OK")
+        elif upper.startswith("RCPT TO:"):
+            to.append(cmd[8:].strip(_RUST_WS))
+            ok = say("250 OK")
+        elif upper == "DATA":
+            if not say("354 End data with <CR><LF>.<CR><LF>"):
+                return
+            data = []
+            while True:
+                l = r.line()
+                if l is None:
+                    return
+                t = l.rstrip("\\r\\n")
+                if t == ".":
+                    break
+                data.append(t[1:] if t.startswith("..") else t)
+                data.append("\\n")
+            sinks.push("smtp from %s to %s\\n%s" % (frm, ", ".join(to), "".join(data)))
+            frm, to = "", []
+            ok = say("250 OK queued")
+        elif upper.startswith("AUTH"):
+            ok = say("235 Authentication succeeded")
+        elif upper == "RSET":
+            frm, to = "", []
+            ok = say("250 OK")
+        elif upper == "QUIT":
+            say("221 Bye")
+            return
+        elif upper.startswith("STARTTLS"):
+            ok = say("454 TLS not available")
+        else:
+            ok = say("250 OK")
+        if not ok:
+            return
+
+
+def _shell(cmd, cwd, pairs):
+    # effects.rs `shell`: `sh -c`, stdin closed, the QUICK limit;
+    # (code, stdout, stderr), or _SinkOdd where Rust's text would differ.
+    if "MOJO_ANYTHING_COMMAND_TIMEOUT" in os.environ:
+        raise _SinkOdd()
+    env = dict(os.environ)
+    for k, v in pairs:
+        env[k] = v
+    try:
+        p = subprocess.Popen(["sh", "-c", cmd], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             process_group=0, close_fds=False)
+    except OSError:
+        raise _SinkOdd()
+    try:
+        out, err = p.communicate(timeout=_QUICK)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        p.kill()
+        p.communicate()
+        raise _SinkOdd()
+    if p.returncode < 0:
+        raise _SinkOdd()
+    return (p.returncode, out, err)
+
+
+class _Sinks:
+    def __init__(self, cfg):
+        http, smtp, pairs, db_reset, db_dump = cfg
+        self.pairs = list(pairs)
+        self.db_reset = db_reset
+        self.db_dump = db_dump
+        self.events = []
+        self.lock = threading.Lock()
+        self.active = 0
+        self.odd = False
+        self.http = None
+        self.smtp = None
+        if http:
+            self.http = self._listen(_serve_http)
+        if smtp:
+            self.smtp = self._listen(_serve_smtp)
+
+    def _listen(self, handler):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("127.0.0.1", 0))
+        s.listen(128)
+        s.settimeout(0.005)
+        port = s.getsockname()[1]
+        stop = threading.Event()
+
+        def handle(conn):
+            try:
+                handler(self, conn, port)
+            except Exception:
+                self.odd = True
+            finally:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                with self.lock:
+                    self.active -= 1
+
+        def accept():
+            while not stop.is_set():
+                try:
+                    conn, _ = s.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    time.sleep(0.005)
+                    continue
+                conn.settimeout(_IO_TIMEOUT)
+                with self.lock:
+                    self.active += 1
+                threading.Thread(target=handle, args=(conn,), daemon=True).start()
+            s.close()
+
+        t = threading.Thread(target=accept, daemon=True)
+        t.start()
+        return (port, stop, t)
+
+    def push(self, event):
+        with self.lock:
+            self.events.append(event)
+
+    def env(self):
+        out = []
+        if self.http:
+            url = "http://127.0.0.1:%d" % self.http[0]
+            for var in ("MOJO_ANYTHING_HTTP_SINK", "HTTP_PROXY", "http_proxy"):
+                out.append((var, url))
+        if self.smtp:
+            port = self.smtp[0]
+            out.append(("SMTP_HOST", "127.0.0.1"))
+            out.append(("SMTP_PORT", str(port)))
+            out.append(("MOJO_ANYTHING_SMTP_SINK", "smtp://127.0.0.1:%d" % port))
+        for var, kind in self.pairs:
+            if kind == "http-url" and self.http:
+                out.append((var, "http://127.0.0.1:%d" % self.http[0]))
+            elif kind == "smtp-host" and self.smtp:
+                out.append((var, "127.0.0.1"))
+            elif kind == "smtp-port" and self.smtp:
+                out.append((var, str(self.smtp[0])))
+            elif kind == "smtp-url" and self.smtp:
+                out.append((var, "smtp://127.0.0.1:%d" % self.smtp[0]))
+        return out
+
+    def reset(self, cwd):
+        # "" or the Rust tool's error.
+        if self.db_reset is None:
+            return ""
+        code, out, err = _shell(self.db_reset, cwd, self.env())
+        if code != 0:
+            return "--db-reset `%s` failed (exit status: %d): %s" % (
+                self.db_reset, code, err.decode("utf-8", "replace").strip(_RUST_WS))
+        return ""
+
+    def take(self, cwd):
+        deadline = time.monotonic() + _SETTLE
+        while self.active > 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        with self.lock:
+            text = "".join(self.events)
+            self.events = []
+        if self.db_dump is not None:
+            text += "db\\n"
+            code, out, _ = _shell(self.db_dump, cwd, self.env())
+            text += out.decode("utf-8", "replace")
+            if code != 0:
+                text += "(db dump failed: exit status: %d)\\n" % code
+        if self.odd:
+            raise _SinkOdd()
+        return text.encode("utf-8")
+
+    def stop(self):
+        for sink in (self.http, self.smtp):
+            if sink:
+                sink[1].set()
+                sink[2].join()
+
+
 def run_in(job):
-    (command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes, base) = job
+    (command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes, base,
+     effects) = job
     sandbox = temp_dir("run")
     try:
         return _run_in(sandbox, command, repo, args, stdin, env_add, env_remove,
-                       timeout, files_in, removes, base)
+                       timeout, files_in, removes, base, effects)
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
 def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, files_in, removes,
-            base):
+            base, effects):
+    sinks = _Sinks(effects) if effects is not None else None
+    try:
+        return _run_with(sinks, sandbox, command, repo, args, stdin, env_add, env_remove,
+                         timeout, files_in, removes, base)
+    finally:
+        if sinks is not None:
+            sinks.stop()
+
+
+def _run_with(sinks, sandbox, command, repo, args, stdin, env_add, env_remove, timeout,
+              files_in, removes, base):
     work = os.path.join(sandbox, "cwd")
     os.makedirs(work, exist_ok=True)
     if base is not None:
@@ -905,6 +1299,12 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
     env = dict(os.environ)
     for k in env_remove:
         env.pop(k, None)
+    if sinks is not None:
+        err = sinks.reset(repo)
+        if err:
+            return {"error": err}
+        for k, v in sinks.env():
+            env[k] = v
     for k, v in env_add:
         env[k] = v
     env[FALLBACK_ENV] = log
@@ -962,6 +1362,9 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
     except OSError:
         fallback = False
         reported = False
+    effects = None
+    if sinks is not None:
+        effects = _redact(sinks.take(repo), forms)
     return {
         "error": "",
         "stdout": _redact(out, forms),
@@ -971,14 +1374,15 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
         "removed": removed,
         "reported": reported,
         "fallback": fallback,
+        "effects": effects,
     }
 
 
 
 def new_job(command, repo, args, stdin, env_add, env_remove, timeout, files, removes,
-            base=None):
+            base=None, effects=None):
     job = (tuple(command), repo, tuple(args), stdin, tuple(env_add),
-           tuple(env_remove), float(timeout), files, removes, base)
+           tuple(env_remove), float(timeout), files, removes, base, effects)
     return job
 
 
@@ -990,9 +1394,10 @@ def workers():
     return max(1, min(8, n))
 
 
-def run_all(jobs):
-    # Every case at once on up to 8 threads (the Rust tool's par_map), in order.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers()) as pool:
+def run_all(jobs, serial=False):
+    # Every case at once on up to 8 threads (the Rust tool's par_map), in
+    # order; one at a time when a database is reset or dumped.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1 if serial else workers()) as pool:
         futures = [pool.submit(run_in, j) for j in jobs]
         out = []
         for f in futures:
@@ -1256,9 +1661,10 @@ def _run_pair(job):
     return {"error": "", "one": one, "two": two}
 
 
-def run_pairs(jobs):
-    # Each case twice, one run after the other, cases on up to 8 threads.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers()) as pool:
+def run_pairs(jobs, serial=False):
+    # Each case twice, one run after the other, cases on up to 8 threads (one
+    # at a time when a database is reset or dumped).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1 if serial else workers()) as pool:
         futures = [pool.submit(_run_pair, j) for j in jobs]
         out = []
         for f in futures:

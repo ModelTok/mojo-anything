@@ -395,7 +395,8 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
             r.append(w)
         var log = _record(t, p, r)
         assert_true(log.startswith("app record"), "did not fall back")
-    # Effects kept from the last recording (re-recording must keep them).
+    # Effects kept from the last recording are recorded again in Mojo
+    # (test_app_effects).
     _put(
         t,
         p,
@@ -406,7 +407,7 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
         ),
     )
     var log = _record(t, p, ["app", "record", ".", "--no-traps"])
-    assert_true(log.startswith("app record"), "saved effects did not fall back")
+    assert_equal(log, "", "saved effects fell back")
     _gone(t, p)
 
 
