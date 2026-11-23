@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased (mojo-anything 0.1.0)
+## 0.1.0 (2026-11-23)
 
-mojo-anything is a fork of rust-anything that ports to Mojo instead of Rust. Nothing is released
-yet.
+The first version of mojo-anything, a fork of rust-anything that ports to Mojo instead of Rust.
+It closes Phase 1 (the tool, still written in Rust, now generates, builds and gates Mojo) on
+Linux; nothing has been built or run on macOS yet, and there is no native Windows build (use
+WSL).
 
 - Every bridge writes a Mojo port (`port.mojo`) behind bindings the original language loads:
   `mojo-node` (a Node-API addon) and `mojo-wasm` (a wasm64 module, Node 24) for TS/JS, `mojo-py`
@@ -22,8 +24,11 @@ yet.
   a pure Mojo binary or package. CPython's `quopri` command line is lifted to a pure Mojo binary
   through a bridged unit (`demo/real-world/python-quopri-mojo`): 481/481 unit cases and 163/163
   CLI cases, checked again on 2026-11-22 ([log](docs/measurements/2026-11-22-quopri.md)).
-- `package` lays out wheels, npm packages, gems, Go modules, C archives and jars of Mojo ports;
-  `doctor` checks pixi and Mojo; the npm package is a launcher that downloads the release binary.
+- `package` lays out wheels, npm packages, gems, Go modules, C archives and jars of Mojo ports
+  for linux-x64, linux-arm64 and darwin-arm64, and writes files only. No package carries the
+  Mojo runtime: a wheel depends on `mojo-compiler==1.2.0`, the others find the runtime on the
+  library path. `doctor` checks pixi and Mojo; the npm package is a launcher that downloads the
+  release binary.
 - Real code ported to Mojo and checked: vercel/ms, CPython's `colorsys` and `quopri`, Go's `path`,
   Ruby's `shellwords`, ffmpeg's `rational.c`, and JDK and glibc behaviour behind facades
   ([Real code in six languages](docs/real-world-languages.md)). Timings are not published yet.

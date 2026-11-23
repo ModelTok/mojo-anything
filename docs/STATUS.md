@@ -7,6 +7,22 @@ named below. **Tested**: covered by this repository's tests on fixtures written 
 run on a real project. **Whole apps**: `analyze` and the whole-app flow (`app record`, `app replay`,
 front door); units cannot be bridged yet.
 
+## Phase 1
+
+**Phase 1 complete, 2026-11-23, on Linux** (x86-64 Ubuntu 24.04 in WSL2, Mojo 1.2.0): every
+source language's fixture loop runs with Mojo ports, the real-world runs below were redone on
+Mojo, and CPython's `quopri` command line is lifted to a pure Mojo binary. **macOS: not run.**
+Nothing has been built, linked or tested on a Mac; the macOS CI job runs for the first time
+after publication (the user, 2026-11-22: "Linux now, macOS later").
+
+The suite at the release commit: `cargo fmt --all` and `cargo clippy --all-targets -- -D
+warnings` clean; `cargo test` 550 passed, 0 failed over all 46 test targets, run target by target
+and `tests/app.rs` and `tests/loop.rs` test by test, because the WSL distro restarted every few
+minutes on 2026-11-23 whatever was running.
+
+The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `<v0.1.0 commit hash, filled in
+after tagging>`.
+
 ## Porting units
 
 | Language | Status | Last real run | Result |
@@ -121,6 +137,7 @@ CI (`.github/workflows/ci.yml`) has a Linux and a macOS job, each with pixi (Moj
 Python 3.13, Go, Ruby 3.4 and Java 25, and `MOJO_ANYTHING_REQUIRE` set so that a language suite
 that stops running fails; there is no Windows job. It does not install PHP, .NET, Kotlin or
 mojo-wasm, so the PHP, C#, Kotlin and wasm tests skip there and run only on a machine that has
-them. Neither job has run on GitHub yet (no GitHub remote until the publish after M9); the Linux
-job's commands were run in the WSL clone (x86-64 Ubuntu 24.04, 2026-11-22), the macOS job's
-nowhere.
+them. The repository is public at ModelTok/mojo-anything since 2026-11-22. On GitHub the Linux job
+has passed on the C++ pull request (main plus the C++ work), not yet on this branch; the macOS
+job runs but does not block (`continue-on-error`) and fails the CLI front-door tests, as it
+does on main. The Linux job's commands were also run in the WSL clone (x86-64 Ubuntu 24.04).
