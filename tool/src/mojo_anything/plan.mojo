@@ -14,6 +14,8 @@ from mojo_anything.python_lang import (
     EXTERNAL,
     FILE,
     Facts,
+    Resolution,
+    STDLIB,
     UNRESOLVED,
     resolve,
 )
@@ -279,7 +281,14 @@ struct Crates(Movable):
         _ = py["load_table"](PythonObject(replacements_toml()))
 
     def find(self, lang: String, name: String) raises -> DependencyReport:
-        var r = self.py["crate_find"](PythonObject(lang), PythonObject(name))
+        """analyze::crate_for: the language's lookup (Java keys a Maven
+        coordinate by its group)."""
+        var key = name
+        if lang == "java":
+            var colon = name.find(":")
+            if colon >= 0:
+                key = String(name[byte=0:colon])
+        var r = self.py["crate_find"](PythonObject(lang), PythonObject(key))
         var fit = FIT_UNKNOWN
         if Int(py=r[0]) == 1:
             var f = String(py=r[2])
@@ -290,6 +299,84 @@ struct Crates(Movable):
             else:
                 fit = FIT_NONE
         return DependencyReport(name, 0, fit, String(py=r[1]), String(py=r[3]))
+
+    def longest_prefix(self, lang: String, name: String) raises -> String:
+        """crates::longest_prefix ("" for none)."""
+        return String(
+            py=self.py["longest_prefix"](PythonObject(lang), PythonObject(name))
+        )
+
+
+# ---- resolution of the tree-sitter languages ---------------------------------
+
+
+def _trim_end_matches(s: String, suffix: String) -> String:
+    var out = s
+    while out.endswith(suffix):
+        var cut = String(
+            out[byte = 0 : out.byte_length() - suffix.byte_length()]
+        )
+        out = cut^
+    return out^
+
+
+def java_resolve(
+    spec: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    packages: List[Package],
+    crates: Crates,
+) raises -> Resolution:
+    """java.rs `resolve`: the platform's packages, a file or a folder of a
+    package's source root, else the library the crate table's longest
+    prefix names (or the first two segments)."""
+    var parts = spec.split(".")
+    var first = String(parts[0])
+    if (
+        first == "java"
+        or first == "javax"
+        or first == "jdk"
+        or first == "sun"
+        or spec.startswith("com.sun.")
+    ):
+        return Resolution(STDLIB, -1, "")
+    var path = _trim_end_matches(spec, ".*").replace(".", "/")
+    for p in packages:
+        var file = join_dir(p.src_root, path + ".java")
+        if file in index:
+            return Resolution(FILE, index[file], "")
+        var dir = join_dir(p.src_root, path)
+        var best = -1
+        for i in range(len(paths)):
+            var slash = paths[i].rfind("/")
+            if slash < 0 or String(paths[i][byte=0:slash]) != dir:
+                continue
+            if best < 0 or paths[i] < paths[best]:
+                best = i
+        if best >= 0:
+            return Resolution(FILE, best, "")
+    var external = crates.longest_prefix("java", spec)
+    if external.byte_length() == 0:
+        external = first
+        if len(parts) > 1:
+            external += "." + String(parts[1])
+    return Resolution(EXTERNAL, -1, external)
+
+
+def _target(
+    lang: String,
+    from_path: String,
+    spec: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    roots: List[String],
+    packages: List[Package],
+    crates: Crates,
+) raises -> Resolution:
+    """crate::lang::resolve for the language."""
+    if lang == "java":
+        return java_resolve(spec, index, paths, packages, crates)
+    return resolve(from_path, spec, index, paths, roots)
 
 
 # ---- waves -------------------------------------------------------------------
@@ -672,7 +759,16 @@ def build(
             package_tests[file.package] += 1
             var hit = List[Int]()
             for k in range(len(f.specs)):
-                var r = resolve(file.path, f.specs[k], index, paths, roots)
+                var r = _target(
+                    lang,
+                    file.path,
+                    f.specs[k],
+                    index,
+                    paths,
+                    roots,
+                    packages,
+                    crates,
+                )
                 if r.kind == FILE and unit_of[r.file] >= 0:
                     _insert_int(hit, unit_of[r.file])
             for u in hit:
@@ -688,7 +784,16 @@ def build(
                 if len(units[u].samples[r]) < SAMPLES_PER_RISK:
                     units[u].samples[r].append(String(file.path, ":", line))
         for k in range(len(f.specs)):
-            var r = resolve(file.path, f.specs[k], index, paths, roots)
+            var r = _target(
+                lang,
+                file.path,
+                f.specs[k],
+                index,
+                paths,
+                roots,
+                packages,
+                crates,
+            )
             if r.kind == FILE:
                 var v = unit_of[r.file]
                 if v >= 0 and v != u:

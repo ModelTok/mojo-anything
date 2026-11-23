@@ -171,6 +171,10 @@ def _js_shaped(types: List[String]) -> Bool:
     return False
 
 
+def js_shaped(types: List[String]) -> Bool:
+    return _js_shaped(types)
+
+
 # ---- to_ts_type --------------------------------------------------------------
 
 

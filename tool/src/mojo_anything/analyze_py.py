@@ -806,3 +806,15 @@ def crate_find(lang, name):
         if name in _strings(e, "names") or any(name.startswith(p) for p in _strings(e, "prefixes")):
             return (1, e.get("replacement", ""), e.get("fit", ""), e.get("note", ""))
     return (0, "", "", "")
+
+
+def longest_prefix(lang, name):
+    """crates::longest_prefix: the longest prefix not ending in `.` that starts
+    `name` (the last of equal length, as max_by_key), else ""."""
+    best = None
+    for e in _TABLE.get(lang, []):
+        for p in _strings(e, "prefixes"):
+            if not p.endswith(".") and name.startswith(p):
+                if best is None or len(p) >= len(best):
+                    best = p
+    return best or ""

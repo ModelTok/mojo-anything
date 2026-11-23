@@ -31,6 +31,7 @@ from mojo_anything.plan import (
     to_json,
 )
 from mojo_anything.python_lang import Facts, py_helpers, read_facts
+from mojo_anything.tree_lang import read_tree_facts, tree_helpers
 from mojo_anything.walk import canonical, walk
 
 comptime SCHEMA = "mojo-anything/analyze@1"
@@ -886,6 +887,126 @@ def python_plan(
     return build("python", "PyPI", ws.packages, ws.files, facts, py)
 
 
+def _sorted(xs: List[String]) -> List[String]:
+    var out = List[String]()
+    for x in xs:
+        var at = len(out)
+        while at > 0 and x < out[at - 1]:
+            at -= 1
+        out.insert(at, x)
+    return out^
+
+
+def java_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """java.rs `discover`: a package per pom.xml, build.gradle or
+    build.gradle.kts (named by its first artifactId, else its folder), and
+    the `.java` files the walk keeps; declined for a name outside ASCII or
+    holding a backslash, a folder holding two manifests (which one names the
+    package depends on the walk's order), a root named like a folder the walk
+    skips, and ignore files with alternates. With no source file the
+    workspace is left empty."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("java"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("java", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if (
+            name == "pom.xml"
+            or name == "build.gradle"
+            or name == "build.gradle.kts"
+        ):
+            manifests.append(rel)
+        elif name.endswith(".java"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    var dirs = List[String]()
+    for rel in manifests:
+        var dir = _dir_of(rel)
+        if dir in dirs:
+            ws.declined = True
+            return ws^
+        dirs.append(dir)
+        var m = th["java_manifest"](PythonObject(root + "/" + rel))
+        var name: String
+        if Int(py=m[0]) == 1:
+            name = String(py=m[1])
+        elif dir.byte_length() == 0:
+            name = _root_name(root)
+        else:
+            name = dir
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(m[2]))):
+            deps.append(String(py=m[2][i]))
+        var src_root = dir
+        if isdir(root + "/" + join_dir(dir, "src/main/java")):
+            src_root = join_dir(dir, "src/main/java")
+        ws.packages.append(Package(name, dir, src_root, deps^))
+    if len(ws.packages) == 0:
+        var src_root = String("")
+        if isdir(root + "/src/main/java"):
+            src_root = "src/main/java"
+        elif isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    # Sorted by folder (stable; folders are distinct).
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var name = _name_of(rel)
+        var test = (
+            "src/test/" in rel
+            or name.endswith("Test.java")
+            or name.endswith("Tests.java")
+            or name.endswith("IT.java")
+        )
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(rel, best, test))
+    return ws^
+
+
+def tree_plan(
+    lang: String,
+    registry: String,
+    root: String,
+    ws: Workspace,
+    mut declined: Bool,
+) raises -> Report:
+    """The plan of a workspace of a tree-sitter language with source files;
+    `declined` when a file's tree has an error."""
+    var th = tree_helpers()
+    var facts = List[Facts]()
+    for f in ws.files:
+        facts.append(read_tree_facts(th, lang, root + "/" + f.path, declined))
+        if declined:
+            return Report(lang)
+    return build(lang, registry, ws.packages, ws.files, facts, py_helpers())
+
+
 comptime PY_BRIDGE = "Mojo (Python extension)"
 
 
@@ -987,6 +1108,25 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
                     p,
                     py,
                     markdown(report, _title(root), "Python", "PyPI", PY_BRIDGE),
+                    argv,
+                )
+        if lang == "java":
+            var ws = java_workspace(root, py)
+            if ws.declined:
+                return fallback(argv)
+            if len(ws.files) > 0:
+                var declined = False
+                var report = tree_plan("java", "Maven", root, ws, declined)
+                if declined:
+                    return fallback(argv)
+                if p.flag("json"):
+                    return _emit(p, py, to_json(report, "mojo-jvm"), argv)
+                return _emit(
+                    p,
+                    py,
+                    markdown(
+                        report, _title(root), "Java", "Maven", "Mojo (Java FFM)"
+                    ),
                     argv,
                 )
         var d = empty_workspace(lang, root, py)

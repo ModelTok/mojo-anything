@@ -3,6 +3,9 @@
 
 - `analyze_py_source()`: tool/src/mojo_anything/analyze_py.py, the Python that reads a Python
   file through CPython's `ast` where the Rust tool walks tree-sitter-python's tree.
+- `analyze_tree_source()`: tool/src/mojo_anything/analyze_tree.py, the Python that reads a
+  file through tree-sitter's Python bindings for the other languages the Rust tool reads with
+  tree-sitter.
 - `replacements_toml()`: src/replacements.toml, the crate table, which the Rust tool embeds with
   `include_str!` (src/crates.rs).
 
@@ -17,6 +20,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(REPO, "tool", "src", "mojo_anything", "embedded.mojo")
 FILES = [
     ("analyze_py_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_py.py")),
+    ("analyze_tree_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_tree.py")),
     ("replacements_toml", os.path.join(REPO, "src", "replacements.toml")),
 ]
 
