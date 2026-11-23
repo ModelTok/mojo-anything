@@ -36,15 +36,16 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | help and version for every command, clap's usage errors, `setup`, `doctor` (its MCP self-test still starts the Phase 1 `mcp`) | 524 | 524 | 73.7% (386/524), [log](measurements/2026-11-23-phase2-replay-2.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `app replay` of CLI cases, `app record`'s checks before it runs anything | 524 | 524 | 71.4% (374/524), [log](measurements/2026-11-23-phase2-replay-3.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `app record` of CLIs, `fresh` snapshots for record and replay | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-4.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, float files, a float tolerance, `key-order` and effects in `app record` and `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-5.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
 fallback rate as the Phase 1 replayer
-([log](measurements/2026-11-23-phase2-replay-4.md)). It reads the case files, runs every case
+([log](measurements/2026-11-23-phase2-replay-5.md)). It reads the case files, runs every case
 in a fresh sandbox on up to eight threads, and writes the Rust tool's report, `--json` outcome
 and fallback line; CPython runs the cases (`subprocess`) and reads the trycmd files
-(`tomllib`), `mojo-anything.json` (`json`) and the normalisers (`re`). A server's, a library's
-or an effects recording, float files, `key-order`, `env.inherit = false`, a time
+(`tomllib`), `mojo-anything.json` (`json`) and the normalisers (`re`). A server's or a library's
+recording, `env.inherit = false`, a time
 limit longer than Python's `poll` can wait, normalisers or recorded text that Python's `re` could read otherwise
 than Rust's `regex`, and anything serde_json would read otherwise go to the Phase 1 binary
 before a case runs (a character in a build's output that the two classify differently, after).
@@ -54,11 +55,24 @@ in its Markdown and `.sh` files four levels deep, `--inputs` and the semantic tr
 case twice and merges the noise between the runs, snapshots `fresh` paths, and writes the
 trycmd files in toml_edit's layout and `mojo-anything.json` in serde_json's. Replay starts
 `fresh` cases from the snapshot. `tool/tests/test_app_record.mojo` and `test_app_fresh.mojo`
-record with both binaries from copies of one folder and compare every file. Servers, effects,
-float files, a tolerance, `key-order`, and anything toml_edit would escape or serde_json might
+record with both binaries from copies of one folder and compare every file. Servers and
+anything toml_edit would escape or serde_json might
 read otherwise go to the Phase 1 binary before anything is written. A character that Python
 and Rust classify differently in a merged line comes up only after the runs, so the original
 then runs again under the Phase 1 binary.
+
+Since the fifth row, float files (`--float-file PATH=f32le|f64le`, compared value by value with
+Rust's `{}` and `{:e}` of f64 in the report), a float tolerance, the `key-order` normaliser
+(Python's json reads the JSON in serde_json's place; the sorted pretty and compact prints are
+Mojo) and effects (`--effects`, `--effect-env`, `--db-reset`, `--db-dump`: an HTTP sink and a
+mail server on 127.0.0.1, written as Python sockets and threads, with the database reset before
+and dumped after each case) are recorded and replayed in Mojo. No recorded case uses them, so
+the fallback rate does not move; `tool/tests/test_app_compare.mojo` and `test_app_effects.mojo`
+run both binaries side by side on programs that use them and compare every output and file.
+JSON that serde_json might read otherwise (a lone surrogate, a number beyond f64, nesting near
+its limit of 128 levels), a request body over 1 GiB, and a database command killed by a signal
+or past its time limit go to the Phase 1 binary
+([log](measurements/2026-11-23-phase2-replay-5.md)).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
@@ -75,8 +89,8 @@ toml_edit re-formats, JSON numbers serde_json reads otherwise); `doctor` falls b
 (`pixi run check-tool`: format, build with warnings as errors, 72 tests): `fallback`,
 `process`, `walk`, `js_number`, `json_text`, `tolerance`, `recording`, `cli`, `cli_parse`,
 `setup`, `toml_edit`, `doctor`, and since the third row `app/` (`cases`, `diff`, `replay`,
-`record`; 97 tests in all). Not yet in Mojo: `map`, float files, a tolerance and `key-order`
-in `app record`/`app replay`, servers, effects, a library's replay and every other subcommand
+`record`, and since the fifth row `canon` and `floats`; 102 tests in all). Not yet in Mojo:
+`map`, servers in `app record`/`app replay`, a library's replay and every other subcommand
 (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`).
 
 `setup` through the Mojo tool registers the Mojo binary, not `tool/fallback/mojo-anything`
