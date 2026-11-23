@@ -52,6 +52,12 @@ def get(path):
 def gone(path):
     shutil.rmtree(path, ignore_errors=True)
 
+def rm(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
 def run(binary, args, cwd, log):
     env = dict(os.environ)
     env.pop("MOJO_ANYTHING_FALLBACK_LOG", None)
@@ -266,9 +272,48 @@ def test_patterns_rust_reads_otherwise_are_declined() raises:
     ]:
         var r = h["compile_normalizer"](PythonObject(p))
         assert_false(Bool(py=r[0]), p)
-    for p in ["req-\\d+", "/tmp/mojo-anything-[A-Za-z0-9_.-]+", "x{2,}"]:
+    for p in [
+        "x{2}+",
+        "a*+",
+        "\\<w",
+        "[a[b]]",
+        "[^[]",
+        "\\N{DIGIT ONE}",
+        "[\\b]x",
+        "\\é",
+        "\\w{2000}",
+        "\\x41",
+    ]:
+        var r = h["compile_normalizer"](PythonObject(p))
+        assert_false(Bool(py=r[0]), p)
+    for p in [
+        "req-\\d+",
+        "/tmp/mojo-anything-[A-Za-z0-9_.-]+",
+        "x{2,}",
+        "a+?b",
+        "[]a]",
+        "[^]\\n]+",
+    ]:
         var r = h["compile_normalizer"](PythonObject(p))
         assert_true(Bool(py=r[0]), p)
+
+
+def test_text_rust_classifies_otherwise_is_declined() raises:
+    var h = py_helpers()
+    var c = Config()
+    c.normalize.append("timestamps")
+    var norm = Normalizers(h, c)
+    # Rust's `\\w` takes the circled letter (Other_Alphabetic) and leaves out
+    # `²`; Python's `re` does the opposite, so `\\b` falls elsewhere.
+    for text in ["ⓐ12:00:00", "²12:00:00"]:
+        var declined = False
+        try:
+            _ = norm.apply(h, String(text))
+        except e:
+            declined = String(e) == DECLINE
+        assert_true(declined, text)
+        assert_false(norm.safe(h, h["utf8"](PythonObject(text))), text)
+    assert_equal(norm.apply(h, "héllo 12:00:00 日本"), "héllo [..] 日本")
 
 
 def test_shell_words() raises:
@@ -310,8 +355,11 @@ def _both(
     for a in args:
         pargs.append(PythonObject(a))
     var none = PythonObject("")
+    _ = t["rm"](PythonObject(report))
     var old = t["run"](PythonObject(FALLBACK), pargs, PythonObject(cwd), none)
     var old_report = String(py=t["get"](PythonObject(report)))
+    # The Mojo run must write the file itself, not pass on the Phase 1 run's.
+    _ = t["rm"](PythonObject(report))
     var log = cwd + ".fallback.log"
     var new = t["run"](
         PythonObject(MOJO), pargs, PythonObject(cwd), PythonObject(log)
@@ -371,26 +419,67 @@ def test_replay_without_cases_matches_the_phase1_binary() raises:
     _ = t["gone"](PythonObject(d))
 
 
-def test_replay_of_a_server_goes_to_the_phase1_binary() raises:
-    var t = _py()
-    var d = String(
+def _cli_fixture(t: PythonObject, name: String) raises -> String:
+    return String(
         py=t["fixture"](
-            PythonObject("server"),
+            PythonObject(name),
             PythonObject("mojo/app-cases/app-replay-cli-python.in"),
         )
     )
-    var cfg = d + "/mojo/app-cases/mojo-anything.json"
+
+
+def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
+    var t = _py()
+    var head = String(
+        '{"schema": "mojo-anything/app-cases@1", "name": "x", "run":'
+        ' ["python3", "tcli.py"]'
+    )
+    var configs = List[String]()
+    configs.append(head + ', "normalize": ["key-order"]}')
+    # serde_json refuses this before the unknown normalizer is looked at.
+    configs.append(head + ', "http": 5, "normalize": ["bogus"]}')
+    configs.append(head + ', "http": {"port": 1}}')
+    configs.append(head + ', "effects": {"http": true}}')
+    configs.append(head + ', "timeout_secs": -0}')
+    configs.append(head + ', "timeout_secs": 3000000}')
+    for i in range(len(configs)):
+        var d = _cli_fixture(t, String("decline-", i))
+        _ = t["put"](
+            PythonObject(d + "/mojo/app-cases/mojo-anything.json"),
+            PythonObject(configs[i]),
+        )
+        var log = _both(
+            t, ["app", "replay", "."], d, d + "/mojo/app-cases/replay-report.md"
+        )
+        assert_equal(log, "app replay .\n", configs[i])
+        _ = t["gone"](PythonObject(d))
+    var d = _cli_fixture(t, "decline-timeout")
+    var r = d + "/mojo/app-cases/replay-report.md"
+    assert_equal(
+        _both(t, ["app", "replay", ".", "--timeout", "3000000"], d, r),
+        "app replay .\n",
+    )
+    _ = _both(t, ["app", "replay", ""], d, r)
+    _ = _both(t, ["app", "replay", "tcli.py/"], d, r)
+    _ = t["gone"](PythonObject(d))
+
+
+def test_a_base_with_a_trailing_slash_reads_the_same_files() raises:
+    var t = _py()
+    var d = _cli_fixture(t, "base-slash")
+    var toml = d + "/mojo/app-cases/example-005-copy.toml"
     _ = t["put"](
-        PythonObject(cfg),
+        PythonObject(toml),
         PythonObject(
-            '{"schema": "mojo-anything/app-cases@1", "name": "x", "run":'
-            ' ["python3", "tcli.py"], "normalize": ["key-order"]}'
+            'bin.name = "tcli"\nargs = ["copy", "input.txt",'
+            ' "out.txt"]\nstatus.code = 0\nfs.sandbox = true\nfs.base ='
+            ' "example-005-copy.in/"\n'
         ),
     )
     var log = _both(
         t, ["app", "replay", "."], d, d + "/mojo/app-cases/replay-report.md"
     )
-    assert_equal(log, "app replay .\n")
+    assert_equal(log, "")
     _ = t["gone"](PythonObject(d))
 
 
@@ -470,7 +559,9 @@ def main() raises:
     test_shell_words()
     test_replay_matches_the_phase1_binary_on_a_cli()
     test_replay_without_cases_matches_the_phase1_binary()
-    test_replay_of_a_server_goes_to_the_phase1_binary()
+    test_what_is_not_ported_goes_to_the_phase1_binary()
+    test_a_base_with_a_trailing_slash_reads_the_same_files()
+    test_text_rust_classifies_otherwise_is_declined()
     test_record_checks_match_the_phase1_binary()
     test_a_recording_goes_to_the_phase1_binary()
-    print("test_app: 17 passed")
+    print("test_app: 19 passed")

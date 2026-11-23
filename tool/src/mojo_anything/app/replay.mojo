@@ -23,6 +23,7 @@ from mojo_anything.app.cases import (
     load_specs,
     shell_join,
     shell_split,
+    join,
     words_quotable,
 )
 from mojo_anything.app.diff import Normalizers, compare
@@ -167,7 +168,7 @@ def _check(
                 detail += "  " + p + "\n"
             problems.append(Problem("removed files", detail))
     if spec.out_dir != "":
-        var expected = h["read_files"](PythonObject(spec.out_dir))
+        var expected = spec.out_files
         var names = py_strings(h["file_names"](expected))
         var files = run["files"]
         for path in names:
@@ -335,12 +336,59 @@ def _has_old_front_door(h: PythonObject, repo: String) raises -> Bool:
     return False
 
 
+comptime _MAX_TIMEOUT = 2_000_000
+"""Seconds: Python's `communicate` waits in `poll`, whose milliseconds stop at
+INT_MAX; a longer limit goes to the Phase 1 binary."""
+
+
+def _runnable(
+    h: PythonObject,
+    norm: Normalizers,
+    command: List[String],
+    specs: List[Spec],
+    timeout: Int,
+) raises -> Bool:
+    """Whether every case can run and be compared as the Rust tool would,
+    checked before any runs: a time limit `communicate` takes, no NUL in a
+    word or a variable and no `=` in a name (Python refuses them where Rust's
+    `Command` reports or passes them), and recorded outputs `re` normalises
+    as `regex` does."""
+    if timeout > _MAX_TIMEOUT:
+        return False
+    for w in command:
+        if not Bool(py=h["safe_word"](PythonObject(w))):
+            return False
+    for s in specs:
+        for w in s.args:
+            if not Bool(py=h["safe_word"](PythonObject(w))):
+                return False
+        for k in s.env_keys:
+            if not Bool(py=h["safe_env_key"](PythonObject(k))):
+                return False
+        for v in s.env_values:
+            if not Bool(py=h["safe_word"](PythonObject(v))):
+                return False
+        if s.has_stdout and not norm.safe(h, s.stdout):
+            return False
+        if s.has_stderr and not norm.safe(h, s.stderr):
+            return False
+        if s.has_effects and not norm.safe(h, s.effects):
+            return False
+        var names = py_strings(h["file_names"](s.out_files))
+        for n in names:
+            if not norm.safe(h, s.out_files[PythonObject(n)]):
+                return False
+    return True
+
+
 def replay(h: PythonObject, opts: Options) raises -> Outcome:
     var canon = h["canonical"](PythonObject(opts.repo))
+    if String(py=canon[0]) == "odd":
+        raise Error(DECLINE)
     if String(py=canon[0]) != "ok":
         raise Error("no folder " + opts.repo + ": " + String(py=canon[1]))
     var repo = String(py=canon[1])
-    var dir = repo + "/" + CASES_DIR
+    var dir = join(repo, CASES_DIR)
     var loaded = load_config(h, repo)
     if not loaded and _has_old_front_door(h, repo):
         raise Error(DECLINE)
@@ -393,6 +441,8 @@ def replay(h: PythonObject, opts: Options) raises -> Outcome:
     for s in specs:
         if not words_quotable(h, s.args):
             raise Error(DECLINE)
+    if not _runnable(h, norm, command, specs, timeout):
+        raise Error(DECLINE)
     var jobs = Python.list()
     var ran = List[Int]()
     for i in range(len(specs)):

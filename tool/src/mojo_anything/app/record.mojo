@@ -49,6 +49,8 @@ def check_record(h: PythonObject, p: Parsed) raises:
     var given = p.value("REPO")
     var repo_arg = given.value() if given else String(".")
     var canon = h["canonical"](PythonObject(repo_arg))
+    if String(py=canon[0]) == "odd":
+        raise decline()
     if String(py=canon[0]) != "ok":
         raise Error("no folder " + repo_arg + ": " + String(py=canon[1]))
     var repo = String(py=canon[1])

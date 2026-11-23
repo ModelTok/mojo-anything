@@ -28,6 +28,8 @@ comptime UUID = "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-
 struct Normalizers(Copyable, Movable):
     var patterns: PythonObject
     """Compiled Python patterns, in the order Rust applies them."""
+    var kinds: PythonObject
+    """The Unicode classes (`\\w`, `\\s`, `\\d`) the patterns use."""
     var float_tolerance: Optional[Float64]
     var unordered: Dict[String, List[String]]
 
@@ -53,6 +55,7 @@ struct Normalizers(Copyable, Movable):
                     + " or define it as `name=regex`"
                 )
         self.patterns = h["new_list"]()
+        self.kinds = h["no_kinds"]()
         self.float_tolerance = config.float_tolerance
         self.unordered = config.unordered.copy()
         var all = builtins^
@@ -63,6 +66,7 @@ struct Normalizers(Copyable, Movable):
             if not Bool(py=r[0]):
                 raise decline()
             _ = h["push"](self.patterns, r[1])
+            self.kinds = h["merge_kinds"](self.kinds, r[2])
         if self.float_tolerance:
             var t = self.float_tolerance.value()
             if not (t >= 0.0 and t < 1.0):
@@ -80,9 +84,19 @@ struct Normalizers(Copyable, Movable):
         return False
 
     def apply(self, h: PythonObject, text: String) raises -> String:
-        return String(
-            py=h["apply_normalizers"](self.patterns, PythonObject(text))
+        """The text with every match replaced by `[..]`; declines a text
+        holding a character Python's `re` and Rust's `regex` classify
+        differently for a class the patterns use."""
+        var r = h["apply_normalizers"](
+            self.patterns, self.kinds, PythonObject(text)
         )
+        if not Bool(py=r[0]):
+            raise decline()
+        return String(py=r[1])
+
+    def safe(self, h: PythonObject, blob: PythonObject) raises -> Bool:
+        """Whether `apply` can normalise this recorded output exactly."""
+        return Bool(py=h["blob_safe"](self.kinds, blob))
 
 
 comptime _EQUAL = 0

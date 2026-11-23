@@ -40,6 +40,10 @@ def temp_dir(tag):
 
 
 def canonical(path):
+    # ("odd", "") for what Rust's canonicalize may resolve otherwise: an empty
+    # path, a trailing slash after something that is not a folder.
+    if path == "" or (path.endswith("/") and not os.path.isdir(path)):
+        return ("odd", "")
     try:
         return ("ok", os.path.realpath(path, strict=True))
     except OSError as e:
@@ -67,6 +71,8 @@ def walk_files(root):
     # component by component.
     out = []
     stack = [root]
+    # Rust strips the root by components: `fixture/` and `fixture` give the same names.
+    cut = len(root.rstrip("/")) + 1
     while stack:
         d = stack.pop()
         try:
@@ -79,7 +85,7 @@ def walk_files(root):
                     if e.is_dir(follow_symlinks=False):
                         stack.append(e.path)
                     elif e.is_file(follow_symlinks=False):
-                        out.append(e.path[len(root) + 1:])
+                        out.append(e.path[cut:])
                 except OSError:
                     pass
     out.sort(key=path_key)
@@ -99,6 +105,17 @@ def read_files(base):
 
 def file_names(files):
     return list(files.keys())
+
+
+def names_plain(names):
+    # Whether every name is UTF-8 (a name Python decoded with surrogates is
+    # one Rust would print lossily, in its own way).
+    for n in names:
+        try:
+            n.encode("utf-8")
+        except UnicodeEncodeError:
+            return False
+    return True
 
 
 def toml_files(dir):
@@ -167,10 +184,12 @@ def length(x):
 
 
 def lossy_lines(b):
+    # str::lines: `\\r` goes only with the `\\n` after it.
     text = b.decode("utf-8", "replace")
+    parts = text.split("\\n")
     out = []
-    for line in text.split("\\n"):
-        if line.endswith("\\r"):
+    for i, line in enumerate(parts):
+        if i + 1 < len(parts) and line.endswith("\\r"):
             line = line[:-1]
         if line != "":
             out.append(line)
@@ -313,15 +332,26 @@ def _str_map(v):
     return isinstance(v, dict) and all(isinstance(x, str) for x in v.values())
 
 
+def _int(s):
+    # serde_json reads `-0` as a float, which a u64 field refuses.
+    if s == "-0":
+        raise _Odd()
+    return int(s)
+
+
 def load_config(text):
     # ("ok", config dict) or ("odd", None) for anything serde could read
-    # otherwise or refuse (its error text is not reproduced).
+    # otherwise or refuse (its error text is not reproduced), and for a
+    # server's or an effects recording, which this port does not replay.
     try:
-        c = json.loads(text, object_pairs_hook=_pairs, parse_constant=_const)
+        c = json.loads(text, object_pairs_hook=_pairs, parse_constant=_const,
+                       parse_int=_int)
         _plain(c)
     except Exception:
         return ("odd", None)
     if not isinstance(c, dict):
+        return ("odd", None)
+    if c.get("http") is not None or c.get("effects") is not None:
         return ("odd", None)
     if not isinstance(c.get("schema"), str) or not isinstance(c.get("name"), str):
         return ("odd", None)
@@ -338,6 +368,11 @@ def load_config(text):
     if "float_tolerance" in c and c["float_tolerance"] is not None:
         t = c["float_tolerance"]
         if isinstance(t, bool) or not isinstance(t, (int, float)):
+            return ("odd", None)
+        try:
+            if float(t) in (float("inf"), float("-inf")):
+                return ("odd", None)
+        except OverflowError:
             return ("odd", None)
     if "unordered" in c:
         u = c["unordered"]
@@ -378,55 +413,202 @@ def config_tolerance(c):
 
 # --- normalizers ------------------------------------------------------------
 
-_ODD_SYNTAX = re.compile(
-    r"\\$|\\(\\?(?!:)|\\[\\[|\\[:|&&|--|~~|\\\\[pPzZAxuUQEkgG0-9]"
-)
 _COUNTED = re.compile(r"\\{(\\d+)(,(\\d*))?\\}")
+_PLAIN_ESCAPES = "dDwWsSbBntrfva"
+_CLASS_ESCAPES = "dDwWsSntrfva"
+_KINDS = {"w": "word", "W": "word", "b": "word", "B": "word",
+          "s": "space", "S": "space", "d": "digit", "D": "digit"}
 
 
-def _braces_plain(p):
+def _screen(p):
+    # The Unicode classes a pattern uses ({"word", "space", "digit"}), or None
+    # when Rust's `regex` could read it otherwise than Python's `re` or refuse
+    # it: `$`, flags and lookaround, `\\<`, `\\N{...}`, escaped letters and
+    # digits beyond the shared ones, escaped non-ASCII, nested classes and set
+    # operations, possessive quantifiers, counts Rust refuses or finds too big.
+    kinds = set()
     i = 0
-    while i < len(p):
+    n = len(p)
+    quantified = False
+    while i < n:
         c = p[i]
         if c == "\\\\":
+            if i + 1 >= n:
+                return None
+            x = p[i + 1]
+            if x.isascii() and x.isalnum():
+                if x not in _PLAIN_ESCAPES:
+                    return None
+                if x in _KINDS:
+                    kinds.add(_KINDS[x])
+            elif not x.isascii() or x in "<>":
+                return None
             i += 2
+            quantified = False
+            continue
+        if c == "[":
+            i += 1
+            if i < n and p[i] == "^":
+                i += 1
+            if i < n and p[i] == "]":
+                i += 1
+            while True:
+                if i >= n:
+                    return None
+                c = p[i]
+                if c == "]":
+                    break
+                if c == "[" or p.startswith(("&&", "--", "~~"), i):
+                    return None
+                if c == "\\\\":
+                    if i + 1 >= n:
+                        return None
+                    x = p[i + 1]
+                    if x.isascii() and x.isalnum():
+                        if x not in _CLASS_ESCAPES:
+                            return None
+                        if x in _KINDS:
+                            kinds.add(_KINDS[x])
+                    elif not x.isascii():
+                        return None
+                    i += 2
+                    continue
+                i += 1
+            i += 1
+            quantified = False
+            continue
+        if c == "$":
+            return None
+        if c == "(":
+            if p.startswith("(?", i) and not p.startswith("(?:", i):
+                return None
+            i += 1
+            quantified = False
             continue
         if c == "{":
             m = _COUNTED.match(p, i)
             if m is None:
-                return False
+                return None
+            for g in (m.group(1), m.group(3)):
+                if g and int(g) > 1000:
+                    return None
             i = m.end()
+            quantified = True
             continue
         if c == "}":
-            return False
+            return None
+        if c in "*+?":
+            if c == "+" and quantified:
+                return None
+            # `*?`, `+?` are lazy in both; a `?` after a quantifier ends it.
+            quantified = not (c == "?" and quantified)
+            i += 1
+            continue
+        quantified = False
         i += 1
-    return True
+    return kinds
 
 
 def compile_normalizer(pattern):
-    # (True, compiled) when Python's `re` matches what Rust's `regex` matches
-    # for this pattern; (False, None) otherwise: anchors and flags, classes and
-    # escapes the two read differently, counted repetitions Rust refuses, and
-    # anything that can match the empty string (the two replace empty matches
-    # next to a match differently).
-    if _ODD_SYNTAX.search(pattern) or not _braces_plain(pattern):
-        return (False, None)
+    # (True, compiled, kinds) when Python's `re` matches what Rust's `regex`
+    # matches for this pattern on ASCII text and on text whose characters
+    # both classify alike (`text_safe`); (False, None, None) otherwise, and
+    # for anything that can match the empty string (the two replace empty
+    # matches next to a match differently).
+    kinds = _screen(pattern)
+    if kinds is None:
+        return (False, None, None)
     try:
         compiled = re.compile(pattern)
         parser = getattr(re, "_parser", None)
         if parser is None:
-            return (False, None)
+            return (False, None, None)
         if parser.parse(pattern).getwidth()[0] == 0:
-            return (False, None)
+            return (False, None, None)
     except Exception:
-        return (False, None)
-    return (True, compiled)
+        return (False, None, None)
+    return (True, compiled, kinds)
 
 
-def apply_normalizers(patterns, text):
+_RUST_SPACE = set("\\t\\n\\x0b\\x0c\\r \\x85\\xa0\\u1680\\u2028\\u2029\\u202f\\u205f\\u3000") | set(
+    chr(c) for c in range(0x2000, 0x200B))
+_OTHER_ALPHABETIC_SYMBOLS = ((0x24B6, 0x24E9), (0x1F130, 0x1F149), (0x1F150, 0x1F169),
+                             (0x1F170, 0x1F189))
+_alike = {}
+
+
+def _rust_word(c):
+    cat = unicodedata.category(c)
+    if cat == "Cn":
+        return None
+    if cat[0] in "LM" or cat in ("Nd", "Nl", "Pc") or c in "\\u200c\\u200d":
+        return True
+    o = ord(c)
+    return any(lo <= o <= hi for lo, hi in _OTHER_ALPHABETIC_SYMBOLS)
+
+
+def _classify_alike(c, kinds):
+    key = (c, kinds)
+    if key in _alike:
+        return _alike[key]
+    same = True
+    if unicodedata.category(c) == "Cn":
+        same = False
+    if "word" in kinds and same:
+        same = _rust_word(c) == (re.match(r"\\w", c) is not None)
+    if "space" in kinds and same:
+        same = (c in _RUST_SPACE) == (re.match(r"\\s", c) is not None)
+    if "digit" in kinds and same:
+        same = (unicodedata.category(c) == "Nd") == (re.match(r"\\d", c) is not None)
+    _alike[key] = same
+    return same
+
+
+def merge_kinds(a, b):
+    return frozenset(a) | frozenset(b)
+
+
+def no_kinds():
+    return frozenset()
+
+
+def text_safe(kinds, text):
+    # Whether every character a `\\w`, `\\b`, `\\s` or `\\d` of the patterns
+    # could meet is classified by Python's `re` as Rust's `regex` does.
+    if not kinds:
+        return True
+    for c in set(text):
+        o = ord(c)
+        if o < 0x1C or (0x20 <= o < 0x80):
+            continue
+        if not _classify_alike(c, kinds):
+            return False
+    return True
+
+
+def blob_safe(kinds, b):
+    try:
+        return text_safe(kinds, b.decode("utf-8"))
+    except UnicodeDecodeError:
+        return True
+
+
+def apply_normalizers(patterns, kinds, text):
+    # (True, text) or (False, "") when Rust could normalise this text otherwise.
+    if not text_safe(kinds, text):
+        return (False, "")
     for p in patterns:
         text = p.sub("[..]", text)
-    return text
+    return (True, text)
+
+
+def safe_word(w):
+    # Rust's Command takes these; Python refuses a NUL.
+    return "\\x00" not in w
+
+
+def safe_env_key(k):
+    return k != "" and "=" not in k and "\\x00" not in k
 
 
 def new_list():
@@ -564,7 +746,7 @@ def _run_in(sandbox, command, repo, args, stdin, env_add, env_remove, timeout, f
     try:
         child = subprocess.Popen(argv, cwd=work, env=env, stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 process_group=0)
+                                 process_group=0, close_fds=False)
     except OSError as e:
         return {"error": "running `%s`: %s" % (" ".join(command), os_error(e))}
     status = None
@@ -652,6 +834,8 @@ def result_kind(r):
         return "odd"
     if r["error"]:
         return "error"
+    if not names_plain(r["files"].keys()) or not names_plain(r["removed"]):
+        return "odd"
     return "ok"
 
 

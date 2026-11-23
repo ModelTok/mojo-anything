@@ -28,6 +28,13 @@ def decline() -> Error:
     return Error(DECLINE)
 
 
+def join(base: String, rel: String) -> String:
+    """`base/rel`, as Rust's `Path::join` (no doubled slash after `/`)."""
+    if base.endswith("/"):
+        return base + rel
+    return base + "/" + rel
+
+
 # --- shell words --------------------------------------------------------------
 
 
@@ -204,7 +211,7 @@ struct Config(Copyable, Movable):
 def load_config(h: PythonObject, repo: String) raises -> Optional[Config]:
     """`mojo/app-cases/mojo-anything.json`, or None when there is none.
     Declines a file serde_json would read otherwise or refuse."""
-    var path = repo + "/" + CASES_DIR + "/" + CONFIG_FILE
+    var path = join(repo, CASES_DIR) + "/" + CONFIG_FILE
     if not Bool(py=h["exists"](PythonObject(path))):
         return None
     var r = h["read_text"](PythonObject(path))
@@ -267,6 +274,8 @@ struct Spec(Copyable, Movable):
     var effects: PythonObject
     var out_dir: String
     """The `.out` folder, or ""."""
+    var out_files: PythonObject
+    """What the `.out` folder holds: relative path to bytes, sorted."""
     var has_removed: Bool
     var removed: List[String]
     var binary: Bool
@@ -289,6 +298,7 @@ struct Spec(Copyable, Movable):
         self.has_effects = False
         self.effects = PythonObject(None)
         self.out_dir = ""
+        self.out_files = Python.dict()
         self.has_removed = False
         self.removed = List[String]()
         self.binary = False
@@ -376,6 +386,9 @@ def load_spec(h: PythonObject, dir: String, file: String) raises -> Spec:
     var out_dir = dir + "/" + name + ".out"
     if Bool(py=h["is_dir"](PythonObject(out_dir))):
         spec.out_dir = out_dir
+        spec.out_files = h["read_files"](PythonObject(out_dir))
+        if not Bool(py=h["names_plain"](h["file_names"](spec.out_files))):
+            raise decline()
     var removed = _side(h, doc, dir, name, "removed")
     if removed[0]:
         spec.has_removed = True
