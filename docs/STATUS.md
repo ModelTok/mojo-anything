@@ -16,11 +16,11 @@ Nothing has been built, linked or tested on a Mac; the macOS CI job runs for the
 after publication (the user, 2026-11-22: "Linux now, macOS later").
 
 The suite at the release commit: `cargo fmt --all` and `cargo clippy --all-targets -- -D
-warnings` clean; `cargo test` 550 passed, 0 failed over all 46 test targets, run target by target
+warnings` clean; `cargo test` 570 passed, 0 failed over all 46 test targets, run target by target
 and `tests/app.rs` and `tests/loop.rs` test by test, because the WSL distro restarted every few
 minutes on 2026-11-23 whatever was running.
 
-The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `a301865a839c9a588e6c3ec81475ace3f191caa3`.
+The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `e0d14c2c02823c24b5a1c6b3ee11481ac7adb631`.
 
 ## Porting units
 
