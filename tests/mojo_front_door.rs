@@ -189,7 +189,7 @@ fn fallback_is_logged_once_per_run() {
     let _ = std::fs::remove_file(&log);
     let out = run(
         tool,
-        &["analyze", "/nonexistent"],
+        &["diff", "/nonexistent"],
         &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
     );
     assert_eq!(out.status.code(), Some(2));
