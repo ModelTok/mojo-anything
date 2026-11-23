@@ -282,81 +282,6 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
   (`item.key`, `item.value`); a `List` field is returned with `^`.
 - `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
   `String::from_utf8_lossy` does for a lone `\xff`.
-- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
-  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
-  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
-  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
-  whole group. Output goes to `tempfile.mkstemp` files and is read with
-  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
-  fork/exec through libc, which would need `poll` on two pipes by hand.
-- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
-  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
-  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
-- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
-  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
-  (`item.key`, `item.value`); a `List` field is returned with `^`.
-- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
-  `String::from_utf8_lossy` does for a lone `\xff`.
-- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
-  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
-  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
-  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
-  whole group. Output goes to `tempfile.mkstemp` files and is read with
-  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
-  fork/exec through libc, which would need `poll` on two pipes by hand.
-- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
-  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
-  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
-- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
-  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
-  (`item.key`, `item.value`); a `List` field is returned with `^`.
-- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
-  `String::from_utf8_lossy` does for a lone `\xff`.
-- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
-  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
-  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
-  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
-  whole group. Output goes to `tempfile.mkstemp` files and is read with
-  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
-  fork/exec through libc, which would need `poll` on two pipes by hand.
-- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
-  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
-  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
-- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
-  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
-  (`item.key`, `item.value`); a `List` field is returned with `^`.
-- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
-  `String::from_utf8_lossy` does for a lone `\xff`.
-- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
-  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
-  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
-  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
-  whole group. Output goes to `tempfile.mkstemp` files and is read with
-  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
-  fork/exec through libc, which would need `poll` on two pipes by hand.
-- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
-  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
-  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
-- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
-  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
-  (`item.key`, `item.value`); a `List` field is returned with `^`.
-- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
-  `String::from_utf8_lossy` does for a lone `\xff`.
-- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
-  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
-  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
-  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
-  whole group. Output goes to `tempfile.mkstemp` files and is read with
-  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
-  fork/exec through libc, which would need `poll` on two pipes by hand.
-- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
-  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
-  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
-- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
-  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
-  (`item.key`, `item.value`); a `List` field is returned with `^`.
-- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
-  `String::from_utf8_lossy` does for a lone `\xff`.
 - Walks (`tool/src/mojo_anything/walk.mojo`): `from std.os import listdir, makedirs` and
   `from std.os.path import exists, isdir, isfile, islink` build; `listdir` raises on an
   unreadable folder. `realpath` and `getcwd` through `external_call`, returning
@@ -385,3 +310,24 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
 - `len()` of a Mojo `String` is refused (UTF-8 ambiguity); column widths use
   `len(s.codepoints())`.
 - A generated Mojo function cannot reuse `var c` for each command; the generator numbers them.
+
+### app replay and record (Task 8)
+
+Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
+`tool/tests/test_app.mojo` (2026-11-23).
+
+- `case` is a keyword: a field, variable or parameter named `case` does not parse
+  (`escape keyword 'case' with backticks`); the port uses `name` and `only`.
+- A struct's `__init__` that calls Python (`Python.dict()`) must say `raises`, and every field
+  must be set before `self` is used in a method call (`use of uninitialized value`).
+- `PythonObject` fields hold Python values (bytes, dicts, compiled patterns) in a
+  `Copyable, Movable` struct; a dict is read with `d[PythonObject(key)]`, membership through a
+  Python helper (`key in d`).
+- Python source embedded in a Mojo string has every backslash doubled: Mojo reads `\d` as `\d`.
+- `subprocess.Popen(..., stdin=PIPE, stdout=PIPE, stderr=PIPE, process_group=0,
+  close_fds=False).communicate(input, timeout)` stands for Rust's `Command` with piped stdio:
+  it waits for the pipes to close as the Rust loop does, and on `TimeoutExpired` the group is
+  killed and `communicate()` collects what was written. Its timeout goes to `poll` in
+  milliseconds, so limits above about 2,147,483 s overflow; the tool declines those.
+- `re._parser.parse(pattern).getwidth()[0]` is a pattern's shortest match; 0 means it can match
+  the empty string, where Python's `re.sub` and Rust's `replace_all` differ.

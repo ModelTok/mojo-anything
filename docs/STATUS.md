@@ -34,10 +34,25 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | --- | --- | --- | --- | --- |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `--help` and `help <command>` for every command, `-h` for all but the five `app` subcommands; no subcommand yet | 519 | 519 | 87.3% (453/519), [log](measurements/2026-11-23-phase2-replay.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | help and version for every command, clap's usage errors, `setup`, `doctor` (its MCP self-test still starts the Phase 1 `mcp`) | 524 | 524 | 73.7% (386/524), [log](measurements/2026-11-23-phase2-replay-2.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `app replay` of CLI cases, `app record`'s checks before it runs anything | 524 | 524 | 71.4% (374/524), [log](measurements/2026-11-23-phase2-replay-3.md) |
 
-Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`
-([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls back in none of its 25
-cases; `doctor` in 2 of 5 (`doctor` and `doctor --json`, whose MCP self-test starts the Phase 1
+`app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
+whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
+fallback rate as the Phase 1 replayer
+([log](measurements/2026-11-23-phase2-replay-3.md)). It reads the case files, runs every case
+in a fresh sandbox on up to eight threads, and writes the Rust tool's report, `--json` outcome
+and fallback line; CPython runs the cases (`subprocess`) and reads the trycmd files
+(`tomllib`), `mojo-anything.json` (`json`) and the normalisers (`re`). A server's, a library's
+or an effects recording, `fresh` files, float files, `key-order`, `env.inherit = false`, a time
+limit above 2,000,000 s, normalisers or recorded text that Python's `re` could read otherwise
+than Rust's `regex`, and anything serde_json would read otherwise go to the Phase 1 binary
+before a case runs (a character in a build's output that the two classify differently, after).
+`app record` answers its argument errors in Mojo (the folder, the command, `--float-file`, the
+normalisers) and hands every recording to the Phase 1 binary (2 of its 9 cases fall back).
+
+The previous row, checked with `tool/fallback/mojo-anything app replay . --build
+tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
+back in none of its 25 cases; `doctor` in 2 of 5 (`doctor` and `doctor --json`, whose MCP self-test starts the Phase 1
 `mcp`); every other command still falls back except for its help and usage errors. Usage errors
 are the 46 of clap's own (`error: unexpected argument`, `invalid value`, a missing required
 argument, `unrecognized subcommand`), with clap's suggestions and usage lines; an input clap
@@ -49,8 +64,10 @@ toml_edit re-formats, JSON numbers serde_json reads otherwise); `doctor` falls b
 `tomllib` refuses Codex's settings, since toml_edit reads TOML 1.1. Mojo modules with tests
 (`pixi run check-tool`: format, build with warnings as errors, 72 tests): `fallback`,
 `process`, `walk`, `js_number`, `json_text`, `tolerance`, `recording`, `cli`, `cli_parse`,
-`setup`, `toml_edit`, `doctor`. Not yet in Mojo: `map`, `app record`, `app replay` and every
-other subcommand (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`).
+`setup`, `toml_edit`, `doctor`, and since the third row `app/` (`cases`, `diff`, `replay`,
+`record`; 91 tests in all). Not yet in Mojo: `map`, recording itself (`app record`'s runs,
+servers, effects) and every other subcommand
+(`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`).
 
 `setup` through the Mojo tool registers the Mojo binary, not `tool/fallback/mojo-anything`
 (`tests/mojo_front_door.rs` `setup_registers_the_mojo_binary`, which failed before `setup` was
