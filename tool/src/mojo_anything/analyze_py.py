@@ -2,7 +2,7 @@
 tool walks tree-sitter-python's tree (src/lang/python.rs `scan` and `exports`).
 
 Embedded into the Mojo tool by tool/embedded.py; the planner, the report and the
-bridge rules are Mojo (analyze.mojo, analyze_py.mojo). Where `ast` and
+bridge rules are Mojo (analyze.mojo, plan.mojo, python_lang.mojo). Where `ast` and
 tree-sitter could see the file differently (a syntax error, grammar newer than
 tree-sitter-python 0.25 reads, comments inside brackets, parentheses tree-sitter
 keeps as nodes, characters that end lines for one and not the other), the file
@@ -13,8 +13,16 @@ written.
 import ast
 import io
 import re
+import sys
 import tokenize
 import tomllib
+
+# The screens below are written for the `ast` and `tokenize` of these
+# versions (3.11 has no FSTRING_START; 3.14 adds t-strings, which
+# tree-sitter-python 0.25 reads as strings): another interpreter declines
+# every file.
+_SCREENED = ((3, 12), (3, 13))
+_VERSION = tuple(sys.version_info[:2])
 
 
 class Decline(Exception):
@@ -573,6 +581,35 @@ def _named_children(node):
     raise Decline("an __all__ of another shape")
 
 
+def _grouping_parens(seg, own_first):
+    """True when the value of `__all__` holds parentheses tree-sitter keeps as a
+    parenthesized_expression (ast drops them): a `(` after an operator, a comma
+    or an opening bracket, other than a tuple's own, which must close last."""
+    try:
+        toks = [
+            t
+            for t in tokenize.generate_tokens(io.StringIO(seg).readline)
+            if t.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.ENDMARKER)
+        ]
+    except (tokenize.TokenError, SyntaxError):
+        return True
+    depth = 0
+    for i, t in enumerate(toks):
+        if t.type != tokenize.OP:
+            continue
+        if t.string in "([{":
+            if t.string == "(" and not (i == 0 and own_first):
+                prev = toks[i - 1] if i else None
+                if prev is None or (prev.type == tokenize.OP and prev.string not in ")]}"):
+                    return True
+            depth += 1
+        elif t.string in ")]}":
+            depth -= 1
+            if own_first and depth == 0 and i != len(toks) - 1:
+                return True
+    return False
+
+
 def _dunder_all(tree, src, comments):
     for st in tree.body:
         if isinstance(st, ast.Assign):
@@ -587,10 +624,12 @@ def _dunder_all(tree, src, comments):
         _need(not chained, "a chained __all__")
         if right is None:
             return None
-        out = []
+        _need(src.prev_char(src.start(right)) in "=:", "an __all__ in parentheses")
         own = -1
         if isinstance(right, ast.Tuple) and src.text[src.start(right)] == "(":
             own = src.start(right)
+        _need(not _grouping_parens(src.seg(right), own >= 0), "parentheses in __all__")
+        out = []
         for e in _named_children(right):
             if _is_string(e, src, own):
                 out.append(src.seg(e).strip("\"'"))
@@ -660,6 +699,7 @@ def read_file(path, rel):
     except (OSError, UnicodeError):
         return ("unreadable",)
     try:
+        _need(_VERSION in _SCREENED, "a Python whose ast and tokenize the screens were not written for")
         _need(not any(c in _BAD for c in text), "a character that ends lines differently")
         try:
             tree = ast.parse(text)

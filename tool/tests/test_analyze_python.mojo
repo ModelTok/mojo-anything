@@ -8,6 +8,8 @@
 from std.python import Python, PythonObject
 from std.testing import assert_equal
 
+from mojo_anything.python_lang import py_helpers
+
 comptime FALLBACK = "tool/fallback/mojo-anything"
 comptime MOJO = "tool/build/mojo-anything"
 
@@ -541,6 +543,23 @@ def test_python_plans_match_the_phase1_binary() raises:
         dot,
     )
     _both_ways(t, "nested-root", ["inner/a.py=x = 1\n"], ["analyze", "inner"])
+    var fns = String(
+        "def a(x: int) -> int:\n    return x\n\n\ndef b(x: int) -> int:\n"
+        "    return x\n"
+    )
+    var shapes = List[String]()
+    shapes.append('("a", "b")')
+    shapes.append('["a"] + ["b"]')
+    shapes.append('("a",)')
+    shapes.append("list(x)")
+    shapes.append('{"a", "b"}')
+    for i in range(len(shapes)):
+        _both_ways(
+            t,
+            String("all-", i),
+            [String("m.py=__all__ = ") + shapes[i] + "\n" + fns],
+            dot,
+        )
 
 
 def test_out_writes_a_python_plan() raises:
@@ -570,6 +589,11 @@ def test_what_ast_may_read_otherwise_goes_to_the_phase1_binary() raises:
     cases.append(("union", "a.py=def f(x: int | None) -> int:\n    return 1\n"))
     cases.append(("type-params", "a.py=def f[T](x: T) -> T:\n    return x\n"))
     cases.append(("bad-toml", "pyproject.toml=x\n|a.py=x = 1\n"))
+    var one_fn = String("\ndef a(x: int) -> int:\n    return x\n")
+    cases.append(("all-parens", 'a.py=__all__ = ("a")\n' + one_fn))
+    cases.append(("all-list-parens", 'a.py=__all__ = (["a", "b"])\n' + one_fn))
+    cases.append(("all-first-parens", 'a.py=__all__ = ("a"), "b"\n' + one_fn))
+    cases.append(("all-item-parens", 'a.py=__all__ = ["b", ("a")]\n' + one_fn))
     for c in cases:
         var spec = List[String]()
         for part in c[1].split("|"):
@@ -578,9 +602,31 @@ def test_what_ast_may_read_otherwise_goes_to_the_phase1_binary() raises:
         assert_equal(log, "analyze .\n", "fallback of " + c[0])
 
 
+def test_another_python_declines_every_file() raises:
+    """The screens are written for the `ast` and `tokenize` of Python 3.12
+    and 3.13; under another interpreter every file goes to the Phase 1
+    binary."""
+    var h = py_helpers()
+    var d = String(py=Python.import_module("tempfile").mkdtemp())
+    var path = d + "/a.py"
+    var f = Python.import_module("builtins").open(PythonObject(path), "w")
+    _ = f.write("x = 1\n")
+    _ = f.close()
+    var here = h["read_file"](PythonObject(path), PythonObject("a.py"))
+    assert_equal(String(py=here[0]), "ok", "this interpreter")
+    h["_VERSION"] = Python.tuple(PythonObject(3), PythonObject(14))
+    var r = h["read_file"](PythonObject(path), PythonObject("a.py"))
+    assert_equal(String(py=r[0]), "decline", "Python 3.14")
+    h["_VERSION"] = Python.tuple(PythonObject(3), PythonObject(11))
+    r = h["read_file"](PythonObject(path), PythonObject("a.py"))
+    assert_equal(String(py=r[0]), "decline", "Python 3.11")
+    _ = Python.import_module("shutil").rmtree(PythonObject(d))
+
+
 def main() raises:
     test_python_plans_match_the_phase1_binary()
     test_out_writes_a_python_plan()
     test_what_ast_may_read_otherwise_goes_to_the_phase1_binary()
+    test_another_python_declines_every_file()
     _ = _py()["gone"]()
-    print("test_analyze_python: 3 passed")
+    print("test_analyze_python: 4 passed")
