@@ -26,6 +26,7 @@ _GRAMMARS = {
     "csharp": ("tree_sitter_c_sharp", "language"),
     "kotlin": ("tree_sitter_kotlin", "language"),
     "php": ("tree_sitter_php", "language_php"),
+    "c": ("tree_sitter_c", "language"),
 }
 
 
@@ -1982,6 +1983,545 @@ def _php_exports(root):
     return out
 
 
+# ---- C (src/lang/c.rs) -------------------------------------------------------------------
+
+_C_CALLS = {}
+for _n in ("malloc", "calloc", "realloc", "free", "memcpy", "memmove"):
+    _C_CALLS[_n] = "pointers"
+for _n in ("strlen", "strcpy", "strncpy", "strcat", "strcmp", "strchr", "strstr", "sprintf", "snprintf"):
+    _C_CALLS[_n] = "string-offsets"
+for _n in ("pthread_create", "pthread_mutex_lock", "atomic_fetch_add"):
+    _C_CALLS[_n] = "concurrency"
+for _n in ("setjmp", "longjmp", "signal", "exit", "abort"):
+    _C_CALLS[_n] = "exceptions"
+
+_C_ATTRIBUTES = ("packed", "aligned", "section", "interrupt", "naked")
+
+
+def _trim_start(s):
+    i = 0
+    while i < len(s) and s[i] in _WS:
+        i += 1
+    return s[i:]
+
+
+def _c_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    for node in _walk(root):
+        kind = node.type
+        if kind == "preproc_include":
+            path = node.child_by_field_name("path")
+            if path is not None:
+                raw = _text(path)
+                if raw.startswith('"'):
+                    imports.append(raw.strip('"'))
+                else:
+                    imports.append("<" + raw.strip("<>") + ">")
+        elif kind in ("pointer_expression", "pointer_declarator"):
+            add("pointers", node)
+        elif kind == "call_expression":
+            f = node.child_by_field_name("function")
+            callee = _text(f) if f is not None else ""
+            if callee in _C_CALLS:
+                add(_C_CALLS[callee], node)
+        elif kind == "binary_expression":
+            o = node.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            if op in ("/", "%"):
+                add("division-semantics", node)
+            elif op in ("<<", ">>"):
+                add("integer-semantics", node)
+        elif kind == "cast_expression":
+            add("integer-semantics", node)
+            value = node.child_by_field_name("value")
+            t = node.child_by_field_name("type")
+            ty = _text(t) if t is not None else ""
+            if "*" in ty and value is not None and value.type == "number_literal":
+                add("platform-specific", node)
+        elif kind in ("gnu_asm_expression", "bitfield_clause", "ms_declspec_modifier"):
+            add("platform-specific", node)
+        elif kind == "type_qualifier":
+            if _text(node) == "volatile":
+                add("platform-specific", node)
+        elif kind in ("attribute_specifier", "attribute_declaration"):
+            if any(a in _text(node) for a in _C_ATTRIBUTES):
+                add("platform-specific", node)
+        elif kind == "preproc_call":
+            t = _text(node)
+            if _trim_start(t).startswith("#pragma") and "pack" in t:
+                add("platform-specific", node)
+        elif kind == "null":
+            add("null-references", node)
+        elif kind == "preproc_function_def":
+            add("reflection", node)
+        elif kind in ("for_statement", "while_statement", "do_statement"):
+            loops += 1
+    return imports, list(risks.items()), loops
+
+
+_C_SCALARS = {
+    "int": "int", "signed int": "int", "signed": "int",
+    "unsigned": "int", "unsigned int": "int",
+    "short": "int", "short int": "int", "signed short": "int",
+    "unsigned short": "int", "unsigned short int": "int",
+    "long": "int", "long int": "int", "signed long": "int",
+    "unsigned long": "int", "unsigned long int": "int",
+    "long long": "int", "long long int": "int", "signed long long": "int",
+    "unsigned long long": "int", "unsigned long long int": "int",
+    "char": "int", "signed char": "int", "unsigned char": "int",
+    "int8_t": "int", "int16_t": "int", "int32_t": "int", "int64_t": "int",
+    "uint8_t": "int", "uint16_t": "int", "uint32_t": "int", "uint64_t": "int",
+    "size_t": "int", "ssize_t": "int", "ptrdiff_t": "int", "intptr_t": "int",
+    "float": "number", "double": "number",
+    "bool": "boolean", "_Bool": "boolean",
+    "void": "void",
+}
+
+
+def _c_bare(c):
+    return " ".join(w for w in _split_ws(c) if w != "const")
+
+
+def c_scalar(c):
+    """c.rs `scalar`'s dialect type (the char signedness changes only the Rust types), or
+    None."""
+    return _C_SCALARS.get(_c_bare(c))
+
+
+def _c_rstrip_stars(s):
+    while s and s[-1] in "* ":
+        s = s[:-1]
+    return s
+
+
+def _c_declared(node, base):
+    ty = base
+    current = node
+    name = None
+    while current is not None:
+        k = current.type
+        if k in ("pointer_declarator", "abstract_pointer_declarator"):
+            ty += "*"
+            current = current.child_by_field_name("declarator")
+        elif k == "identifier":
+            name = _text(current)
+            current = None
+        elif k == "array_declarator":
+            ty += "[]"
+            current = current.child_by_field_name("declarator")
+        elif k == "function_declarator":
+            ty += "(fn)"
+            current = current.child_by_field_name("declarator")
+        else:
+            current = current.child_by_field_name("declarator")
+    return ty, name
+
+
+_C_BASE_KINDS = (
+    "type_qualifier",
+    "primitive_type",
+    "sized_type_specifier",
+    "type_identifier",
+    "struct_specifier",
+    "enum_specifier",
+    "union_specifier",
+)
+
+
+def _c_base_type(node):
+    return " ".join(_text(c) for c in _named(node) if c.type in _C_BASE_KINDS)
+
+
+def _c_typedefs_in(root, out):
+    for node in _walk(root):
+        if node.type != "type_definition":
+            continue
+        d = node.child_by_field_name("declarator")
+        if d is None or d.type != "type_identifier":
+            continue
+        ty = node.child_by_field_name("type")
+        if ty is None:
+            continue
+        if ty.type == "enum_specifier":
+            underlying = "int"
+        elif ty.type in ("primitive_type", "sized_type_specifier", "type_identifier"):
+            underlying = " ".join(_split_ws(_text(ty)))
+        else:
+            continue
+        out.append((_text(d), underlying))
+
+
+def _c_struct_fields(spec):
+    body = spec.child_by_field_name("body")
+    if body is None:
+        return None
+    fields = []
+    for field in _named(body):
+        if field.type == "comment":
+            continue
+        if field.type != "field_declaration":
+            return None
+        if any(c.type == "bitfield_clause" for c in _named(field)):
+            return None
+        ty = field.child_by_field_name("type")
+        if ty is None or ty.type not in ("primitive_type", "sized_type_specifier", "type_identifier"):
+            return None
+        ty = _c_base_type(field)
+        names = field.children_by_field_name("declarator")
+        if not names:
+            return None
+        for n in names:
+            if n.type != "field_identifier":
+                return None
+            fields.append((ty, _text(n)))
+    return fields if fields else None
+
+
+def _c_structs_in(root):
+    """collect_structs for one file: (bodies, opaque, aliases) in the order they are met."""
+    bodies, opaque, aliases = [], [], []
+    for node in _walk(root):
+        if node.type == "struct_specifier" and node.child_by_field_name("body") is not None:
+            tag = node.child_by_field_name("name")
+            if tag is not None:
+                name = "struct " + _text(tag)
+                f = _c_struct_fields(node)
+                (bodies.append((name, f)) if f is not None else opaque.append(name))
+        elif node.type == "type_definition":
+            d = node.child_by_field_name("declarator")
+            ty = node.child_by_field_name("type")
+            if d is None or ty is None:
+                continue
+            if d.type != "type_identifier" or ty.type != "struct_specifier":
+                continue
+            name = _text(d)
+            if ty.child_by_field_name("body") is not None:
+                f = _c_struct_fields(ty)
+                (bodies.append((name, f)) if f is not None else opaque.append(name))
+            else:
+                tag = ty.child_by_field_name("name")
+                if tag is not None:
+                    aliases.append((name, "struct " + _text(tag)))
+    return bodies, opaque, aliases
+
+
+_C_TYPES = [{}, {}]
+
+
+def c_use_types(root, rels):
+    """use_typedefs: the project's scalar typedefs and structs of scalars from every `.h` and
+    `.c` file the walk keeps (`rels`); 1 when read, 0 when the result could depend on the
+    walk's order (a name defined in two files, or twice in one, with different meanings) or
+    a file's tree has an error."""
+    raw = {}
+    per_name = {}
+    alias_of = {}
+    try:
+        for rel in rels:
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                data.decode("utf-8")
+            except (OSError, UnicodeError):
+                continue
+            tree = _parse("c", data)
+            if tree.root_node.has_error:
+                return 0
+            pairs = []
+            _c_typedefs_in(tree.root_node, pairs)
+            for name, underlying in pairs:
+                if raw.get(name, underlying) != underlying:
+                    return 0
+                raw[name] = underlying
+            bodies, opaque, aliases = _c_structs_in(tree.root_node)
+            seen = {}
+            for name, fields in bodies:
+                seen.setdefault(name, []).append(fields)
+            for name in opaque:
+                seen.setdefault(name, []).append(None)
+            for name, got in seen.items():
+                if name in per_name or any(g != got[0] for g in got):
+                    return 0
+                per_name[name] = got[0]
+            for name, target in aliases:
+                if alias_of.get(name, target) != target:
+                    return 0
+                alias_of[name] = target
+    except Decline:
+        return 0
+    except RecursionError:
+        return 0
+    out = {}
+    for name in raw:
+        ty = raw[name]
+        for _ in range(8):
+            if ty in raw:
+                ty = raw[ty]
+            else:
+                break
+        if c_scalar(ty) is not None:
+            out[name] = ty
+
+    def field_type(ty):
+        bare = _c_bare(ty)
+        resolved = out.get(bare, bare)
+        d = c_scalar(resolved)
+        return resolved if d is not None and d != "void" else None
+
+    structs = {}
+    for name, fields in per_name.items():
+        if fields is None:
+            continue
+        typed = []
+        for ty, field in fields:
+            t = field_type(ty)
+            if t is None:
+                typed = None
+                break
+            typed.append((t, field))
+        if typed is not None:
+            structs[name] = typed
+    for name, target in alias_of.items():
+        if target in structs and name not in structs:
+            structs[name] = structs[target]
+    _C_TYPES[0] = out
+    _C_TYPES[1] = structs
+    return 1
+
+
+def _c_struct_type(c_type):
+    if "*" in c_type or "[]" in c_type or "(fn)" in c_type:
+        return None
+    bare = _c_bare(c_type)
+    fields = _C_TYPES[1].get(bare)
+    if fields is None:
+        return None
+    return "struct:" + bare + ":" + ",".join(t + " " + n for t, n in fields)
+
+
+def _c_resolve_type(c_type):
+    stars = c_type.count("*")
+    base = trim(_c_rstrip_stars(c_type))
+    is_const = "const" in _split_ws(base)
+    bare = _c_bare(base)
+    resolved = "int" if bare.startswith("enum ") else _C_TYPES[0].get(bare, bare)
+    return ("const " if is_const else "") + resolved + "*" * stars
+
+
+_C_BYTE_TYPES = ("uint8_t", "unsigned char", "char", "signed char", "int8_t", "void")
+
+
+def _c_pointee(c_type):
+    normalized = c_type.replace("char const", "const char")
+    if normalized.count("*") != 1 or "(fn)" in normalized:
+        return None
+    base = trim(_c_rstrip_stars(normalized))
+    return (_c_bare(base), "const" in _split_ws(base))
+
+
+def _c_is_integer(c_type):
+    return "*" not in c_type and c_scalar(c_type) == "int"
+
+
+def _c_is_char_pointer_pointer(c_type):
+    normalized = c_type.replace("char const", "const char")
+    t = normalized
+    while t and t[-1] in _WS:
+        t = t[:-1]
+    if not t.endswith("*"):
+        return False
+    p = _c_pointee(t[:-1])
+    return p is not None and p[0] == "char"
+
+
+def _c_classify(c_type):
+    """(ok, dialect type or reason)."""
+    if "(fn)" in c_type:
+        return (False, "fn")
+    if "*" in c_type or "[]" in c_type:
+        return (False, "pointer")
+    ts = _c_struct_type(c_type)
+    if ts is not None:
+        return (True, ts)
+    d = c_scalar(c_type)
+    if d is not None:
+        return (True, d)
+    return (False, "type")
+
+
+def _c_classify_params(types):
+    n = len(types)
+    out = [None] * n
+
+    def lens(i):
+        return out[i] is None and _c_is_integer(types[i][0])
+
+    for i, (ty, _) in enumerate(types):
+        p = _c_pointee(ty)
+        if p is not None and p[1] and p[0] == "char":
+            out[i] = (True, "string")
+    for i, (ty, _) in enumerate(types):
+        if out[i] is not None:
+            continue
+        p = _c_pointee(ty)
+        if p is None or not p[1]:
+            continue
+        if p[0] in _C_BYTE_TYPES and i + 1 < n and lens(i + 1):
+            out[i] = (True, "bytes")
+            out[i + 1] = (True, "len:%d" % i)
+    for i, (ty, _) in enumerate(types):
+        if out[i] is not None:
+            continue
+        p = _c_pointee(ty)
+        if p is None or p[1]:
+            continue
+        if p[0] not in _C_BYTE_TYPES:
+            continue
+
+        def sized(j):
+            name = types[j][1]
+            if name is None:
+                return False
+            # str::to_ascii_lowercase
+            low = "".join(c.lower() if "A" <= c <= "Z" else c for c in name)
+            return "size" in low or "len" in low or low == "n" or low == "cap"
+
+        partner = None
+        if i + 1 < n and lens(i + 1):
+            partner = i + 1
+        else:
+            for j in range(n):
+                if j != i and lens(j) and sized(j):
+                    partner = j
+                    break
+        if partner is not None:
+            out[i] = (True, "buffer")
+            out[partner] = (True, "len:%d" % i)
+    for i, (ty, _) in enumerate(types):
+        if out[i] is not None or not _c_is_char_pointer_pointer(ty):
+            continue
+        target = None
+        for j in range(n):
+            k = out[j]
+            if k is not None and k[0] and k[1] in ("string", "bytes", "buffer"):
+                pj = _c_pointee(types[j][0])
+                if pj is not None and pj[0] == "char":
+                    target = j
+                    break
+        out[i] = (True, "outptr:%d" % target) if target is not None else (False, "pp")
+    result = []
+    for (ty, _), done in zip(types, out):
+        if done is not None:
+            result.append(done)
+            continue
+        p = _c_pointee(ty)
+        if p is not None and p[1] and p[0] in _C_BYTE_TYPES:
+            result.append((False, "no length"))
+        elif p is not None and not p[1] and p[0] in _C_BYTE_TYPES:
+            result.append((False, "no size"))
+        elif p is not None and not p[1] and c_scalar(p[0]) not in (None, "void"):
+            result.append((True, "out"))
+        else:
+            result.append(_c_classify(ty))
+    return result
+
+
+def _c_allocates(body):
+    for n in _walk(body):
+        if n.type == "call_expression":
+            f = n.child_by_field_name("function")
+            callee = _text(f) if f is not None else ""
+            if "alloc" in callee or "dup" in callee or "printf" in callee:
+                return True
+    return False
+
+
+def _c_exports(root):
+    """c.rs `exports`: non-static function definitions, as (blocked, types)."""
+    out = []
+    for node in _named(root):
+        if node.type != "function_definition":
+            continue
+        if any(c.type == "storage_class_specifier" and _text(c) == "static" for c in _named(node)):
+            continue
+        base = _c_base_type(node)
+        declarator = node.child_by_field_name("declarator")
+        if declarator is None:
+            continue
+        ret = base
+        function = declarator
+        while function.type == "pointer_declarator":
+            ret += "*"
+            inner = function.child_by_field_name("declarator")
+            if inner is None:
+                break
+            function = inner
+        if function.type != "function_declarator":
+            continue
+        n = function.child_by_field_name("declarator")
+        name = _text(n) if n is not None else ""
+        if name == "main":
+            continue
+        blocked = False
+        declared = []
+        params = function.child_by_field_name("parameters")
+        for i, p in enumerate(_named(params) if params is not None else []):
+            if p.type == "variadic_parameter":
+                blocked = True
+                continue
+            if p.type != "parameter_declaration":
+                continue
+            pbase = _c_base_type(p)
+            d = p.child_by_field_name("declarator")
+            c_type, pname = _c_declared(d, pbase) if d is not None else (pbase, None)
+            if c_type == "void" and pname is None:
+                continue
+            declared.append((_c_resolve_type(c_type), pname if pname is not None else "arg%d" % i))
+        kinds = _c_classify_params([(t, nm) for t, nm in declared])
+        types = []
+        for ok, t in kinds:
+            if ok:
+                types.append(t)
+            else:
+                blocked = True
+                types.append("unknown")
+        r = _c_resolve_type(ret)
+        if r == "void":
+            returns = "void"
+        elif "*" in r:
+            into = None
+            pr = _c_pointee(r)
+            if pr is not None:
+                for k, (t, _) in enumerate(declared):
+                    if types[k] in ("string", "bytes", "buffer"):
+                        pk = _c_pointee(t)
+                        if pk is not None and pk[0] == pr[0]:
+                            into = k
+                            break
+            body = node.child_by_field_name("body")
+            allocates = body is not None and _c_allocates(body)
+            if into is not None and not allocates:
+                returns = "ptr:%d" % into
+            else:
+                blocked = True
+                returns = "unknown"
+        else:
+            ok, t = _c_classify(r)
+            if ok:
+                returns = t
+            else:
+                blocked = True
+                returns = "unknown"
+        out.append((blocked, types + [returns]))
+    return out
+
+
 def read_file(lang, path):
     """("unreadable",) when read_to_string would fail; ("decline", why) when the tree has an
     error (error recovery may differ between the cores); else ("ok", loc, imports, risks,
@@ -2013,6 +2553,9 @@ def read_file(lang, path):
         elif lang == "kotlin":
             imports, risks, loops = _kt_scan(root)
             exports = _kt_exports(root, data, path) if path.endswith(".kt") else []
+        elif lang == "c":
+            imports, risks, loops = _c_scan(root)
+            exports = _c_exports(root) if path.endswith(".c") else []
         elif lang == "php":
             imports, risks, loops = _php_scan(root)
             # package_of's kebab case and the PSR-4 lookups use Unicode tables.

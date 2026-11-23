@@ -21,6 +21,7 @@ from mojo_anything.python_lang import (
 )
 from mojo_anything.risks import (
     RISK_COUNT,
+    risk_index,
     risk_guidance,
     risk_names,
     risk_title,
@@ -548,6 +549,8 @@ def _target(
         return kotlin_resolve(spec, index, paths, packages, crates)
     if lang == "php":
         return php_resolve(from_path, spec, index, packages)
+    if lang == "c":
+        return c_resolve(from_path, spec, index, paths, crates)
     return resolve(from_path, spec, index, paths, roots)
 
 
@@ -724,6 +727,119 @@ def php_resolve(
     if len(parts) <= 1:
         return Resolution(STDLIB, -1, "")
     return Resolution(EXTERNAL, -1, php_package_of(spec))
+
+
+def c_standard_headers() -> List[String]:
+    """c.rs STANDARD_HEADERS."""
+    return [
+        "<stdio.h>",
+        "<stdlib.h>",
+        "<string.h>",
+        "<math.h>",
+        "<ctype.h>",
+        "<stdint.h>",
+        "<stdbool.h>",
+        "<stddef.h>",
+        "<limits.h>",
+        "<errno.h>",
+        "<assert.h>",
+        "<float.h>",
+        "<stdarg.h>",
+        "<time.h>",
+        "<inttypes.h>",
+        "<wchar.h>",
+        "<locale.h>",
+        "<signal.h>",
+        "<setjmp.h>",
+        "<iso646.h>",
+        "<uchar.h>",
+        "<wctype.h>",
+    ]
+
+
+def c_in_arch_dir(path: String) -> Bool:
+    """c.rs `in_arch_dir`: a folder of the path names a CPU architecture."""
+    var slash = path.rfind("/")
+    if slash < 0:
+        return False
+    var arch: List[String] = [
+        "x86",
+        "x86_64",
+        "i386",
+        "amd64",
+        "arm",
+        "arm64",
+        "aarch64",
+        "ppc",
+        "powerpc",
+        "mips",
+        "loongarch",
+        "riscv",
+        "sparc",
+        "s390",
+        "alpha",
+        "sh4",
+        "avr32",
+        "bfin",
+    ]
+    for seg in String(path[byte=0:slash]).split("/"):
+        if String(seg) in arch:
+            return True
+    return False
+
+
+def c_resolve(
+    from_path: String,
+    spec: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    crates: Crates,
+) raises -> Resolution:
+    """c.rs `resolve`: a system header is the standard library's (the crate
+    table says `std`, or STANDARD_HEADERS) or a library; a project header
+    relative to the file, the root, include/ or src/ (or without its first
+    folder when no file sits under it), its `.c` beside it first."""
+    if spec.startswith("<"):
+        var r = crates.py["crate_find"](PythonObject("c"), PythonObject(spec))
+        if Int(py=r[0]) == 1 and String(py=r[1]) == "std":
+            return Resolution(STDLIB, -1, "")
+        if spec in c_standard_headers():
+            return Resolution(STDLIB, -1, "")
+        return Resolution(EXTERNAL, -1, spec)
+    var slash = from_path.rfind("/")
+    var dir = String("")
+    if slash >= 0:
+        dir = String(from_path[byte=0:slash])
+    var candidates: List[String] = [
+        join_dir(dir, spec),
+        spec,
+        join_dir("include", spec),
+        join_dir("src", spec),
+    ]
+    var cut = spec.find("/")
+    if cut >= 0:
+        var prefix = String(spec[byte = 0 : cut + 1])
+        var any = False
+        for p in paths:
+            if p.startswith(prefix):
+                any = True
+                break
+        if not any:
+            candidates.append(String(spec[byte = cut + 1 :]))
+    for c in candidates:
+        var ok = True
+        var header = _normalize(c, ok)
+        if not ok:
+            continue
+        if header.endswith(".h"):
+            var impl = (
+                String(header[byte = 0 : header.byte_length() - 2]) + ".c"
+            )
+            if impl in index:
+                return Resolution(FILE, index[impl], "")
+        if header in index:
+            return Resolution(FILE, index[header], "")
+    return Resolution(UNRESOLVED, -1, "")
 
 
 def ruby_stdlib() -> List[String]:
@@ -994,7 +1110,14 @@ def _score(
     )
     var dynamic = unit.counts[3] > 0
     var status: Int
-    if len(blocking) > 0 or dynamic:
+    if unit.counts[risk_index("platform-specific")] > 0:
+        notes.append(
+            "Depends on the target (hardware registers, memory layout, inline"
+            " assembly): keep in C, since a recording on this machine cannot"
+            " vouch for the target."
+        )
+        status = KEEP
+    elif len(blocking) > 0 or dynamic:
         for d in blocking:
             notes.append("`" + d + "` has no Rust equivalent.")
         if dynamic:
@@ -1215,6 +1338,11 @@ def build(
         report.loc += f.loc
         units[u].loc += f.loc
         units[u].loops += f.loops
+        if lang == "c" and c_in_arch_dir(file.path):
+            var pr = risk_index("platform-specific")
+            units[u].counts[pr] += 1
+            if len(units[u].samples[pr]) < SAMPLES_PER_RISK:
+                units[u].samples[pr].append(file.path + ":1")
         for r in range(RISK_COUNT):
             for line in f.risks[r]:
                 units[u].counts[r] += 1
@@ -1286,14 +1414,19 @@ def build(
         reports[k].bridgeable = bridgeable
         if exports > 0 and bridgeable == 0:
             reports[k].status = CAUTION
-            reports[k].notes.insert(
-                0,
-                (
-                    "Every export is JS-shaped (functions, plugin objects,"
-                    " iterators): porting the logic means adding a data-only"
-                    " function, an API change."
-                ),
+            var note = String(
+                "Every export is JS-shaped (functions, plugin objects,"
+                " iterators): porting the logic means adding a data-only"
+                " function, an API change."
             )
+            if lang == "c":
+                note = (
+                    "No export can cross the C ABI bridge (contexts, function"
+                    " pointers, structs by value, pointers it cannot pair with"
+                    " a length): bridge a wrapper with plain arguments, an API"
+                    " change."
+                )
+            reports[k].notes.insert(0, note)
     for r in reports:
         if r.status == READY:
             report.ready += 1

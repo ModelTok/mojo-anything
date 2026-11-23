@@ -1423,6 +1423,94 @@ def php_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def c_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """c.rs `discover`: a package per folder holding a Makefile,
+    CMakeLists.txt or meson.build (its `src` as the source root when there
+    is one), the root's when none is there, and the `.c` and `.h` files the
+    walk keeps, a header whose stem names a `.c` file left out (one unit);
+    declined for names outside ASCII, a backslash in a name or ignore files
+    with alternates."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("c"):
+        ws.declined = True
+        return ws^
+    var dirs = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("c", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if (
+            name == "Makefile"
+            or name == "CMakeLists.txt"
+            or name == "meson.build"
+        ):
+            var dir = _dir_of(rel)
+            if not (dir in dirs):
+                dirs.append(dir)
+        elif name.endswith(".c") or name.endswith(".h"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var has_root = False
+    for dir in dirs:
+        var src_root = dir
+        if isdir(root + "/" + join_dir(dir, "src")):
+            src_root = join_dir(dir, "src")
+        var name = dir
+        if dir.byte_length() == 0:
+            name = _root_name(root)
+            has_root = True
+        ws.packages.append(Package(name, dir, src_root, List[String]()))
+    if not has_root:
+        var src_root = String("")
+        if isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    var stems = List[String]()
+    for rel in found:
+        if rel.endswith(".c"):
+            stems.append(
+                _name_of(String(rel[byte = 0 : rel.byte_length() - 2]))
+            )
+    var kept = List[String]()
+    for rel in found:
+        if rel.endswith(".h"):
+            var stem = _name_of(String(rel[byte = 0 : rel.byte_length() - 2]))
+            if stem in stems:
+                continue
+        kept.append(rel)
+    for rel in _sorted(kept):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        var name = _name_of(rel)
+        var test = name.startswith("test_") or name.endswith("_test.c")
+        for part in rel.split("/"):
+            if part == "tests" or part == "test":
+                test = True
+        ws.files.append(SourceFile(rel, best, test))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1433,11 +1521,36 @@ def tree_plan(
     """The plan of a workspace of a tree-sitter language with source files;
     `declined` when a file's tree has an error."""
     var th = tree_helpers()
+    if lang == "c":
+        # use_typedefs: every `.h` and `.c` file the unfiltered walk keeps.
+        var rels = Python.list()
+        for path in walk(root, _keep, False):
+            var rel = _rel(root, path)
+            if rel.endswith(".h") or rel.endswith(".c"):
+                rels.append(PythonObject(rel))
+        if Int(py=th["c_use_types"](PythonObject(root), rels)) != 1:
+            declined = True
+            return Report(lang)
     var facts = List[Facts]()
     for f in ws.files:
-        facts.append(read_tree_facts(th, lang, root + "/" + f.path, declined))
+        var got = read_tree_facts(th, lang, root + "/" + f.path, declined)
         if declined:
             return Report(lang)
+        if lang == "c" and got.readable and f.path.endswith(".c"):
+            # analyze.rs own_header: the imports of `<stem>.h`, else
+            # `include/<name>.h`, the first that reads.
+            var stem = String(f.path[byte = 0 : f.path.byte_length() - 2])
+            var name = _name_of(stem)
+            for h in [stem + ".h", "include/" + name + ".h"]:
+                var header = read_tree_facts(th, lang, root + "/" + h, declined)
+                if declined:
+                    return Report(lang)
+                if header.readable:
+                    for k in range(len(header.specs)):
+                        got.specs.append(header.specs[k])
+                        got.type_only.append(header.type_only[k])
+                    break
+        facts.append(got^)
     return build(lang, registry, ws.packages, ws.files, facts, py_helpers())
 
 
@@ -1529,10 +1642,13 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         or lang == "csharp"
         or lang == "kotlin"
         or lang == "php"
+        or lang == "c"
     ):
         var ws: Workspace
         if lang == "php":
             ws = php_workspace(root, py)
+        elif lang == "c":
+            ws = c_workspace(root, py)
         elif lang == "java":
             ws = java_workspace(root, py)
         elif lang == "go":
