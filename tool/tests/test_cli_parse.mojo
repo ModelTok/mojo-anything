@@ -135,6 +135,12 @@ def test_what_is_not_owned_is_declined() raises:
     assert_equal(parse(_list("doctor", "extra")).kind, DECLINED)
     assert_equal(parse(_list("--nope", "bench")).kind, DECLINED)
     assert_equal(parse(_list("analyze", ".", "--nope")).kind, DECLINED)
+    # clap words these its own way: "a value is required" for an empty enum
+    # value, a range message for a negative u16.
+    assert_equal(parse(_list("setup", "--agent=")).kind, DECLINED)
+    assert_equal(parse(_list("analyze", "--lang=")).kind, DECLINED)
+    assert_equal(parse(_list("app", "replay", "--port=-1")).kind, DECLINED)
+    assert_equal(parse(_list("app", "replay", "--port=x")).kind, USAGE_ERROR)
 
 
 def _displays(path: String) -> List[String]:

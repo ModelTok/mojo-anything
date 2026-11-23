@@ -13,7 +13,7 @@ from std.python import Python, PythonObject
 
 from emberjson import Value
 from mojo_anything.cli_parse import Parsed
-from mojo_anything.fallback import own_binary
+from mojo_anything.fallback import fallback, own_binary
 from mojo_anything.json import parse_json
 from mojo_anything.json_text import write_string
 from mojo_anything.process import Command, QUICK, output
@@ -1091,7 +1091,28 @@ def report_json(r: Report) -> String:
     return out + "  ]\n}"
 
 
-def run_doctor(p: Parsed) -> Int:
+def toml_reads_alike() -> Bool:
+    """Whether Codex's settings, when there are any, parse as TOML 1.0.
+    toml_edit reads TOML 1.1 (multi-line inline tables, trailing commas), and
+    `tomllib` only 1.0, so a file `tomllib` refuses could be fine for the
+    Rust tool: such a run goes to the Phase 1 binary (doctor writes nothing,
+    so handing it over first changes nothing)."""
+    try:
+        var path = join(home(), ".codex/config.toml")
+        if not isfile(path):
+            return True
+        var text = open(path, "r").read()
+        if String(text.strip()) == "":
+            return True
+        var r = _py()["codex_entry"](PythonObject(text), PythonObject(NAME))
+        return String(py=r[0]) != "invalid"
+    except:
+        return False
+
+
+def run_doctor(p: Parsed, argv: List[String]) -> Int:
+    if not toml_reads_alike():
+        return fallback(argv)
     var r = run()
     if p.flag("json"):
         print(report_json(r))

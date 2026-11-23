@@ -94,9 +94,10 @@ fn all_cases_pass_with_help_in_mojo() {
         .expect("a passed/total line");
     assert_eq!(passed, total, "{stdout}");
     assert!(total.parse::<usize>().unwrap_or(0) > 500, "{stdout}");
-    // Help and version (71 cases) and clap's usage errors (46) are answered in
-    // Mojo; the other cases' commands still fall back, so the rate is
-    // reported and below 100%.
+    // Help and version (71 cases), clap's usage errors (46) and setup (21 more)
+    // are answered in Mojo, and doctor in Mojo but for its `mcp` self-test; the
+    // other cases' commands still fall back, so the rate is reported and below
+    // 100%.
     let rate = stdout
         .lines()
         .find_map(|l| l.strip_prefix("Fallback rate: "))
@@ -108,7 +109,7 @@ fn all_cases_pass_with_help_in_mojo() {
     assert_eq!(of, total, "{stdout}");
     let fell_back: usize = fell_back.parse().unwrap_or(usize::MAX);
     let total: usize = total.parse().unwrap_or(0);
-    assert!(fell_back + 117 <= total, "{stdout}");
+    assert!(fell_back <= 386 && fell_back < total, "{stdout}");
 }
 
 #[test]

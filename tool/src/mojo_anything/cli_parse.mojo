@@ -239,6 +239,9 @@ def _check(value: String, d: ArgDef, mut text: String) -> Int:
         String("error: invalid value '") + value + "' for '" + d.display() + "'"
     )
     if d.kind == "enum":
+        if value == "":
+            # clap says "a value is required" for an empty enum value.
+            return _UNSURE
         for i in range(len(d.choices)):
             if d.choices[i] == value:
                 return _VALID
@@ -255,6 +258,9 @@ def _check(value: String, d: ArgDef, mut text: String) -> Int:
         return _INVALID
     if d.kind == "usize" or d.kind == "u64" or d.kind == "u16":
         var bytes = value.as_bytes()
+        if d.kind == "u16" and len(bytes) > 0 and bytes[0] == 45:
+            # clap reads a u16 as an i64 in a range: `-1 is not in 0..=65535`.
+            return _UNSURE
         var start = 1 if len(bytes) > 0 and bytes[0] == 43 else 0
         if start == len(bytes):
             return _UNSURE

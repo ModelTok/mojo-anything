@@ -495,9 +495,50 @@ def handled_in_mojo(opts: Options) -> Bool:
                 if not _codex(f, path, opts).supported:
                     return False
             else:
-                _ = _json_doc(_read(f, path), path)
+                var text = _read(f, path)
+                var doc = _json_doc(text, path)
+                if not _serde_reads_alike(doc, text):
+                    return False
     except:
         return False
+    return True
+
+
+def _finite(v: Value) -> Bool:
+    if v.is_float():
+        var x = v.float()
+        return x == x and x - x == 0.0
+    if v.is_array():
+        for item in v.array():
+            if not _finite(item):
+                return False
+    if v.is_object():
+        for kv in v.object().items():
+            if not _finite(kv.value):
+                return False
+    return True
+
+
+def _serde_reads_alike(doc: Value, text: Optional[String]) -> Bool:
+    """Whether serde_json reads `text` as the JSON module does: serde refuses
+    numbers out of range (`1e400`, read here as infinity) and reads `-0` as
+    the float `-0.0`. A `-0` anywhere in the text, strings included, is
+    declined: a fallback, never a wrong file."""
+    if not _finite(doc):
+        return False
+    if not text:
+        return True
+    var s = text.value().as_bytes()
+    for i in range(len(s) - 1):
+        if s[i] == 45 and s[i + 1] == 48:
+            var j = i + 2
+            if j >= len(s) or not (
+                (s[j] >= 48 and s[j] <= 57)
+                or s[j] == 46
+                or s[j] == 101
+                or s[j] == 69
+            ):
+                return False
     return True
 
 
@@ -666,7 +707,14 @@ def report_json(r: Report) -> String:
 def run_setup(p: Parsed, argv: List[String]) raises -> Int:
     """`mojo-anything setup`, with the Mojo binary as the command the agents
     run."""
-    var opts = Options(home(), canonical(own_binary()))
+    var h = home()
+    var exe = own_binary()
+    if exe == "":
+        raise Error(
+            "finding the mojo-anything executable: /proc/self/exe could not be"
+            " read"
+        )
+    var opts = Options(h, canonical(exe))
     opts.agents = p.all("agent")
     opts.remove = p.flag("remove")
     opts.dry_run = p.flag("dry-run")

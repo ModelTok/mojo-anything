@@ -29,7 +29,7 @@ def run(p: Parsed, args: List[String]) raises -> Int:
     if p.path() == "setup":
         return run_setup(p, args)
     if p.path() == "doctor":
-        return run_doctor(p)
+        return run_doctor(p, args)
     raise Error("not owned: " + p.path())
 
 

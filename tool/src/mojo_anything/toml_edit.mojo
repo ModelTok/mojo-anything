@@ -355,6 +355,10 @@ def codex_edit(text: String, command: String, action: String) -> CodexEdit:
         for k in range(top):
             out.append(lines[k])
         if action == "updated":
+            # toml_edit re-formats the key of a table it inserts again
+            # (`[mcp_servers."mojo-anything"]` loses its quotes): not owned.
+            if String(lines[ours].strip()) != "[mcp_servers.mojo-anything]":
+                return unsupported^
             for k in range(top, ours + 1):
                 out.append(lines[k])
             var have_command = False

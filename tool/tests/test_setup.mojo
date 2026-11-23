@@ -541,6 +541,27 @@ def test_json_text_matches_serde() raises:
     )
 
 
+def test_json_serde_reads_otherwise_goes_to_the_phase1_binary() raises:
+    var py = _py()
+    for body in ['{"x": 1e400}', '{"x": -0}', '{"a": [-0, 1]}']:
+        var home = _home(py, "serde")
+        _put(py, home + "/.cursor/mcp.json", String(body))
+        assert_false(handled_in_mojo(_opts(home, "cursor")), body)
+        _gone(py, home)
+    var home = _home(py, "serde-ok")
+    _put(py, home + "/.cursor/mcp.json", '{"x": -0.5, "y": -10}')
+    assert_true(handled_in_mojo(_opts(home, "cursor")))
+    _gone(py, home)
+
+
+def test_a_quoted_header_goes_to_the_phase1_binary() raises:
+    var text = '[mcp_servers."mojo-anything"]\ncommand = "old"\n'
+    assert_false(
+        codex_edit(text, "/opt/bin/mojo-anything", "updated").supported
+    )
+    assert_true(codex_edit(text, "/opt/bin/mojo-anything", "removed").supported)
+
+
 def test_unsupported_toml_goes_to_the_phase1_binary() raises:
     var cmd = "/opt/bin/mojo-anything"
     for shape in [
@@ -570,4 +591,6 @@ def main() raises:
     test_codex_text_matches_toml_edit()
     test_json_text_matches_serde()
     test_unsupported_toml_goes_to_the_phase1_binary()
-    print("test_setup: 11 passed")
+    test_json_serde_reads_otherwise_goes_to_the_phase1_binary()
+    test_a_quoted_header_goes_to_the_phase1_binary()
+    print("test_setup: 13 passed")
