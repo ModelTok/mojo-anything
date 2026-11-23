@@ -25,6 +25,7 @@ _GRAMMARS = {
     "ruby": ("tree_sitter_ruby", "language"),
     "csharp": ("tree_sitter_c_sharp", "language"),
     "kotlin": ("tree_sitter_kotlin", "language"),
+    "php": ("tree_sitter_php", "language_php"),
 }
 
 
@@ -1677,6 +1678,310 @@ def _kt_exports(root, data, path):
 # ---- the entry point ---------------------------------------------------------------------
 
 
+# ---- PHP (src/lang/php.rs) ---------------------------------------------------------------
+
+
+def _php_is_platform(name):
+    return name == "php" or name.startswith("ext-") or name.startswith("lib-") or "/" not in name
+
+
+def php_manifest(path):
+    """php.rs `composer` and `own_namespaces` of a composer.json the caller screened as one
+    serde_json reads as Python's json does: (name or None, require and require-dev names,
+    the first PSR-4 folder or None, the PSR-4 namespaces)."""
+    import json
+
+    with open(path, "rb") as f:
+        doc = json.loads(f.read().decode("utf-8"))
+
+    def obj(v, *keys):
+        for k in keys:
+            if not isinstance(v, dict):
+                return None
+            v = v.get(k)
+        return v if isinstance(v, dict) else None
+
+    def names(key):
+        o = obj(doc, key)
+        return [k for k in o if not _php_is_platform(k)] if o is not None else []
+
+    src = None
+    psr4 = obj(doc, "autoload", "psr-4")
+    if psr4 is not None:
+        for v in psr4.values():
+            if isinstance(v, str):
+                src = _trim_end_matches(v, "/")
+                break
+            if isinstance(v, list) and v and isinstance(v[0], str):
+                src = _trim_end_matches(v[0], "/")
+                break
+    name = doc.get("name") if isinstance(doc, dict) else None
+    if not isinstance(name, str):
+        name = None
+    spaces = []
+    for key in ("autoload", "autoload-dev"):
+        o = obj(doc, key, "psr-4")
+        if o is None:
+            continue
+        for ns in o:
+            ns = ns.strip("\\")
+            if ns:
+                spaces.append(ns)
+    return (name, names("require") + names("require-dev"), src, spaces)
+
+
+def _php_pcre_body(literal):
+    s = literal.strip("'\"")
+    if not s:
+        return None
+    o = s[0]
+    if not o.isascii():
+        raise Decline("a regex delimiter outside ASCII")
+    close = {"(": ")", "{": "}", "[": "]", "<": ">"}.get(o)
+    if close is None:
+        if o.isalnum() or o == "\\" or o in " \t\n\x0b\x0c\r":
+            return None
+        close = o
+    end = s.rfind(close)
+    return s[1:end] if end > 0 else None
+
+
+def _php_include_target(arg):
+    def literal(n):
+        if n.type not in ("string", "encapsed_string"):
+            return None
+        s = _text(n).strip("'\"")
+        return None if "$" in s else s
+
+    s = literal(arg)
+    if s is not None:
+        return s if s.startswith("/") or s.startswith(".") else "./" + s
+    if arg.type == "binary_expression":
+        left = arg.child_by_field_name("left")
+        right = arg.child_by_field_name("right")
+        if left is None or right is None:
+            return None
+        if _text(left) == "__DIR__":
+            s = literal(right)
+            return None if s is None else "." + s
+    return None
+
+
+def _php_operator(node):
+    o = node.child_by_field_name("operator")
+    if o is not None:
+        return _text(o)
+    for c in node.children:
+        if not c.is_named:
+            return _text(c)
+    return ""
+
+
+_PHP_REFLECTION = (
+    "method_exists",
+    "property_exists",
+    "function_exists",
+    "class_exists",
+    "get_class",
+    "get_object_vars",
+    "call_user_func",
+    "call_user_func_array",
+    "is_callable",
+    "func_get_args",
+    "compact",
+    "extract",
+)
+
+_PHP_CALLS = {}
+for _n in (
+    "substr", "strpos", "strrpos", "strlen", "str_pad", "substr_replace", "mb_substr",
+    "mb_strpos", "mb_strlen", "ucfirst", "strtoupper", "strtolower", "str_split", "wordwrap",
+):
+    _PHP_CALLS[_n] = "string-offsets"
+for _n in ("intdiv", "fmod"):
+    _PHP_CALLS[_n] = "division-semantics"
+for _n in ("json_encode", "json_decode", "serialize", "unserialize"):
+    _PHP_CALLS[_n] = "json"
+for _n in ("pcntl_fork", "proc_open", "curl_multi_exec"):
+    _PHP_CALLS[_n] = "concurrency"
+for _n in ("class_alias", "runkit_function_redefine", "uopz_set_return"):
+    _PHP_CALLS[_n] = "monkeypatching"
+for _n in ("sort", "asort", "ksort", "array_unique", "array_keys", "array_values"):
+    _PHP_CALLS[_n] = "ordered-collections"
+_PHP_LOOP_CALLS = ("array_map", "array_filter", "array_walk", "array_reduce", "usort", "uasort", "uksort")
+
+
+def _php_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    for node in _walk(root):
+        kind = node.type
+        if kind in (
+            "require_expression",
+            "require_once_expression",
+            "include_expression",
+            "include_once_expression",
+        ):
+            named = _named(node)
+            spec = _php_include_target(named[0]) if named else None
+            if spec is not None:
+                imports.append(spec)
+            else:
+                add("dynamic-code", node)
+        elif kind == "namespace_use_clause":
+            first = node.named_child(0)
+            name = _text(first) if first is not None else _text(node)
+            prefix = ""
+            parent = node.parent
+            if parent is not None and parent.type == "namespace_use_group":
+                d = parent.parent
+                if d is not None:
+                    for n in _named(d):
+                        if n.type == "namespace_name":
+                            prefix = _text(n) + "\\"
+                            break
+            imports.append(prefix + name.lstrip("\\"))
+        elif kind == "function_call_expression":
+            f = node.child_by_field_name("function")
+            callee = (_text(f) if f is not None else "").lstrip("\\")
+            if callee in ("eval", "create_function", "assert"):
+                add("dynamic-code", node)
+            elif callee in _PHP_REFLECTION:
+                add("reflection", node)
+            elif callee.startswith("preg_"):
+                pattern = None
+                a = node.child_by_field_name("arguments")
+                if a is not None:
+                    named = _named(a)
+                    if named:
+                        pattern = named[0].named_child(0)
+                if pattern is None or pattern.type not in ("string", "encapsed_string"):
+                    add("dynamic-regex", node)
+                elif "$" in _text(pattern):
+                    add("dynamic-regex", node)
+                else:
+                    b = _php_pcre_body(_text(pattern))
+                    if b is not None and (
+                        regex_needs_fancy(b, "") or "(?>" in b or "\\K" in b
+                    ):
+                        add("regex-syntax", node)
+            elif callee in _PHP_CALLS:
+                add(_PHP_CALLS[callee], node)
+            elif callee in _PHP_LOOP_CALLS:
+                loops += 1
+                add("callbacks", node)
+        elif kind == "object_creation_expression":
+            c = _text(node)
+            if "Reflection" in c:
+                add("reflection", node)
+            elif "Fiber" in c or "parallel\\" in c:
+                add("concurrency", node)
+        elif kind == "dynamic_variable_name":
+            add("reflection", node)
+        elif kind == "method_declaration":
+            n = node.child_by_field_name("name")
+            if (_text(n) if n is not None else "") in (
+                "__call",
+                "__callStatic",
+                "__get",
+                "__set",
+                "__isset",
+                "__unset",
+            ):
+                add("reflection", node)
+        elif kind in ("class_declaration", "interface_declaration", "trait_declaration"):
+            if any(c.type == "base_clause" for c in _named(node)):
+                add("class-inheritance", node)
+        elif kind == "use_declaration":
+            add("class-inheritance", node)
+        elif kind == "binary_expression":
+            op = _php_operator(node)
+            if op == "/":
+                add("number-semantics", node)
+            elif op == "%":
+                add("division-semantics", node)
+            elif op in ("**", "<<", "*"):
+                add("integer-semantics", node)
+            elif op in ("==", "!=", "<>", "<=>"):
+                add("dynamic-typing", node)
+        elif kind == "array_creation_expression":
+            add("ordered-collections", node)
+        elif kind in ("throw_expression", "try_statement"):
+            add("exceptions", node)
+        elif kind == "yield_expression":
+            add("generators", node)
+        elif kind in ("anonymous_function", "anonymous_function_creation_expression", "arrow_function"):
+            add("callbacks", node)
+        elif kind == "null":
+            add("null-references", node)
+        elif kind in ("foreach_statement", "for_statement", "while_statement", "do_statement"):
+            loops += 1
+    return imports, list(risks.items()), loops
+
+
+def _php_function_blocked(node):
+    """php.rs `function_fn`'s blocker (the types it maps never make js_only_reason refuse:
+    php_to_ts gives only string, int, number, boolean, undefined, unknown, arrays, records and
+    their unions); None when the node has no name (no export)."""
+    n = node.child_by_field_name("name")
+    if n is None:
+        return None
+    blocked = _text(n).startswith("__")
+    params = node.child_by_field_name("parameters")
+    for p in _named(params) if params is not None else []:
+        if p.type != "simple_parameter":
+            blocked = True
+            continue
+        if any(c.type == "reference_modifier" for c in _named(p)) or "&$" in _text(p):
+            blocked = True
+        t = p.child_by_field_name("type")
+        if t is not None and ("callable" in _text(t) or "Closure" in _text(t)):
+            blocked = True
+    body = node.child_by_field_name("body")
+    if body is not None and any(x.type == "yield_expression" for x in _walk(body)):
+        blocked = True
+    return blocked
+
+
+def _php_exports(root):
+    out = []
+
+    def visit(items):
+        for item in items:
+            if item.type == "function_definition":
+                b = _php_function_blocked(item)
+                if b is not None:
+                    out.append((b, []))
+            elif item.type == "class_declaration":
+                if any(c.type == "abstract_modifier" for c in _named(item)):
+                    continue
+                if item.child_by_field_name("name") is None:
+                    continue
+                body = item.child_by_field_name("body")
+                for m in _named(body) if body is not None else []:
+                    if m.type != "method_declaration":
+                        continue
+                    mods = [_text(c) for c in _named(m) if c.type.endswith("_modifier")]
+                    public = not any(x in ("private", "protected") for x in mods)
+                    if public and "static" in mods:
+                        b = _php_function_blocked(m)
+                        if b is not None:
+                            out.append((b, []))
+
+    for item in _named(root):
+        body = item.child_by_field_name("body") if item.type == "namespace_definition" else None
+        if body is not None:
+            visit(_named(body))
+        else:
+            visit([item])
+    return out
+
+
 def read_file(lang, path):
     """("unreadable",) when read_to_string would fail; ("decline", why) when the tree has an
     error (error recovery may differ between the cores); else ("ok", loc, imports, risks,
@@ -1708,6 +2013,12 @@ def read_file(lang, path):
         elif lang == "kotlin":
             imports, risks, loops = _kt_scan(root)
             exports = _kt_exports(root, data, path) if path.endswith(".kt") else []
+        elif lang == "php":
+            imports, risks, loops = _php_scan(root)
+            # package_of's kebab case and the PSR-4 lookups use Unicode tables.
+            if not all(i.isascii() for i in imports):
+                raise Decline("an import outside ASCII")
+            exports = _php_exports(root) if path.endswith(".php") else []
         else:
             raise Decline("no reader for " + lang)
         for _, types in exports:

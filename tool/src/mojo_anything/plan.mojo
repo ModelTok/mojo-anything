@@ -44,12 +44,40 @@ comptime FIT_NONE = 2
 comptime FIT_UNKNOWN = 3
 
 
-@fieldwise_init
 struct Package(Copyable, Movable):
     var name: String
     var dir: String
     var src_root: String
     var deps: List[String]
+    var namespaces: List[String]
+    """PHP's PSR-4 namespaces (the project's own code); empty elsewhere."""
+
+    def __init__(
+        out self,
+        name: String,
+        dir: String,
+        src_root: String,
+        var deps: List[String],
+    ):
+        self.name = name
+        self.dir = dir
+        self.src_root = src_root
+        self.deps = deps^
+        self.namespaces = List[String]()
+
+    def __init__(
+        out self,
+        name: String,
+        dir: String,
+        src_root: String,
+        var deps: List[String],
+        var namespaces: List[String],
+    ):
+        self.name = name
+        self.dir = dir
+        self.src_root = src_root
+        self.deps = deps^
+        self.namespaces = namespaces^
 
 
 @fieldwise_init
@@ -518,6 +546,8 @@ def _target(
         return csharp_resolve(spec, paths, packages)
     if lang == "kotlin":
         return kotlin_resolve(spec, index, paths, packages, crates)
+    if lang == "php":
+        return php_resolve(from_path, spec, index, packages)
     return resolve(from_path, spec, index, paths, roots)
 
 
@@ -595,6 +625,105 @@ def _normalize(path: String, mut ok: Bool) -> String:
             continue
         parts.append(part)
     return _join(parts, "/")
+
+
+def _php_namespace_packages() -> List[Tuple[String, String]]:
+    """php.rs NAMESPACE_PACKAGES, in its order."""
+    return [
+        ("GuzzleHttp", "guzzlehttp/guzzle"),
+        ("Monolog", "monolog/monolog"),
+        ("Carbon", "nesbot/carbon"),
+        ("Ramsey\\Uuid", "ramsey/uuid"),
+        ("Illuminate", "laravel/framework"),
+        ("Doctrine\\ORM", "doctrine/orm"),
+        ("Doctrine\\DBAL", "doctrine/dbal"),
+        ("Twig", "twig/twig"),
+        ("League\\CommonMark", "league/commonmark"),
+        ("League\\Csv", "league/csv"),
+        ("League\\Flysystem", "league/flysystem"),
+        ("Dotenv", "vlucas/phpdotenv"),
+        ("Firebase\\JWT", "firebase/php-jwt"),
+        ("Predis", "predis/predis"),
+        ("Slim", "slim/slim"),
+        ("PHPUnit", "phpunit/phpunit"),
+        ("Psr\\Log", "psr/log"),
+        ("Psr\\Http\\Message", "psr/http-message"),
+        ("Respect\\Validation", "respect/validation"),
+        ("Brick\\Math", "brick/math"),
+    ]
+
+
+def php_package_of(spec: String) -> String:
+    """php.rs `package_of` for an ASCII namespace (the reader declines
+    others): Symfony components in kebab case, the table, else the root."""
+    comptime SYMFONY = "Symfony\\Component\\"
+    if spec.startswith(SYMFONY):
+        var rest = String(spec[byte = SYMFONY.byte_length() :])
+        var component = String(rest.split("\\")[0])
+        var kebab = String("")
+        var bytes = component.as_bytes()
+        for i in range(len(bytes)):
+            var c = bytes[i]
+            if c >= 65 and c <= 90:
+                if i > 0:
+                    kebab += "-"
+                kebab += chr(Int(c) + 32)
+            else:
+                kebab += chr(Int(c))
+        return "symfony/" + kebab
+    for e in _php_namespace_packages():
+        if spec == e[0] or spec.startswith(e[0] + "\\"):
+            return e[1]
+    return String(spec.split("\\")[0])
+
+
+def php_resolve(
+    from_path: String,
+    spec: String,
+    index: Dict[String, Int],
+    packages: List[Package],
+) raises -> Resolution:
+    """php.rs `resolve`: a path relative to the file; else PSR-4 (each tail
+    of the namespace under each package's source root); the project's own
+    namespaces are unresolved; one segment is the platform's; else the
+    Composer package."""
+    if spec.startswith("./") or spec.startswith("../") or spec.endswith(".php"):
+        var slash = from_path.rfind("/")
+        var dir = String("")
+        if slash >= 0:
+            dir = String(from_path[byte=0:slash])
+        var rel = spec
+        while rel.startswith("./"):
+            var cut = String(rel[byte=2:])
+            rel = cut^
+        var ok = True
+        var path = _normalize(join_dir(dir, rel), ok)
+        if ok and path in index:
+            return Resolution(FILE, index[path], "")
+        return Resolution(UNRESOLVED, -1, "")
+    var parts = List[String]()
+    for p in spec.split("\\"):
+        if p.byte_length() > 0:
+            parts.append(String(p))
+    for pkg in packages:
+        for skip in range(len(parts)):
+            var tail = List[String]()
+            for k in range(skip, len(parts)):
+                tail.append(parts[k])
+            var candidate = join_dir(pkg.src_root, _join(tail, "/") + ".php")
+            if candidate in index:
+                return Resolution(FILE, index[candidate], "")
+    var own = spec
+    while own.startswith("\\"):
+        var cut = String(own[byte=1:])
+        own = cut^
+    for pkg in packages:
+        for ns in pkg.namespaces:
+            if own == ns or own.startswith(ns + "\\"):
+                return Resolution(UNRESOLVED, -1, "")
+    if len(parts) <= 1:
+        return Resolution(STDLIB, -1, "")
+    return Resolution(EXTERNAL, -1, php_package_of(spec))
 
 
 def ruby_stdlib() -> List[String]:

@@ -1315,6 +1315,114 @@ def kotlin_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def _is_php_test(rel: String, name: String) -> Bool:
+    """php.rs: `*Test.php`, `*_test.php`, or a tests/test/Tests/spec folder."""
+    if name.endswith("Test.php") or name.endswith("_test.php"):
+        return True
+    for part in rel.split("/"):
+        if (
+            part == "tests"
+            or part == "test"
+            or part == "Tests"
+            or part == "spec"
+        ):
+            return True
+    return False
+
+
+def php_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """php.rs `discover`: a package per composer.json (its `name`, else the
+    folder's; its first PSR-4 folder as the source root; require and
+    require-dev; its PSR-4 namespaces), the root's when none is there, and
+    the `.php` files the walk keeps; declined for a composer.json serde_json
+    may read otherwise than Python's json, text outside ASCII, a backslash
+    in a name or ignore files with alternates."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("php"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("php", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if name == "composer.json":
+            manifests.append(rel)
+        elif name.endswith(".php"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    var builtins = Python.import_module("builtins")
+    var has_root = False
+    for rel in manifests:
+        var path = root + "/" + rel
+        if Int(py=py["serde_reads"](PythonObject(path))) != 1:
+            ws.declined = True
+            return ws^
+        var m = th["php_manifest"](PythonObject(path))
+        var dir = _dir_of(rel)
+        var name = dir
+        if dir.byte_length() == 0:
+            name = _root_name(root)
+            has_root = True
+        if m[0] is not None:
+            name = String(py=m[0])
+        var deps = List[String]()
+        for i in range(Int(py=builtins.len(m[1]))):
+            deps.append(String(py=m[1][i]))
+        var src_root = dir
+        if m[2] is not None:
+            var s = String(py=m[2])
+            if s.byte_length() > 0:
+                src_root = join_dir(dir, s)
+        var spaces = List[String]()
+        for i in range(Int(py=builtins.len(m[3]))):
+            spaces.append(String(py=m[3][i]))
+        var texts = List[String]()
+        texts.append(name)
+        texts.append(src_root)
+        for d in deps:
+            texts.append(d)
+        for s in spaces:
+            texts.append(s)
+        for t in texts:
+            if not _ascii(t):
+                ws.declined = True
+                return ws^
+        ws.packages.append(Package(name, dir, src_root, deps^, spaces^))
+    if not has_root:
+        var src_root = String("")
+        if isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(rel, best, _is_php_test(rel, _name_of(rel))))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1420,9 +1528,12 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         or lang == "ruby"
         or lang == "csharp"
         or lang == "kotlin"
+        or lang == "php"
     ):
         var ws: Workspace
-        if lang == "java":
+        if lang == "php":
+            ws = php_workspace(root, py)
+        elif lang == "java":
             ws = java_workspace(root, py)
         elif lang == "go":
             ws = go_workspace(root, py)

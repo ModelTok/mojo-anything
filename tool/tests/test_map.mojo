@@ -268,6 +268,19 @@ def _kotlin_repo() -> List[String]:
     return spec^
 
 
+def _php_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append('composer.json={"name": "acme/kit"}\n')
+    for i in range(6):
+        var body = String("<?php\nfunction f", i, "(string $s): string {\n")
+        for _ in range(i * 2):
+            body += "    $s = substr($s, 1) . $s;\n"
+        body += "    return $s;\n}\n"
+        spec.append(String("p", i, "/f.php=") + body)
+    spec.append("tests/F1Test.php=<?php\nrequire '../p1/f.php';\n")
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
@@ -278,6 +291,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     repos.append(("ruby", _ruby_repo()))
     repos.append(("csharp", _csharp_repo()))
     repos.append(("kotlin", _kotlin_repo()))
+    repos.append(("php", _php_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -291,6 +305,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     bad.append(("ruby-bad", "Gemfile=x\n|a.rb=def f(\n"))
     bad.append(("csharp-bad", "Kit.csproj=x\n|A.cs=class A { int F( }\n"))
     bad.append(("kotlin-bad", "build.gradle.kts=\n|A.kt=fun f( {\n"))
+    bad.append(("php-bad", "composer.json={}\n|a.php=<?php\nfunction f( {\n"))
     bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()
