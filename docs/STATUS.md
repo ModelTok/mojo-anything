@@ -44,7 +44,7 @@ in a fresh sandbox on up to eight threads, and writes the Rust tool's report, `-
 and fallback line; CPython runs the cases (`subprocess`) and reads the trycmd files
 (`tomllib`), `mojo-anything.json` (`json`) and the normalisers (`re`). A server's, a library's
 or an effects recording, `fresh` files, float files, `key-order`, `env.inherit = false`, a time
-limit above 2,000,000 s, normalisers or recorded text that Python's `re` could read otherwise
+limit longer than Python's `poll` can wait, normalisers or recorded text that Python's `re` could read otherwise
 than Rust's `regex`, and anything serde_json would read otherwise go to the Phase 1 binary
 before a case runs (a character in a build's output that the two classify differently, after).
 `app record` answers its argument errors in Mojo (the folder, the command, `--float-file`, the
