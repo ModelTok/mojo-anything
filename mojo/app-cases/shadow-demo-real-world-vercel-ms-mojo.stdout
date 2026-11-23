@@ -1,0 +1,2 @@
+Wrote [CWD]/shadow/index.shadow.ts (ms, parse, parseStrict, format)
+Import it in place of the original. MOJO_ANYTHING_MODE=old|shadow|new switches at runtime.

@@ -1,0 +1,37 @@
+# Rust migration plan: cwd (C++)
+
+1 packages, 1 source files (58 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `facade/src/` | 58 | 55 | 95 | 0 | C ABI | Division and modulo (2) |
+
+### `facade/src/`
+
+58 lines in 1 files, wave 0, priority 55, readiness 95, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Division and modulo x2: `facade/src/psychrometrics.cpp:38`, `facade/src/psychrometrics.cpp:69`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `facade/src/` | ready | 58 | 95 | C ABI | Division and modulo (2) |
+
+## Risk guide
+
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.

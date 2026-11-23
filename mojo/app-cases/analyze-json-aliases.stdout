@@ -1,0 +1,125 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 1,
+    "source_files": 3,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 9,
+    "units": 3,
+    "ready": 3,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "aliases-fixture",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/greet.ts",
+        "src/lib/",
+        "src/util/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/greet.ts",
+      "package": "aliases-fixture",
+      "files": [
+        "src/greet.ts"
+      ],
+      "loc": 5,
+      "wave": 1,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [
+        "src/lib/",
+        "src/util/"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 51,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    },
+    {
+      "id": "src/lib/",
+      "package": "aliases-fixture",
+      "files": [
+        "src/lib/join.ts"
+      ],
+      "loc": 1,
+      "wave": 0,
+      "readiness": 98,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 0.0,
+      "priority": 49,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    },
+    {
+      "id": "src/util/",
+      "package": "aliases-fixture",
+      "files": [
+        "src/util/strings.ts"
+      ],
+      "loc": 3,
+      "wave": 0,
+      "readiness": 98,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/greet.ts",
+    "src/util/"
+  ],
+  "dependencies": []
+}

@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["setup", "--nope"]
+status.code = 2
+fs.sandbox = true

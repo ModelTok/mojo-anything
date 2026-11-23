@@ -1,0 +1,7 @@
+error: unexpected argument '--nope' found
+
+  tip: a similar argument exists: '--no-check'
+
+Usage: mojo-anything app front-door --no-check [REPO]
+
+For more information, try '--help'.

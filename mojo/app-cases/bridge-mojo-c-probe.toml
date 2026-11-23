@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "probe.c"]
+status.code = 2
+fs.sandbox = true
+fs.base = "bridge-mojo-c-probe.in"

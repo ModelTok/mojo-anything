@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "go/path.go",
+      "loc": 275,
+      "readiness": 34,
+      "exports": 7
+    }
+  ],
+  "glue": []
+}

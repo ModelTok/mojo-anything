@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "textkit/lib/textkit.rb"]
+status.code = 0
+fs.sandbox = true
+fs.base = "bridge-ruby-mojo-ports.in"

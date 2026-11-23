@@ -1,0 +1,4 @@
+bin.name = "tcli"
+args = ["len", "héllo"]
+status.code = 0
+fs.sandbox = true

@@ -1,0 +1,164 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "python",
+  "summary": {
+    "packages": 1,
+    "source_files": 2,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 110,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "bench_batch.py",
+        "python/textkit_rs/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "bench_batch.py",
+      "package": "root",
+      "files": [
+        "bench_batch.py"
+      ],
+      "loc": 26,
+      "wave": 0,
+      "readiness": 82,
+      "status": "ready",
+      "bridge": "mojo-py",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "bench_batch.py:17",
+            "bench_batch.py:17"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "bench_batch.py:20",
+            "bench_batch.py:23"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "bench_batch.py:9"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "bench_batch.py:18",
+            "bench_batch.py:21"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "textkit"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 30.8,
+      "priority": 69,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "1 PyPI dependencies not in the crate table: check them by hand.",
+        "1 imports use aliases or virtual modules and were not followed.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "python/textkit_rs/",
+      "package": "root",
+      "files": [
+        "python/textkit_rs/__init__.py"
+      ],
+      "loc": 84,
+      "wave": 0,
+      "readiness": 83,
+      "status": "ready",
+      "bridge": "mojo-py",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "unordered-iteration",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "python/textkit_rs/__init__.py:58"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 17,
+          "samples": [
+            "python/textkit_rs/__init__.py:14",
+            "python/textkit_rs/__init__.py:15",
+            "python/textkit_rs/__init__.py:17"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "python/textkit_rs/__init__.py:11"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 14.3,
+      "priority": 76,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": [
+    {
+      "name": "textkit",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    }
+  ]
+}

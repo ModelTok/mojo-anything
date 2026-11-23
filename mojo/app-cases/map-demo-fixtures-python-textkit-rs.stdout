@@ -1,0 +1,18 @@
+# Port map: cwd
+
+0 of 2 units have a Mojo port.
+
+## Ports
+
+None yet: `mojo-anything bridge` starts one.
+
+## Not ported yet
+
+In the order `analyze` suggests.
+
+| Unit | Lines | Exports | Readiness |
+| --- | ---: | ---: | ---: |
+| `python/textkit_rs/` | 84 | 0 | 83 |
+| `bench_batch.py` | 26 | 0 | 82 |
+
+Regenerate with `mojo-anything map --write`. Commit this file: when the original changes upstream, the next map marks every port whose recording it outdated.

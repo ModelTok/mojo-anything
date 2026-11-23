@@ -1,0 +1,14 @@
+{
+  "command": "[..]",
+  "agents": [
+    "gemini"
+  ],
+  "changes": [
+    {
+      "agent": "gemini",
+      "file": "./.gemini/settings.json",
+      "action": "added"
+    }
+  ],
+  "dry_run": false
+}

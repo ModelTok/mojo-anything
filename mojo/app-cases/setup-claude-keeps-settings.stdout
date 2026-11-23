@@ -1,0 +1,7 @@
+Set up mojo-anything for Claude Code
+  Claude Code added     ./.claude.json
+             backup    ./.claude.json.mojo-anything.bak
+  Claude Code added     ./.claude/skills/mojo-anything/SKILL.md
+
+The agents run `[..] mcp`. Restart them, then ask, for example:
+  "Profile this repo's slowest workflow with mojo-anything and move the hot loop to Mojo."

@@ -1,0 +1,127 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "go",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 59,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "example.com/tcli",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "main.go"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "main.go",
+      "package": "example.com/tcli",
+      "files": [
+        "main.go"
+      ],
+      "loc": 59,
+      "wave": 0,
+      "readiness": 82,
+      "status": "ready",
+      "bridge": "cgo",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "main.go:21",
+            "main.go:62"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "main.go:30",
+            "main.go:30",
+            "main.go:44"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "main.go:38",
+            "main.go:38"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "main.go:48"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 3.4,
+      "priority": 55,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": [],
+  "whole_app": {
+    "shape": "cli",
+    "entry_points": [
+      {
+        "kind": "cli",
+        "path": "main.go",
+        "evidence": "`func main()` at main.go:61"
+      }
+    ],
+    "dependencies": [],
+    "pieces": [
+      {
+        "wave": 0,
+        "units": [
+          "main.go"
+        ],
+        "loc": 59,
+        "tangled": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "D1",
+        "topic": "shape",
+        "question": "The app is a cli, entered through main.go. Port every entry point, in that shape?",
+        "recommendation": "Yes: a clap front door (`app front-door`) takes every command over first"
+      }
+    ]
+  }
+}

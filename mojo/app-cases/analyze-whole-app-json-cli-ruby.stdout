@@ -1,0 +1,138 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ruby",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 46,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "tcli.rb"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "tcli.rb",
+      "package": "root",
+      "files": [
+        "tcli.rb"
+      ],
+      "loc": 46,
+      "wave": 0,
+      "readiness": 77,
+      "status": "ready",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 5,
+          "samples": [
+            "tcli.rb:13",
+            "tcli.rb:29",
+            "tcli.rb:31"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "tcli.rb:1",
+            "tcli.rb:6"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "tcli.rb:9",
+            "tcli.rb:15"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "tcli.rb:24",
+            "tcli.rb:24"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 4,
+          "samples": [
+            "tcli.rb:30",
+            "tcli.rb:30",
+            "tcli.rb:36"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 15.2,
+      "priority": 69,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": [],
+  "whole_app": {
+    "shape": "cli",
+    "entry_points": [
+      {
+        "kind": "cli",
+        "path": "tcli.rb",
+        "evidence": "`ARGV` at tcli.rb:49"
+      }
+    ],
+    "dependencies": [],
+    "pieces": [
+      {
+        "wave": 0,
+        "units": [
+          "tcli.rb"
+        ],
+        "loc": 46,
+        "tangled": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "D1",
+        "topic": "shape",
+        "question": "The app is a cli, entered through tcli.rb. Port every entry point, in that shape?",
+        "recommendation": "Yes: a clap front door (`app front-door`) takes every command over first"
+      }
+    ]
+  }
+}

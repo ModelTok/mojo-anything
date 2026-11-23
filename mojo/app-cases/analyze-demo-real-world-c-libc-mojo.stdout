@@ -1,0 +1,48 @@
+# Rust migration plan: cwd (C)
+
+1 packages, 2 source files (43 lines), 0 test files, 0 UI files, grouped into 2 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 2 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `original/` | 16 | 54 | 80 | 0 | C ABI | Pointers and manual memory (7); String offsets and slicing (1); Null references (2) |
+
+### `original/`
+
+16 lines in 1 files, wave 0, priority 54, readiness 80, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Pointers and manual memory x7: `original/facade.c:6`, `original/facade.c:7`, `original/facade.c:8`
+- String offsets and slicing x1: `original/facade.c:11`
+- Null references x2: `original/facade.c:6`, `original/facade.c:8`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `include/` | ready | 27 | 83 | C ABI | Pointers and manual memory (14) |
+| 0 | `original/` | ready | 16 | 80 | C ABI | Pointers and manual memory (7); String offsets and slicing (1) |
+
+## system libraries dependencies
+
+| Package | Units | Mojo | Fit | Note |
+| --- | ---: | --- | --- | --- |
+| `<sys/types.h>` | 1 | std.os, std.ffi | good | `std.os` for files and the environment; the rest of libc through `external_call`. |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Pointers and manual memory** (High): Pointer arithmetic and manual memory become slices, indices and owned types. Code that exposes pointers across the boundary needs `unsafe`, isolated and explained.
+- **Null references** (Medium): Any reference may be null in the source: decide per parameter whether it is `Option` and what null means, instead of mapping every value to `Option`.

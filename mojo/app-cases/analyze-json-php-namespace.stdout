@@ -1,0 +1,140 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "php",
+  "summary": {
+    "packages": 1,
+    "source_files": 3,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 30,
+    "units": 3,
+    "ready": 3,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "acme/app",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/Greeter.php",
+        "src/User.php",
+        "src/helpers.php"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/Greeter.php",
+      "package": "acme/app",
+      "files": [
+        "src/Greeter.php"
+      ],
+      "loc": 9,
+      "wave": 0,
+      "readiness": 98,
+      "status": "ready",
+      "bridge": "php-ffi",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "src/User.php",
+      "package": "acme/app",
+      "files": [
+        "src/User.php"
+      ],
+      "loc": 15,
+      "wave": 1,
+      "readiness": 96,
+      "status": "ready",
+      "bridge": "php-ffi",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [
+        "src/Greeter.php"
+      ],
+      "workspace_deps": [],
+      "external_deps": [
+        "Stripe",
+        "monolog/monolog"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "1 Composer dependencies not in the crate table: check them by hand.",
+        "1 imports use aliases or virtual modules and were not followed.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "src/helpers.php",
+      "package": "acme/app",
+      "files": [
+        "src/helpers.php"
+      ],
+      "loc": 6,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "php-ffi",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 51,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/helpers.php"
+  ],
+  "dependencies": [
+    {
+      "name": "Stripe",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    },
+    {
+      "name": "monolog/monolog",
+      "used_by": 1,
+      "replacement": "std.logger",
+      "fit": "partial",
+      "note": "Levels and a line format; no structured fields or sinks."
+    }
+  ]
+}

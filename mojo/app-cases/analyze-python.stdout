@@ -1,0 +1,45 @@
+# Rust migration plan: cwd (Python)
+
+1 packages, 3 source files (76 lines), 1 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/textkit/` | 76 | 90 | 89 | 1 | Mojo (Python extension) | String offsets and slicing (3); Dynamic typing (3); Generators (2) |
+
+### `src/textkit/`
+
+76 lines in 3 files, wave 0, priority 90, readiness 89, bridge **Mojo (Python extension)**.
+
+- Leaf: imports no other unit.
+- 1 test files import it directly.
+- String offsets and slicing x3: `src/textkit/words.py:17`, `src/textkit/words.py:35`, `src/textkit/words.py:60`
+- Dynamic typing x3: `src/textkit/words.py:64`, `src/textkit/words.py:68`, `src/textkit/words.py:73`
+- Generators x2: `src/textkit/words.py:70`, `src/textkit/words.py:70`
+- Division and modulo x1: `src/textkit/words.py:40`
+- Exceptions x3: `src/textkit/stack.py:9`, `src/textkit/stack.py:15`, `src/textkit/words.py:34`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. textkit (`.`, portable, 1 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/textkit/` | ready | 76 | 89 | Mojo (Python extension) | String offsets and slicing (3); Dynamic typing (3) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Dynamic typing** (Medium): Values whose shape is checked at runtime need an explicit Rust enum or `serde_json::Value`.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.
+- **Generators** (Medium): Lazy generators become iterators, or return a collected Vec across the bridge.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.

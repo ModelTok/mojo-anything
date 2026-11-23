@@ -1,0 +1,16 @@
+3e. Run fresh inputs from a new seed through the original and the port and report where they differ: what the recorded cases did not cover
+
+Usage: mojo-anything fuzz [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --cases <CASES>                Fresh cases per function (and scenarios per class) in each round [default: 200]
+      --seed <SEED>                  Seed of the first round; random (and printed) when omitted. Later rounds count up
+      --time <SECS>                  Keep running new rounds until this many seconds have passed (one round otherwise)
+      --keep[=<KEEP>]                Append the mismatching cases (`--keep`) or every fresh case (`--keep=all`) to `cases.jsonl`, so the next diff and gate check them [possible values: mismatches, all]
+      --resolve-from <RESOLVE_FROM>  Resolve npm packages the original imports from this folder's `node_modules`
+      --json                         
+      --node-arg <NODE_ARGS>         
+  -h, --help                         Print help (see more with '--help')

@@ -1,0 +1,84 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "python",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 29,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "python/colorsys_pkg_mojo/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "python/colorsys_pkg_mojo/",
+      "package": "root",
+      "files": [
+        "python/colorsys_pkg_mojo/__init__.py"
+      ],
+      "loc": 29,
+      "wave": 0,
+      "readiness": 90,
+      "status": "ready",
+      "bridge": "mojo-py",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 10,
+          "samples": [
+            "python/colorsys_pkg_mojo/__init__.py:9",
+            "python/colorsys_pkg_mojo/__init__.py:14",
+            "python/colorsys_pkg_mojo/__init__.py:17"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 4,
+          "samples": [
+            "python/colorsys_pkg_mojo/__init__.py:10",
+            "python/colorsys_pkg_mojo/__init__.py:15",
+            "python/colorsys_pkg_mojo/__init__.py:19"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 49,
+      "exports": 6,
+      "bridgeable": 6,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "python/colorsys_pkg_mojo/"
+  ],
+  "dependencies": []
+}

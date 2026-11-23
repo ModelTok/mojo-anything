@@ -1,0 +1,14 @@
+6. Lay out installable packages and a CI workflow for every platform; never publishes
+
+Usage: mojo-anything package [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --name <NAME>        Package name (npm, PyPI, RubyGems, Maven artifact); defaults to the unit's name
+      --version <VERSION>  Package version; defaults to the original package's
+      --out <OUT>          Output folder; defaults to `<crate>/package`
+      --dry-run            List the files, write nothing
+      --json               
+  -h, --help               Print help

@@ -1,0 +1,326 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 1,
+    "source_files": 4,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 404,
+    "units": 4,
+    "ready": 4,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "cwd",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "adapter/",
+        "bench.mjs",
+        "fuse.mjs",
+        "index.cjs"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "adapter/",
+      "package": "cwd",
+      "files": [
+        "adapter/relevance.ts"
+      ],
+      "loc": 59,
+      "wave": 0,
+      "readiness": 93,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "adapter/relevance.ts:38"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "adapter/relevance.ts:52"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 5,
+          "samples": [
+            "adapter/relevance.ts:50",
+            "adapter/relevance.ts:55",
+            "adapter/relevance.ts:57"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 1.7,
+      "priority": 57,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "4 imports use aliases or virtual modules and were not followed.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    },
+    {
+      "id": "bench.mjs",
+      "package": "cwd",
+      "files": [
+        "bench.mjs"
+      ],
+      "loc": 19,
+      "wave": 1,
+      "readiness": 90,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "bench.mjs:17"
+          ]
+        },
+        {
+          "risk": "number-semantics",
+          "severity": "low",
+          "count": 5,
+          "samples": [
+            "bench.mjs:17",
+            "bench.mjs:17",
+            "bench.mjs:17"
+          ]
+        },
+        {
+          "risk": "json",
+          "severity": "low",
+          "count": 3,
+          "samples": [
+            "bench.mjs:13",
+            "bench.mjs:13",
+            "bench.mjs:17"
+          ]
+        },
+        {
+          "risk": "clock-and-random",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "bench.mjs:10",
+            "bench.mjs:10"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "bench.mjs:13"
+          ]
+        }
+      ],
+      "internal_deps": [
+        "fuse.mjs"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 31.6,
+      "priority": 73,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "1 imports use aliases or virtual modules and were not followed.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "fuse.mjs",
+      "package": "cwd",
+      "files": [
+        "fuse.mjs"
+      ],
+      "loc": 55,
+      "wave": 0,
+      "readiness": 88,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [
+        "node"
+      ],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "fuse.mjs:45"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 5,
+          "samples": [
+            "fuse.mjs:8",
+            "fuse.mjs:12",
+            "fuse.mjs:16"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 3.6,
+      "priority": 58,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "index.cjs",
+      "package": "cwd",
+      "files": [
+        "index.cjs"
+      ],
+      "loc": 271,
+      "wave": 0,
+      "readiness": 60,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [
+        "node"
+      ],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 4,
+          "samples": [
+            "index.cjs:18",
+            "index.cjs:119",
+            "index.cjs:245"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 10,
+          "samples": [
+            "index.cjs:22",
+            "index.cjs:32",
+            "index.cjs:33"
+          ]
+        },
+        {
+          "risk": "async",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "index.cjs:63",
+            "index.cjs:63",
+            "index.cjs:277"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "index.cjs:67",
+            "index.cjs:135",
+            "index.cjs:135"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "index.cjs:22"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 14,
+          "samples": [
+            "index.cjs:92",
+            "index.cjs:195",
+            "index.cjs:196"
+          ]
+        },
+        {
+          "risk": "number-semantics",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "index.cjs:80",
+            "index.cjs:80"
+          ]
+        },
+        {
+          "risk": "json",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "index.cjs:21",
+            "index.cjs:38"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 8.1,
+      "priority": 56,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "1 imports use aliases or virtual modules and were not followed.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "fuse.mjs",
+    "adapter/"
+  ],
+  "dependencies": []
+}

@@ -1,0 +1,6 @@
+Set up mojo-anything for OpenCode
+  OpenCode   added     ./.config/opencode/opencode.json
+  OpenCode   added     ./.config/opencode/skills/mojo-anything/SKILL.md
+
+The agents run `[..] mcp`. Restart them, then ask, for example:
+  "Profile this repo's slowest workflow with mojo-anything and move the hot loop to Mojo."

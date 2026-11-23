@@ -1,0 +1,84 @@
+# Rust migration plan: cwd (TypeScript/JavaScript)
+
+3 packages, 6 source files (50 lines), 1 test files, 1 UI files, grouped into 6 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 4 | 0 | 1 | 1 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `packages/a/src/util.ts` | 19 | 89 | 94 | 1 | Mojo (Node-API) | String offsets and slicing (3); Regexes (Mojo has no engine; lookaround, backreferences, `y`) (1) |
+| 2 | `packages/a/src/parse/` | 15 | 73 | 100 | 0 | Mojo (Node-API) | Insertion-ordered maps and object keys (2) |
+| 3 | `packages/a/src/fs.ts` | 5 | 58 | 100 | 0 | Mojo (Node-API) | - |
+| 4 | `packages/b/src/index.ts` | 4 | 50 | 100 | 0 | Mojo (wasm) | - |
+
+### `packages/a/src/util.ts`
+
+19 lines in 1 files, wave 0, priority 89, readiness 94, bridge **Mojo (Node-API)**.
+
+- Leaf: imports no other unit.
+- 1 test files import it directly.
+- String offsets and slicing x3: `packages/a/src/util.ts:4`, `packages/a/src/util.ts:5`, `packages/a/src/util.ts:10`
+- Regexes (Mojo has no engine; lookaround, backreferences, `y`) x1: `packages/a/src/util.ts:1`
+
+### `packages/a/src/parse/`
+
+15 lines in 2 files, wave 0, priority 73, readiness 100, bridge **Mojo (Node-API)**.
+
+- Leaf: imports no other unit.
+- Insertion-ordered maps and object keys x2: `packages/a/src/parse/helpers.ts:1`, `packages/a/src/parse/helpers.ts:3`
+
+### `packages/a/src/fs.ts`
+
+5 lines in 1 files, wave 1, priority 58, readiness 100, bridge **Mojo (Node-API)**.
+
+
+### `packages/b/src/index.ts`
+
+4 lines in 1 files, wave 0, priority 50, readiness 100, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. a (`packages/a`, node, 1 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `packages/a/src/parse/` | ready | 15 | 100 | Mojo (Node-API) | Insertion-ordered maps and object keys (2) |
+| 0 | `packages/a/src/util.ts` | ready | 19 | 94 | Mojo (Node-API) | String offsets and slicing (3); Regexes (Mojo has no engine; lookaround, backreferences, `y`) (1) |
+| 0 | `packages/a/src/svelte.ts` | blocked | 4 | 92 | Mojo (Node-API) | - |
+| 1 | `packages/a/src/fs.ts` | ready | 5 | 100 | Mojo (Node-API) | - |
+| 1 | `packages/a/src/view/` | keep | 3 | 100 | keep | - |
+
+### 2. b (`packages/b`, portable, 0 test files, uses a)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `packages/b/src/index.ts` | ready | 4 | 100 | Mojo (wasm) | - |
+
+## npm dependencies
+
+| Package | Units | Mojo | Fit | Note |
+| --- | ---: | --- | --- | --- |
+| `svelte` | 1 | - | none | The Svelte compiler is JS only. Keep it in JS. |
+| `yaml` | 1 | python:yaml | partial | No YAML parser in Mojo: PyYAML through CPython interop. Comments and layout are not kept. |
+
+## Blocked
+
+- `packages/a/src/svelte.ts`: `svelte` has no Rust equivalent.
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Regexes (Mojo has no engine; lookaround, backreferences, `y`)** (High): Mojo's standard library has no regex engine: rewrite the pattern by hand, or run it through Python's `re` over CPython interop, which a lifted binary then still needs. Lookaround and backreferences make a hand rewrite harder, and `re` has no `y` flag. Test either on non-ASCII text: `\w`, `\b` and case-insensitive matching differ between engines even where a pattern compiles. JS `/i` without `u` never matches a non-ASCII letter to an ASCII one, `re.IGNORECASE` on a `str` does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): add `re.ASCII`, or compare ASCII letters by hand.
+- **Insertion-ordered maps and object keys** (Medium): JS Map, Set and object keys keep insertion order. `HashMap` does not: use `indexmap` wherever order reaches output. With serde_json's `preserve_order`, `Map::remove` swaps the last key into the hole: use `shift_remove` for JS `delete`. Sort with `js::sort` when a comparator can return NaN: the order then depends on V8's algorithm.

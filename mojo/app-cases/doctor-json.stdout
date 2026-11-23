@@ -1,0 +1,102 @@
+{
+  "checks": [
+    {
+      "name": "pixi",
+      "status": "ok",
+      "required": true,
+      "detail": "[..] ([..])",
+      "fix": null
+    },
+    {
+      "name": "mojo",
+      "status": "ok",
+      "required": true,
+      "detail": "Mojo 1.2.0 (2016d0cd), through pixi (the Mojo every unit pins)",
+      "fix": null
+    },
+    {
+      "name": "python",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "node",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "cc",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "go",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "ruby",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "java",
+      "status": "ok",
+      "required": false,
+      "detail": "[..] (Java and Kotlin units need 22+)",
+      "fix": null
+    },
+    {
+      "name": "javac",
+      "status": "ok",
+      "required": false,
+      "detail": "[..] (Java and Kotlin units need 22+)",
+      "fix": null
+    },
+    {
+      "name": "kotlinc",
+      "status": "ok",
+      "required": false,
+      "detail": "[..]",
+      "fix": null
+    },
+    {
+      "name": "php",
+      "status": "missing",
+      "required": false,
+      "detail": "`php` not found or did not run",
+      "fix": "sudo apt install php-cli"
+    },
+    {
+      "name": "dotnet",
+      "status": "missing",
+      "required": false,
+      "detail": "`dotnet` not found or did not run",
+      "fix": "install the .NET SDK from https://dotnet.microsoft.com/download"
+    },
+    {
+      "name": "mcp",
+      "status": "ok",
+      "required": true,
+      "detail": "`[..] mcp` answered with 18 tools",
+      "fix": null
+    },
+    {
+      "name": "agents",
+      "status": "missing",
+      "required": false,
+      "detail": "no coding agent found (Claude Code, Codex, Cursor, Gemini CLI, OpenCode); the CLI works without one",
+      "fix": "[..] setup --agent claude"
+    }
+  ]
+}

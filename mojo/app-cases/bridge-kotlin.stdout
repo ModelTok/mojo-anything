@@ -1,0 +1,15 @@
+Created [CWD]/mojo/text-mojo (MojoJvm) for slugify, words, frequencies, gcd, pages
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  java/mojoanything/TextMojoNative.java
+  java/mojoanything/MojoAnythingJson.java
+  java/mojoanything/MojoAnythingError.java
+  java/com/example/text/StringsKt.java
+  java/com/example/text/Nums.java
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/text-mojo && mojo-anything build [CWD]/mojo/text-mojo && mojo-anything diff [CWD]/mojo/text-mojo
+- Callers compile the classes in java/ and load the library `build` writes (system property mojo-anything.lib.<name>, MOJO_ANYTHING_LIB, or next to the classes); run the JVM with --enable-native-access=ALL-UNNAMED (Java 22+).

@@ -1,0 +1,42 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "ts/src/nums.ts",
+  "language": "ts",
+  "kind": "mojo-node",
+  "crate_name": "nums-mojo",
+  "exports": [
+    {
+      "name": "clamp",
+      "file": "ts/src/nums.ts",
+      "line": 1,
+      "params": [
+        {
+          "name": "n",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "low",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "high",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "index.cjs",
+      "loc": 58,
+      "readiness": 80,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

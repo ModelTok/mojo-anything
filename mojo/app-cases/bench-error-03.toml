@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["bench", "--min-ms", "-1"]
+status.code = 2
+fs.sandbox = true

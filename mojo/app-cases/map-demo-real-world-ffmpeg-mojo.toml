@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["map", "."]
+status.code = 0
+fs.sandbox = true
+fs.base = "map-demo-real-world-ffmpeg-mojo.in"

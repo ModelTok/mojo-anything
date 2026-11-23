@@ -1,0 +1,11 @@
+Created [CWD]/mojo/textkit-mojo (Ffi) for repeat, echo, half
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  ruby/textkit_mojo_native.rb
+  ruby/textkit_mojo.rb
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/textkit-mojo && mojo-anything build [CWD]/mojo/textkit-mojo && mojo-anything diff [CWD]/mojo/textkit-mojo

@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["setup", "--agent", "claude", "--json", "--no-backup"]
+env.add.HOME = "."
+status.code = 0
+fs.sandbox = true

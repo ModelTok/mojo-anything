@@ -1,0 +1,14 @@
+{
+  "command": "[..]",
+  "agents": [
+    "cursor"
+  ],
+  "changes": [
+    {
+      "agent": "cursor",
+      "file": "./.cursor/mcp.json",
+      "action": "added"
+    }
+  ],
+  "dry_run": false
+}

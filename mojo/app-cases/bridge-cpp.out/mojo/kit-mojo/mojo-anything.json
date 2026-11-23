@@ -1,0 +1,312 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/kit.cpp",
+  "language": "cpp",
+  "kind": "c-abi",
+  "crate_name": "kit-mojo",
+  "exports": [
+    {
+      "name": "kit::add",
+      "file": "src/kit.cpp",
+      "line": 9,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        },
+        {
+          "name": "b",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int",
+      "prototype": "int add(int a, int b)"
+    },
+    {
+      "name": "kit::wide",
+      "file": "src/kit.cpp",
+      "line": 14,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int64_t"
+        },
+        {
+          "name": "b",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int64_t"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int64_t",
+      "prototype": "std::int64_t wide(std::int64_t a, std::int64_t b)"
+    },
+    {
+      "name": "kit::wrap",
+      "file": "src/kit.cpp",
+      "line": 19,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "unsigned"
+        },
+        {
+          "name": "b",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "unsigned"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "unsigned",
+      "prototype": "unsigned wrap(unsigned a, unsigned b)"
+    },
+    {
+      "name": "kit::count_bytes",
+      "file": "src/kit.cpp",
+      "line": 24,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::string &"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "size_t",
+      "prototype": "std::size_t count_bytes(const std::string &s)"
+    },
+    {
+      "name": "kit::half",
+      "file": "src/kit.cpp",
+      "line": 29,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "float"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "float",
+      "prototype": "float half(float x)"
+    },
+    {
+      "name": "kit::mean",
+      "file": "src/kit.cpp",
+      "line": 34,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "number[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<double> &"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "double mean(const std::vector<double> &xs)"
+    },
+    {
+      "name": "kit::evens",
+      "file": "src/kit.cpp",
+      "line": 42,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "std::vector<int>"
+        }
+      ],
+      "returns": "int[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::vector<int>",
+      "prototype": "std::vector<int> evens(std::vector<int> xs)"
+    },
+    {
+      "name": "kit::scale",
+      "file": "src/kit.cpp",
+      "line": 51,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "number[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<double> &"
+        },
+        {
+          "name": "k",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::vector<double>",
+      "prototype": "std::vector<double> scale(const std::vector<double> &xs, double k)"
+    },
+    {
+      "name": "kit::is_upper",
+      "file": "src/kit.cpp",
+      "line": 59,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::string &"
+        }
+      ],
+      "returns": "boolean",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "bool",
+      "prototype": "bool is_upper(const std::string &s)"
+    },
+    {
+      "name": "kit::shout",
+      "file": "src/kit.cpp",
+      "line": 67,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "std::string"
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::string",
+      "prototype": "std::string shout(std::string s)"
+    },
+    {
+      "name": "kit::checked_sqrt",
+      "file": "src/kit.cpp",
+      "line": 74,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "double checked_sqrt(double x)"
+    },
+    {
+      "name": "kit::touch",
+      "file": "src/kit.cpp",
+      "line": 81,
+      "params": [],
+      "returns": "void",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "void",
+      "prototype": "void touch()"
+    },
+    {
+      "name": "kit::text::join",
+      "file": "src/kit.cpp",
+      "line": 85,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<int64_t> &"
+        },
+        {
+          "name": "sep",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::string &"
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::string",
+      "prototype": "std::string join(const std::vector<std::int64_t> &xs, const std::string &sep)"
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

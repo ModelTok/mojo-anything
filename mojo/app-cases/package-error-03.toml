@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["package", "missing-dir", "--dry-run", "--json"]
+status.code = 2
+fs.sandbox = true

@@ -1,0 +1,9 @@
+{
+  "schema": "mojo-anything/app-cases@1",
+  "name": "tcli",
+  "run": [
+    "python3",
+    "tcli.py"
+  ],
+  "timeout_secs": 30
+}

@@ -1,0 +1,34 @@
+3c. Replay recorded cases against the built Mojo port
+
+Usage: mojo-anything diff [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]
+          [default: .]
+
+Options:
+      --profile <PROFILE>
+          Target: this machine
+
+          Possible values:
+          - host: This machine
+          
+          [default: host]
+
+      --module <MODULE>
+          Test this JS module instead of the crate's `index.cjs`
+
+      --ignore-key-order
+          Compare objects regardless of key order
+
+      --float-tolerance <FLOAT_TOLERANCE>
+          Floats match within this tolerance for this run (the one saved by `record` otherwise)
+
+      --json
+          
+
+      --node-arg <NODE_ARGS>
+          
+
+  -h, --help
+          Print help (see a summary with '-h')

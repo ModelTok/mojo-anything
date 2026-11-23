@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/main/kotlin/com/example/owners/",
+      "loc": 22,
+      "readiness": 97,
+      "exports": 3
+    }
+  ],
+  "glue": []
+}

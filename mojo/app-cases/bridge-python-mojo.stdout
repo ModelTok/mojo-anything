@@ -1,0 +1,10 @@
+Created [CWD]/mojo/mathkit-mojo (MojoPy) for scale, safe_div, exclaim, count_items
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  _native.mojo
+  python/mathkit_mojo/__init__.py
+  py_num.mojo
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/mathkit-mojo && mojo-anything build [CWD]/mojo/mathkit-mojo && mojo-anything diff [CWD]/mojo/mathkit-mojo

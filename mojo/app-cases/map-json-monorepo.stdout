@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "packages/a/src/index.ts",
+      "loc": 3,
+      "readiness": 100,
+      "exports": 1
+    },
+    {
+      "unit": "packages/b/src/titles.ts",
+      "loc": 4,
+      "readiness": 100,
+      "exports": 1
+    }
+  ],
+  "glue": []
+}

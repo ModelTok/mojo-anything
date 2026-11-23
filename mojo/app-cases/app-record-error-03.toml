@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["app", "record", ".", "--float-file", "x", "--", "true"]
+status.code = 2
+fs.sandbox = true

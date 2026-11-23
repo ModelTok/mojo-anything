@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/kit.cpp",
+      "loc": 80,
+      "readiness": 92,
+      "exports": 13
+    },
+    {
+      "unit": "src/refused.cpp",
+      "loc": 94,
+      "readiness": 89,
+      "exports": 17
+    },
+    {
+      "unit": "src/main.cpp",
+      "loc": 7,
+      "readiness": 100,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

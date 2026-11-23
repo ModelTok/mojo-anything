@@ -1,0 +1,13 @@
+1. Map a repository and write a ranked, ordered migration plan
+
+Usage: mojo-anything analyze [OPTIONS] [ROOT]
+
+Arguments:
+  [ROOT]  Repository root [default: .]
+
+Options:
+      --json         Print the machine-readable report (schema `mojo-anything/analyze@1`) instead of Markdown
+  -o, --out <OUT>    Write to this file instead of stdout
+      --lang <LANG>  Source language; detected from the repository when omitted [possible values: ts, python, c, go, ruby, java, kotlin, php, csharp, cpp]
+      --whole-app    Plan a whole-app port: entry points and shape, every dependency (imported or declared) with its crate, pieces in port order, and decisions for the user
+  -h, --help         Print help

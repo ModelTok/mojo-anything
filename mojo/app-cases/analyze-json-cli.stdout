@@ -1,0 +1,81 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 2,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 48,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "tcli",
+      "dir": "ts",
+      "order": 1,
+      "runtime": "node",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "ts/tcli.js"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "ts/tcli.js",
+      "package": "tcli",
+      "files": [
+        "ts/tcli.js"
+      ],
+      "loc": 48,
+      "wave": 0,
+      "readiness": 94,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [
+        "node"
+      ],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "ts/tcli.js:51"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "ts/tcli.js:30",
+            "ts/tcli.js:36"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 2.1,
+      "priority": 57,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": []
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/greet.ts",
+  "language": "ts",
+  "kind": "mojo-node",
+  "crate_name": "greet-mojo",
+  "exports": [
+    {
+      "name": "greet",
+      "file": "src/greet.ts",
+      "line": 4,
+      "params": [
+        {
+          "name": "name",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "place",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

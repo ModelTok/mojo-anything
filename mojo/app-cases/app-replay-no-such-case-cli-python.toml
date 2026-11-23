@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["app", "replay", ".", "--case", "nope"]
+status.code = 2
+fs.sandbox = true
+fs.base = "app-replay-no-such-case-cli-python.in"

@@ -1,0 +1,15 @@
+Created [CWD]/mojo/stats-mojo (MojoNode) for 
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  node_shim.c
+  binding.gyp
+  index.cjs
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/stats-mojo && mojo-anything build [CWD]/mojo/stats-mojo && mojo-anything diff [CWD]/mojo/stats-mojo
+- `Blocked` stays in TypeScript/JavaScript: class: extends another class.
+- `TextStats` stays in TypeScript/JavaScript: class: not ported to Mojo yet.
+- `LruCache` stays in TypeScript/JavaScript: class: not ported to Mojo yet.

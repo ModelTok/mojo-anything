@@ -1,0 +1,6 @@
+bin.name = "run-phase1"
+args = ["doctor", "--json"]
+env.add.HOME = "."
+env.add.XDG_CONFIG_HOME = ".no-config"
+status.code = 0
+fs.sandbox = true

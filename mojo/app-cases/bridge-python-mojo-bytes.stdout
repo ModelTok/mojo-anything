@@ -1,0 +1,9 @@
+Created [CWD]/mojo/flip-mojo (MojoPy) for invert
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  _native.mojo
+  python/flip_mojo/__init__.py
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/flip-mojo && mojo-anything build [CWD]/mojo/flip-mojo && mojo-anything diff [CWD]/mojo/flip-mojo

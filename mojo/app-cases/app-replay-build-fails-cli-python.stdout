@@ -1,0 +1,9 @@
+0/7 cases passed
+- example-001-upper: status, stdout
+- example-002-len: status, stdout
+- example-003-div: status, stdout
+- example-004-words: status, stdout
+- example-005-copy: status, stdout, file out.txt
+- example-006-now: status, stdout
+- example-007-nope: stderr
+Report: [CWD]/mojo/app-cases/replay-report.md

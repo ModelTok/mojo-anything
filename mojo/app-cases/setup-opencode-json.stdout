@@ -1,0 +1,19 @@
+{
+  "command": "[..]",
+  "agents": [
+    "opencode"
+  ],
+  "changes": [
+    {
+      "agent": "opencode",
+      "file": "./.config/opencode/opencode.json",
+      "action": "added"
+    },
+    {
+      "agent": "opencode",
+      "file": "./.config/opencode/skills/mojo-anything/SKILL.md",
+      "action": "added"
+    }
+  ],
+  "dry_run": false
+}

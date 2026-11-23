@@ -1,0 +1,51 @@
+# Rust migration plan: cwd (Go)
+
+1 packages, 1 source files (275 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 0 | 1 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `go/path.go` | 275 | 40 | 34 | 0 | cgo | Pointers and manual memory (45); String offsets and slicing (8); Null references (13) |
+
+### `go/path.go`
+
+275 lines in 1 files, wave 0, priority 40, readiness 34, bridge **cgo**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Pointers and manual memory x45: `go/path.go:27`, `go/path.go:40`, `go/path.go:42`
+- String offsets and slicing x8: `go/path.go:205`, `go/path.go:215`, `go/path.go:238`
+- Null references x13: `go/path.go:36`, `go/path.go:42`, `go/path.go:57`
+- Integer width and overflow x6: `go/path.go:72`, `go/path.go:149`, `go/path.go:209`
+- Dynamic typing x2: `go/path.go:40`, `go/path.go:68`
+- Reflection and prototypes x1: `go/path.go:25`
+- Exceptions x15: `go/path.go:131`, `go/path.go:137`, `go/path.go:140`
+- JSON round-trips x1: `go/path.go:21`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. mojo-anything.local/path_mojo (`go`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `go/path.go` | caution | 275 | 34 | cgo | Pointers and manual memory (45); String offsets and slicing (8) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Dynamic typing** (Medium): Values whose shape is checked at runtime need an explicit Rust enum or `serde_json::Value`.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.
+- **Reflection and prototypes** (Medium): Proxy, Reflect, Symbol and prototype tricks need a redesign, not a translation.
+- **JSON round-trips** (Low): JSON.stringify key order and number formatting must match `serde_json` output if the result is user-visible.
+- **Integer width and overflow** (Medium): Python ints never overflow; C, Go and Java ints wrap or are undefined on overflow. Pick i64, i128 or a bignum crate deliberately, and use wrapping_* where the source wraps.
+- **Pointers and manual memory** (High): Pointer arithmetic and manual memory become slices, indices and owned types. Code that exposes pointers across the boundary needs `unsafe`, isolated and explained.
+- **Null references** (Medium): Any reference may be null in the source: decide per parameter whether it is `Option` and what null means, instead of mapping every value to `Option`.

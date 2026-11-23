@@ -1,0 +1,44 @@
+# Rust migration plan: cwd (PHP)
+
+1 packages, 3 source files (30 lines), 0 test files, 0 UI files, grouped into 3 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/helpers.php` | 6 | 51 | 100 | 0 | PHP FFI (C ABI) | - |
+
+### `src/helpers.php`
+
+6 lines in 1 files, wave 0, priority 51, readiness 100, bridge **PHP FFI (C ABI)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. acme/app (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/helpers.php` | ready | 6 | 100 | PHP FFI (C ABI) | - |
+| 0 | `src/Greeter.php` | ready | 9 | 98 | PHP FFI (C ABI) | - |
+| 1 | `src/User.php` | ready | 15 | 96 | PHP FFI (C ABI) | - |
+
+## Composer dependencies
+
+| Package | Units | Mojo | Fit | Note |
+| --- | ---: | --- | --- | --- |
+| `Stripe` | 1 | ? | unknown |  |
+| `monolog/monolog` | 1 | std.logger | partial | Levels and a line format; no structured fields or sinks. |
+
+## Risk guide
+

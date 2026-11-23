@@ -1,0 +1,194 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "textkit/textkit.go",
+  "language": "go",
+  "kind": "ffi",
+  "crate_name": "textkit-mojo",
+  "exports": [
+    {
+      "name": "Echo",
+      "file": "textkit/textkit.go",
+      "line": 10,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "string"
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(string)",
+      "prototype": "func Echo(s string) string"
+    },
+    {
+      "name": "Repeat",
+      "file": "textkit/textkit.go",
+      "line": 13,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "string"
+        },
+        {
+          "name": "n",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(string, error)",
+      "prototype": "func Repeat(s string, n int) (string, error)"
+    },
+    {
+      "name": "Count",
+      "file": "textkit/textkit.go",
+      "line": 21,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "string"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(int)",
+      "prototype": "func Count(s string) int"
+    },
+    {
+      "name": "Add",
+      "file": "textkit/textkit.go",
+      "line": 24,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "uint64"
+        },
+        {
+          "name": "b",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "uint64"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(uint64)",
+      "prototype": "func Add(a uint64, b uint64) uint64"
+    },
+    {
+      "name": "Split",
+      "file": "textkit/textkit.go",
+      "line": 27,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "string"
+        }
+      ],
+      "returns": "string[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "([]string)",
+      "prototype": "func Split(s string) []string"
+    },
+    {
+      "name": "Half",
+      "file": "textkit/textkit.go",
+      "line": 30,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "float64"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(float64)",
+      "prototype": "func Half(x float64) float64"
+    },
+    {
+      "name": "IsNeg",
+      "file": "textkit/textkit.go",
+      "line": 33,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "float64"
+        }
+      ],
+      "returns": "boolean",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(bool)",
+      "prototype": "func IsNeg(x float64) bool"
+    },
+    {
+      "name": "Pair",
+      "file": "textkit/textkit.go",
+      "line": 36,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "string"
+        }
+      ],
+      "returns": "[string, int]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "(string, int)",
+      "prototype": "func Pair(s string) (string, int)"
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

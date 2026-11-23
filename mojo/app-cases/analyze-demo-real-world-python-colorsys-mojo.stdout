@@ -1,0 +1,39 @@
+# Rust migration plan: cwd (Python)
+
+1 packages, 1 source files (29 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `python/colorsys_pkg_mojo/` | 29 | 49 | 90 | 0 | Mojo (Python extension) | Dynamic typing (10); Exceptions (4) |
+
+### `python/colorsys_pkg_mojo/`
+
+29 lines in 1 files, wave 0, priority 49, readiness 90, bridge **Mojo (Python extension)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Dynamic typing x10: `python/colorsys_pkg_mojo/__init__.py:9`, `python/colorsys_pkg_mojo/__init__.py:14`, `python/colorsys_pkg_mojo/__init__.py:17`
+- Exceptions x4: `python/colorsys_pkg_mojo/__init__.py:10`, `python/colorsys_pkg_mojo/__init__.py:15`, `python/colorsys_pkg_mojo/__init__.py:19`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `python/colorsys_pkg_mojo/` | ready | 29 | 90 | Mojo (Python extension) | Dynamic typing (10); Exceptions (4) |
+
+## Risk guide
+
+- **Dynamic typing** (Medium): Values whose shape is checked at runtime need an explicit Rust enum or `serde_json::Value`.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.

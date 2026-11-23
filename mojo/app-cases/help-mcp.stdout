@@ -1,0 +1,6 @@
+Serve every step as MCP tools over stdio
+
+Usage: mojo-anything mcp
+
+Options:
+  -h, --help  Print help

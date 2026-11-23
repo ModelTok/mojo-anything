@@ -1,0 +1,338 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "java",
+  "summary": {
+    "packages": 1,
+    "source_files": 12,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 1073,
+    "units": 3,
+    "ready": 2,
+    "caution": 1,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "bench/",
+        "java/com/example/text/",
+        "java/mojoanything/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "bench/",
+      "package": "root",
+      "files": [
+        "bench/Common.java",
+        "bench/Orig.java",
+        "bench/Rust.java"
+      ],
+      "loc": 75,
+      "wave": 0,
+      "readiness": 70,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 9,
+          "samples": [
+            "bench/Common.java:15",
+            "bench/Orig.java:22",
+            "bench/Orig.java:22"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 6,
+          "samples": [
+            "bench/Orig.java:11",
+            "bench/Orig.java:12",
+            "bench/Orig.java:19"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 6,
+          "samples": [
+            "bench/Common.java:8",
+            "bench/Orig.java:23",
+            "bench/Orig.java:23"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "bench/Orig.java:21",
+            "bench/Rust.java:15"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 6,
+          "samples": [
+            "bench/Orig.java:21",
+            "bench/Orig.java:21",
+            "bench/Rust.java:15"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "com.example"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 13.3,
+      "priority": 70,
+      "exports": 2,
+      "bridgeable": 2,
+      "notes": [
+        "1 Maven dependencies not in the crate table: check them by hand.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "java/com/example/text/",
+      "package": "root",
+      "files": [
+        "java/com/example/text/HashBatch.java",
+        "java/com/example/text/Nums.java",
+        "java/com/example/text/PagesBatch.java",
+        "java/com/example/text/SlugifyBatch.java",
+        "java/com/example/text/Strings.java"
+      ],
+      "loc": 283,
+      "wave": 0,
+      "readiness": 71,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "class-inheritance",
+          "severity": "medium",
+          "count": 6,
+          "samples": [
+            "java/com/example/text/HashBatch.java:10",
+            "java/com/example/text/HashBatch.java:22",
+            "java/com/example/text/PagesBatch.java:10"
+          ]
+        },
+        {
+          "risk": "concurrency",
+          "severity": "medium",
+          "count": 6,
+          "samples": [
+            "java/com/example/text/HashBatch.java:29",
+            "java/com/example/text/HashBatch.java:37",
+            "java/com/example/text/PagesBatch.java:29"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "java/com/example/text/HashBatch.java:13",
+            "java/com/example/text/PagesBatch.java:13",
+            "java/com/example/text/SlugifyBatch.java:13"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 12,
+          "samples": [
+            "java/com/example/text/HashBatch.java:12",
+            "java/com/example/text/HashBatch.java:14",
+            "java/com/example/text/HashBatch.java:15"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "mojoanything.MojoAnythingError"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.4,
+      "priority": 46,
+      "exports": 8,
+      "bridgeable": 8,
+      "notes": [
+        "1 Maven dependencies not in the crate table: check them by hand.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "java/mojoanything/",
+      "package": "root",
+      "files": [
+        "java/mojoanything/MojoAnythingError.java",
+        "java/mojoanything/MojoAnythingJson.java",
+        "java/mojoanything/MojoAnythingWire.java",
+        "java/mojoanything/TextRsNative.java"
+      ],
+      "loc": 715,
+      "wave": 0,
+      "readiness": 11,
+      "status": "caution",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 20,
+          "samples": [
+            "java/mojoanything/MojoAnythingJson.java:39",
+            "java/mojoanything/MojoAnythingJson.java:46",
+            "java/mojoanything/MojoAnythingJson.java:46"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 59,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:64",
+            "java/mojoanything/MojoAnythingJson.java:22",
+            "java/mojoanything/MojoAnythingJson.java:114"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 26,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:17",
+            "java/mojoanything/MojoAnythingError.java:51",
+            "java/mojoanything/MojoAnythingError.java:54"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 12,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:24",
+            "java/mojoanything/MojoAnythingJson.java:3",
+            "java/mojoanything/MojoAnythingJson.java:4"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 9,
+          "samples": [
+            "java/mojoanything/MojoAnythingWire.java:22",
+            "java/mojoanything/MojoAnythingWire.java:34",
+            "java/mojoanything/MojoAnythingWire.java:34"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:42",
+            "java/mojoanything/MojoAnythingError.java:61",
+            "java/mojoanything/TextRsNative.java:111"
+          ]
+        },
+        {
+          "risk": "class-inheritance",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:10",
+            "java/mojoanything/MojoAnythingJson.java:27"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "java/mojoanything/MojoAnythingJson.java:165"
+          ]
+        },
+        {
+          "risk": "concurrency",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:7"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 43,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:23",
+            "java/mojoanything/MojoAnythingError.java:30",
+            "java/mojoanything/MojoAnythingError.java:56"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 6.3,
+      "priority": 23,
+      "exports": 19,
+      "bridgeable": 15,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "bench/",
+    "java/com/example/text/",
+    "java/mojoanything/"
+  ],
+  "dependencies": [
+    {
+      "name": "com.example",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    },
+    {
+      "name": "mojoanything.MojoAnythingError",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    }
+  ]
+}

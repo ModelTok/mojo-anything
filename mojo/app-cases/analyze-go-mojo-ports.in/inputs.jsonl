@@ -1,0 +1,14 @@
+{"fn": "Echo", "args": ["a\u0000b"]}
+{"fn": "Echo", "args": ["zażółć 😀"]}
+{"fn": "Repeat", "args": ["ab", 3]}
+{"fn": "Repeat", "args": ["ab", 9]}
+{"fn": "Repeat", "args": ["x", -1]}
+{"fn": "Count", "args": ["a\u0000b"]}
+{"fn": "Add", "args": [18446744073709551615, 2]}
+{"fn": "Add", "args": [9007199254740993, 0]}
+{"fn": "Split", "args": [",a,,b,"]}
+{"fn": "Split", "args": [""]}
+{"fn": "Half", "args": [5e-324]}
+{"fn": "Half", "args": [{"$num": "-Infinity"}]}
+{"fn": "IsNeg", "args": [{"$num": "-0"}]}
+{"fn": "Pair", "args": ["héllo"]}

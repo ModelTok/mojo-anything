@@ -1,0 +1,30 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "packages/a/src/index.ts",
+  "language": "ts",
+  "kind": "mojo-node",
+  "crate_name": "index-mojo",
+  "exports": [
+    {
+      "name": "slug",
+      "file": "packages/a/src/index.ts",
+      "line": 1,
+      "params": [
+        {
+          "name": "text",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

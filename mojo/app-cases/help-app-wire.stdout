@@ -1,0 +1,15 @@
+Hand commands to a unit's port (after it passes gate): adds the unit to `mojo/app`, a glue file to write once (a CLI), the routing and a kill switch (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays. A CLI or a library takes a Mojo unit (`mojo/<name>` with `port.mojo`); a server takes one for each route
+
+Usage: mojo-anything app wire [OPTIONS] <REPO> <UNIT>
+
+Arguments:
+  <REPO>  Repository root
+  <UNIT>  The unit: its folder, its name under `mojo/`, or the unit id it was bridged from
+
+Options:
+      --command <COMMANDS>  A command the unit answers. Repeatable; kept from the last wire when omitted
+      --route <ROUTES>      Servers: a route the unit answers (`GET /users/{id}`, `/files/{*rest}`, `/path` for any method, `*` for everything else). Repeatable; kept from the last wire when omitted
+      --skip-gate           Do not run gate on the unit first (it just passed)
+      --no-check            Only write the files; skip the build and replay
+      --json                
+  -h, --help                Print help

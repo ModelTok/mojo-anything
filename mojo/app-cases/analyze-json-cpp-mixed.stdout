@@ -1,0 +1,98 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "cpp",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 62,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/mixed.cpp"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/mixed.cpp",
+      "package": "root",
+      "files": [
+        "src/mixed.cpp"
+      ],
+      "loc": 62,
+      "wave": 0,
+      "readiness": 88,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "src/mixed.cpp:13"
+          ]
+        },
+        {
+          "risk": "class-inheritance",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "src/mixed.cpp:8",
+            "src/mixed.cpp:12"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/mixed.cpp:60"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "src/mixed.cpp:54",
+            "src/mixed.cpp:61"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 6.5,
+      "priority": 65,
+      "exports": 9,
+      "bridgeable": 8,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/mixed.cpp"
+  ],
+  "dependencies": []
+}

@@ -1,0 +1,73 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "cpp",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 58,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "facade/src/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "facade/src/",
+      "package": "root",
+      "files": [
+        "facade/src/psychrometrics.cpp"
+      ],
+      "loc": 58,
+      "wave": 0,
+      "readiness": 95,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "facade/src/psychrometrics.cpp:38",
+            "facade/src/psychrometrics.cpp:69"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 55,
+      "exports": 3,
+      "bridgeable": 3,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "facade/src/"
+  ],
+  "dependencies": []
+}

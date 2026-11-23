@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["app", "record", ".", "--no-traps", "--", "python3", "tcli.py"]
+status.code = 0
+fs.sandbox = true
+fs.base = "app-record-cli-python.in"

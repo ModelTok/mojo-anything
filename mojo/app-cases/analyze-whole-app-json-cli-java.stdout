@@ -1,0 +1,121 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "java",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 68,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "Tcli.java"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "Tcli.java",
+      "package": "root",
+      "files": [
+        "Tcli.java"
+      ],
+      "loc": 68,
+      "wave": 0,
+      "readiness": 86,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "Tcli.java:28",
+            "Tcli.java:60"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "Tcli.java:42",
+            "Tcli.java:42"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 6,
+          "samples": [
+            "Tcli.java:31",
+            "Tcli.java:34",
+            "Tcli.java:48"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 2.9,
+      "priority": 58,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "Tcli.java"
+  ],
+  "dependencies": [],
+  "whole_app": {
+    "shape": "cli",
+    "entry_points": [
+      {
+        "kind": "cli",
+        "path": "Tcli.java",
+        "evidence": "`public static void main(` at Tcli.java:69"
+      }
+    ],
+    "dependencies": [],
+    "pieces": [
+      {
+        "wave": 0,
+        "units": [
+          "Tcli.java"
+        ],
+        "loc": 68,
+        "tangled": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "D1",
+        "topic": "shape",
+        "question": "The app is a cli, entered through Tcli.java. Port every entry point, in that shape?",
+        "recommendation": "Yes: a clap front door (`app front-door`) takes every command over first"
+      }
+    ]
+  }
+}

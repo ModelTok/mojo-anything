@@ -1,0 +1,64 @@
+# Rust migration plan: cwd (PHP)
+
+1 packages, 1 source files (52 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `tcli.php` | 52 | 65 | 87 | 0 | PHP FFI (C ABI) | String offsets and slicing (2); Division and modulo (2); Callback-shaped APIs (1) |
+
+### `tcli.php`
+
+52 lines in 1 files, wave 0, priority 65, readiness 87, bridge **PHP FFI (C ABI)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- String offsets and slicing x2: `tcli.php:19`, `tcli.php:46`
+- Division and modulo x2: `tcli.php:32`, `tcli.php:32`
+- Callback-shaped APIs x1: `tcli.php:27`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `tcli.php` | ready | 52 | 87 | PHP FFI (C ABI) | String offsets and slicing (2); Division and modulo (2) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Callback-shaped APIs** (Medium): Function-typed parameters and methods cross the bridge on every call. Keep boundaries coarse: pass data in, get data out.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+
+## Whole app
+
+Shape: **cli**.
+
+| Entry point | Kind | Found from |
+| --- | --- | --- |
+| `tcli.php` | cli | `$argv` at tcli.php:9 |
+
+### Every dependency
+
+None.
+
+### Pieces, in port order
+
+- wave 0: `tcli.php` (52 lines)
+
+### Decisions for the user
+
+**D1** (shape): The app is a cli, entered through tcli.php. Port every entry point, in that shape?
+
+> Yes: a clap front door (`app front-door`) takes every command over first
+

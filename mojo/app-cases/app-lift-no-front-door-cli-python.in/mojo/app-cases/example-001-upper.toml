@@ -1,0 +1,4 @@
+bin.name = "tcli"
+args = ["upper", "hello", "world"]
+status.code = 0
+fs.sandbox = true

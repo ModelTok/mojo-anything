@@ -1,0 +1,12 @@
+Run a real workload under the language's profiler and say what to port: hot functions, their callers, and loops to batch. `mojo-anything profile <repo> -- node bench.mjs` (also `python3 x.py`, `go test -bench . ./pkg`, `java ...`, `ruby x.rb`)
+
+Usage: mojo-anything profile [OPTIONS] <ROOT> -- <COMMAND>...
+
+Arguments:
+  <ROOT>        Repository root
+  <COMMAND>...  The workload, after `--`
+
+Options:
+      --json         
+      --lang <LANG>  Source language; detected from the repository when omitted [possible values: ts, python, c, go, ruby, java, kotlin, php, csharp, cpp]
+  -h, --help         Print help

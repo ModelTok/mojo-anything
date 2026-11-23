@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/main/java/com/example/",
+      "loc": 8,
+      "readiness": 100,
+      "exports": 1
+    }
+  ],
+  "glue": []
+}

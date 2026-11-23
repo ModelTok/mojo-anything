@@ -1,0 +1,43 @@
+# Rust migration plan: cwd (Go)
+
+1 packages, 2 source files (97 lines), 1 test files, 0 UI files, grouped into 2 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 2 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `strkit/` | 86 | 81 | 85 | 0 | cgo | String offsets and slicing (1); Division and modulo (3); Integer width and overflow (2) |
+
+### `strkit/`
+
+86 lines in 1 files, wave 0, priority 81, readiness 85, bridge **cgo**.
+
+- Leaf: imports no other unit.
+- String offsets and slicing x1: `strkit/strkit.go:32`
+- Division and modulo x3: `strkit/strkit.go:67`, `strkit/strkit.go:72`, `strkit/strkit.go:72`
+- Integer width and overflow x2: `strkit/strkit.go:67`, `strkit/strkit.go:79`
+- Null references x2: `strkit/strkit.go:49`, `strkit/strkit.go:55`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. example.com/strkit (`.`, portable, 1 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `strkit/` | ready | 86 | 85 | cgo | String offsets and slicing (1); Division and modulo (3) |
+| 1 | `cmd/strkit/` | ready | 11 | 100 | cgo | String offsets and slicing (1) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Integer width and overflow** (Medium): Python ints never overflow; C, Go and Java ints wrap or are undefined on overflow. Pick i64, i128 or a bignum crate deliberately, and use wrapping_* where the source wraps.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+- **Null references** (Medium): Any reference may be null in the source: decide per parameter whether it is `Option` and what null means, instead of mapping every value to `Option`.

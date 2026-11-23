@@ -1,0 +1,14 @@
+{"fn":"slugify","args":["a²b",0]}
+{"fn":"slugify","args":["aⅠb",0]}
+{"fn":"slugify","args":["a𐐀b",0]}
+{"fn":"slugify","args":["a𐐨b",0]}
+{"fn":"slugify","args":["𝐀bc def",0]}
+{"fn":"slugify","args":["x½ y⁵ z①",0]}
+{"fn":"slugify","args":["Café ٣٤ कि",0]}
+{"fn":"slugify","args":["ǅ ʰ 々 中",0]}
+{"fn":"slugify","args":["ab 𐐀 cd",3]}
+{"fn":"slugify","args":["ab²cd",3]}
+{"fn":"slugify","args":["İSTANBUL ΣΟΣ",0]}
+{"fn":"slugify","args":["ⅠⅡ Chapter",0]}
+{"fn":"words","args":["a b c"]}
+{"fn":"slugify","args":["Straße İstanbul",5]}

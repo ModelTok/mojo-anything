@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/helpers.php",
+      "loc": 6,
+      "readiness": 100,
+      "exports": 1
+    },
+    {
+      "unit": "src/Greeter.php",
+      "loc": 9,
+      "readiness": 98,
+      "exports": 0
+    },
+    {
+      "unit": "src/User.php",
+      "loc": 15,
+      "readiness": 96,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

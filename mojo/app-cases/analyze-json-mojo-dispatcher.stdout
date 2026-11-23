@@ -1,0 +1,89 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "c",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 41,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "caller.c"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "caller.c",
+      "package": "root",
+      "files": [
+        "caller.c"
+      ],
+      "loc": 41,
+      "wave": 0,
+      "readiness": 76,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 9,
+          "samples": [
+            "caller.c:8",
+            "caller.c:8",
+            "caller.c:8"
+          ]
+        },
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "caller.c:23",
+            "caller.c:33"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "caller.c:34"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 12.2,
+      "priority": 68,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": []
+}

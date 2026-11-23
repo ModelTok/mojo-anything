@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "textkit/textkit.go",
+      "loc": 27,
+      "readiness": 95,
+      "exports": 8
+    }
+  ],
+  "glue": []
+}

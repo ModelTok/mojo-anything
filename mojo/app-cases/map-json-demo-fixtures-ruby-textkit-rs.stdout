@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "ruby/",
+      "loc": 251,
+      "readiness": 19,
+      "exports": 10
+    },
+    {
+      "unit": "bench_batch.rb",
+      "loc": 25,
+      "readiness": 74,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

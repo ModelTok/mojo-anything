@@ -1,0 +1,4 @@
+error: invalid value 'nope' for '--agent <AGENTS>'
+  [possible values: claude, codex, cursor, gemini, opencode]
+
+For more information, try '--help'.

@@ -1,0 +1,136 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "csharp",
+  "summary": {
+    "packages": 2,
+    "source_files": 2,
+    "test_files": 1,
+    "ui_files": 0,
+    "loc": 37,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "Acme.Textkit",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/Text/",
+        "src/Util/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/Text/",
+      "package": "Acme.Textkit",
+      "files": [
+        "src/Text/Slug.cs"
+      ],
+      "loc": 21,
+      "wave": 1,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "dotnet-ffi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "src/Text/Slug.cs:22"
+          ]
+        },
+        {
+          "risk": "regex-syntax",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "src/Text/Slug.cs:2"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "src/Text/Slug.cs:20"
+          ]
+        }
+      ],
+      "internal_deps": [
+        "src/Util/"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 1,
+      "fan_in": 0,
+      "density": 4.8,
+      "priority": 77,
+      "exports": 2,
+      "bridgeable": 2,
+      "notes": [
+        "1 test files import it directly."
+      ]
+    },
+    {
+      "id": "src/Util/",
+      "package": "Acme.Textkit",
+      "files": [
+        "src/Util/Ascii.cs"
+      ],
+      "loc": 16,
+      "wave": 0,
+      "readiness": 96,
+      "status": "ready",
+      "bridge": "dotnet-ffi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/Util/Ascii.cs:14"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "Newtonsoft.Json"
+      ],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 2,
+      "bridgeable": 2,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/Text/"
+  ],
+  "dependencies": [
+    {
+      "name": "Newtonsoft.Json",
+      "used_by": 1,
+      "replacement": "emberjson",
+      "fit": "good",
+      "note": "EmberJson on pixi, which `json.mojo` wraps; key order is kept."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["shadow", "--help"]
+status.code = 0
+fs.sandbox = true

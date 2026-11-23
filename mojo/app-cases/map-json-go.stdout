@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "strkit/",
+      "loc": 86,
+      "readiness": 85,
+      "exports": 8
+    },
+    {
+      "unit": "cmd/strkit/",
+      "loc": 11,
+      "readiness": 100,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

@@ -1,0 +1,11 @@
+Register mojo-anything with your coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenCode): the MCP server and, where the agent reads skills, the workflow skill. Keeps your other settings; run it again any time
+
+Usage: mojo-anything setup [OPTIONS]
+
+Options:
+      --agent <AGENTS>  Agents to set up (repeatable); every agent found by default [possible values: claude, codex, cursor, gemini, opencode]
+      --remove          Take the mojo-anything entries out again
+      --dry-run         Show what would change, write nothing
+      --no-backup       Change settings files in place without saving a `.mojo-anything.bak` copy first
+      --json            
+  -h, --help            Print help (see more with '--help')

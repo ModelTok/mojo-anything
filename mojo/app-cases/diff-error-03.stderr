@@ -1,0 +1,3 @@
+error: invalid value 'x' for '--float-tolerance <FLOAT_TOLERANCE>': invalid float literal
+
+For more information, try '--help'.

@@ -1,0 +1,51 @@
+# Rust migration plan: cwd (TypeScript/JavaScript)
+
+3 packages, 2 source files (7 lines), 0 test files, 0 UI files, grouped into 2 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 2 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `packages/a/src/index.ts` | 3 | 50 | 100 | 0 | Mojo (wasm) | - |
+| 2 | `packages/b/src/titles.ts` | 4 | 50 | 100 | 0 | Mojo (wasm) | - |
+
+### `packages/a/src/index.ts`
+
+3 lines in 1 files, wave 0, priority 50, readiness 100, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+### `packages/b/src/titles.ts`
+
+4 lines in 1 files, wave 0, priority 50, readiness 100, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. @m/a (`packages/a`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `packages/a/src/index.ts` | ready | 3 | 100 | Mojo (wasm) | - |
+
+### 2. @m/b (`packages/b`, portable, 0 test files, uses @m/a)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `packages/b/src/titles.ts` | ready | 4 | 100 | Mojo (wasm) | - |
+
+## Risk guide
+

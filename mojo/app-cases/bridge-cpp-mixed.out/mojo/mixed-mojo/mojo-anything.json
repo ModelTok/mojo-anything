@@ -1,0 +1,201 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/mixed.cpp",
+  "language": "cpp",
+  "kind": "c-abi",
+  "crate_name": "mixed-mojo",
+  "exports": [
+    {
+      "name": "mixed::sum_long",
+      "file": "src/mixed.cpp",
+      "line": 19,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<long> &"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "long",
+      "prototype": "long sum_long(const std::vector<long> &xs)"
+    },
+    {
+      "name": "mixed::sum_int64",
+      "file": "src/mixed.cpp",
+      "line": 27,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<int64_t> &"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int64_t",
+      "prototype": "std::int64_t sum_int64(const std::vector<std::int64_t> &xs)"
+    },
+    {
+      "name": "mixed::twice_long",
+      "file": "src/mixed.cpp",
+      "line": 35,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<long> &"
+        }
+      ],
+      "returns": "int[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::vector<long>",
+      "prototype": "std::vector<long> twice_long(const std::vector<long> &xs)"
+    },
+    {
+      "name": "mixed::twice_int64",
+      "file": "src/mixed.cpp",
+      "line": 43,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "int[]",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::vector<int64_t> &"
+        }
+      ],
+      "returns": "int[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "std::vector<int64_t>",
+      "prototype": "std::vector<std::int64_t> twice_int64(const std::vector<std::int64_t> &xs)"
+    },
+    {
+      "name": "mixed::check",
+      "file": "src/mixed.cpp",
+      "line": 51,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int",
+      "prototype": "int check(int x)"
+    },
+    {
+      "name": "mixed::even",
+      "file": "src/mixed.cpp",
+      "line": 58,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int",
+      "prototype": "int even(int x)"
+    },
+    {
+      "name": "mixed::fused",
+      "file": "src/mixed.cpp",
+      "line": 65,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "b",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "c",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "double fused(double a, double b, double c)"
+    },
+    {
+      "name": "mixed::length",
+      "file": "src/mixed.cpp",
+      "line": 70,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "const std::string &"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "size_t",
+      "prototype": "std::size_t length(const std::string &s)"
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "mixed::odd",
+      "file": "src/mixed.cpp",
+      "line": 12,
+      "reason": "class: is a class: member functions do not cross the C ABI shim; write a free function with plain arguments over it (a facade) and bridge that"
+    }
+  ]
+}

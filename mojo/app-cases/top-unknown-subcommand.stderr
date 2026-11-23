@@ -1,0 +1,5 @@
+error: unrecognized subcommand 'nope'
+
+Usage: mojo-anything <COMMAND>
+
+For more information, try '--help'.

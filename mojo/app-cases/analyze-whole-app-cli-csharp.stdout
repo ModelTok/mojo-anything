@@ -1,0 +1,51 @@
+# Rust migration plan: cwd (C#)
+
+1 packages, 1 source files (94 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+No unit is a safe first port yet. See the blocked units and dependencies below.
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. tcli (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `Program.cs` | ready | 94 | 89 | P/Invoke (C ABI) | Regexes (Mojo has no engine; lookaround, backreferences, `y`) (1); Division and modulo (2) |
+
+## Risk guide
+
+- **Regexes (Mojo has no engine; lookaround, backreferences, `y`)** (High): Mojo's standard library has no regex engine: rewrite the pattern by hand, or run it through Python's `re` over CPython interop, which a lifted binary then still needs. Lookaround and backreferences make a hand rewrite harder, and `re` has no `y` flag. Test either on non-ASCII text: `\w`, `\b` and case-insensitive matching differ between engines even where a pattern compiles. JS `/i` without `u` never matches a non-ASCII letter to an ASCII one, `re.IGNORECASE` on a `str` does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): add `re.ASCII`, or compare ASCII letters by hand.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+
+## Whole app
+
+Shape: **cli**.
+
+| Entry point | Kind | Found from |
+| --- | --- | --- |
+| tcli: `.` | cli | `tcli.csproj` builds an executable |
+| `Program.cs` | cli | `static int Main(` at Program.cs:90 |
+
+### Every dependency
+
+None.
+
+### Pieces, in port order
+
+- wave 0: `Program.cs` (94 lines)
+
+### Decisions for the user
+
+**D1** (shape): The app is a cli, entered through tcli (.), Program.cs. Port every entry point, in that shape?
+
+> Yes: a clap front door (`app front-door`) takes every command over first
+

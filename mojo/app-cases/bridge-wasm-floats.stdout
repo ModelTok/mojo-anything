@@ -1,0 +1,12 @@
+Created [CWD]/mojo/floats-mojo (MojoNode) for third, negZero, tiny, huge, sum, echoAll, same
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  node_shim.c
+  binding.gyp
+  index.cjs
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/floats-mojo && mojo-anything build [CWD]/mojo/floats-mojo && mojo-anything diff [CWD]/mojo/floats-mojo

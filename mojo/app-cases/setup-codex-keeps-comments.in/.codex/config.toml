@@ -1,0 +1,5 @@
+# my settings
+model = "o3"  # keep this
+
+[mcp_servers.other]
+command = "other"

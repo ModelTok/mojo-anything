@@ -1,0 +1,1 @@
+error: no mojo-anything.json in [CWD]/mojo/app-cases: run `mojo-anything app record` first, or pass --build

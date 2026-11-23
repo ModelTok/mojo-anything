@@ -1,0 +1,6 @@
+#!/bin/sh
+# The command `app record` runs: the Phase 1 binary, under a name no example in the
+# repository's docs uses, so the recording holds the cases of inputs.jsonl only
+# (docs examples would run `setup` against the real home directory).
+here=$(dirname "$0")
+exec "$here/../fallback/mojo-anything" "$@"

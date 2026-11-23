@@ -1,0 +1,116 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/floats.ts",
+  "language": "ts",
+  "kind": "mojo-node",
+  "crate_name": "floats-mojo",
+  "exports": [
+    {
+      "name": "third",
+      "file": "src/floats.ts",
+      "line": 3,
+      "params": [],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "negZero",
+      "file": "src/floats.ts",
+      "line": 7,
+      "params": [],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "tiny",
+      "file": "src/floats.ts",
+      "line": 11,
+      "params": [],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "huge",
+      "file": "src/floats.ts",
+      "line": 15,
+      "params": [],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "sum",
+      "file": "src/floats.ts",
+      "line": 19,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "b",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "echoAll",
+      "file": "src/floats.ts",
+      "line": 23,
+      "params": [
+        {
+          "name": "xs",
+          "ts_type": "number[]",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "number[]",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "same",
+      "file": "src/floats.ts",
+      "line": 27,
+      "params": [
+        {
+          "name": "text",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

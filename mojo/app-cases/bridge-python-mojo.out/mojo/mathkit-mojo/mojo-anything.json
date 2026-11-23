@@ -1,0 +1,97 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/mathkit/",
+  "language": "python",
+  "kind": "mojo-py",
+  "crate_name": "mathkit-mojo",
+  "exports": [
+    {
+      "name": "scale",
+      "file": "src/mathkit/ops.py",
+      "line": 4,
+      "params": [
+        {
+          "name": "x",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "factor",
+          "ts_type": "number",
+          "optional": true,
+          "rest": false,
+          "default": "2.0"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "safe_div",
+      "file": "src/mathkit/ops.py",
+      "line": 8,
+      "params": [
+        {
+          "name": "a",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "b",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "exclaim",
+      "file": "src/mathkit/ops.py",
+      "line": 14,
+      "params": [
+        {
+          "name": "text",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "count_items",
+      "file": "src/mathkit/ops.py",
+      "line": 18,
+      "params": [
+        {
+          "name": "items",
+          "ts_type": "string[]",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

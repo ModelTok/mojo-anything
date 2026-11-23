@@ -1,0 +1,7 @@
+error: unexpected argument '--nope' found
+
+  tip: a similar argument exists: '--no-check'
+
+Usage: mojo-anything app wire --no-check <REPO> <UNIT>
+
+For more information, try '--help'.

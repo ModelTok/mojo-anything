@@ -1,0 +1,53 @@
+# Rust migration plan: cwd (C++)
+
+1 packages, 3 source files (181 lines), 0 test files, 0 UI files, grouped into 3 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/kit.cpp` | 80 | 71 | 92 | 0 | C ABI | Division and modulo (3); Exceptions (1) |
+| 2 | `src/refused.cpp` | 94 | 54 | 89 | 0 | C ABI | Pointers and manual memory (2); Dynamic typing (1) |
+
+### `src/kit.cpp`
+
+80 lines in 1 files, wave 0, priority 71, readiness 92, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Division and modulo x3: `src/kit.cpp:31`, `src/kit.cpp:39`, `src/kit.cpp:46`
+- Exceptions x1: `src/kit.cpp:77`
+
+### `src/refused.cpp`
+
+94 lines in 1 files, wave 0, priority 54, readiness 89, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Pointers and manual memory x2: `src/refused.cpp:50`, `src/refused.cpp:65`
+- Dynamic typing x1: `src/refused.cpp:29`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/kit.cpp` | ready | 80 | 92 | C ABI | Division and modulo (3); Exceptions (1) |
+| 0 | `src/refused.cpp` | ready | 94 | 89 | C ABI | Pointers and manual memory (2); Dynamic typing (1) |
+| 1 | `src/main.cpp` | ready | 7 | 100 | C ABI | - |
+
+## Risk guide
+
+- **Dynamic typing** (Medium): Values whose shape is checked at runtime need an explicit Rust enum or `serde_json::Value`.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+- **Pointers and manual memory** (High): Pointer arithmetic and manual memory become slices, indices and owned types. Code that exposes pointers across the boundary needs `unsafe`, isolated and explained.

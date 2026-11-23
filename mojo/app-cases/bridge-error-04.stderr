@@ -1,0 +1,1 @@
+error: no unit or source file `nope`; `mojo-anything analyze` lists unit ids, and any source file inside a unit can be bridged on its own

@@ -1,0 +1,38 @@
+# Rust migration plan: cwd (Kotlin)
+
+1 packages, 1 source files (52 lines), 1 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/main/kotlin/com/example/text/` | 52 | 77 | 95 | 0 | Mojo (Java FFM) | String offsets and slicing (1); Division and modulo (2) |
+
+### `src/main/kotlin/com/example/text/`
+
+52 lines in 1 files, wave 0, priority 77, readiness 95, bridge **Mojo (Java FFM)**.
+
+- Leaf: imports no other unit.
+- String offsets and slicing x1: `src/main/kotlin/com/example/text/Strings.kt:21`
+- Division and modulo x2: `src/main/kotlin/com/example/text/Strings.kt:47`, `src/main/kotlin/com/example/text/Strings.kt:56`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 1 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/main/kotlin/com/example/text/` | ready | 52 | 95 | Mojo (Java FFM) | String offsets and slicing (1); Division and modulo (2) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.

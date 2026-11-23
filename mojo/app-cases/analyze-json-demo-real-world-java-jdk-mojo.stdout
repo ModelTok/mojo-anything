@@ -1,0 +1,237 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "java",
+  "summary": {
+    "packages": 1,
+    "source_files": 5,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 636,
+    "units": 3,
+    "ready": 2,
+    "caution": 1,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "java/com/example/jdk/",
+        "java/mojoanything/",
+        "original/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "java/com/example/jdk/",
+      "package": "root",
+      "files": [
+        "java/com/example/jdk/Jdk.java"
+      ],
+      "loc": 75,
+      "wave": 0,
+      "readiness": 83,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 11,
+          "samples": [
+            "java/com/example/jdk/Jdk.java:16",
+            "java/com/example/jdk/Jdk.java:24",
+            "java/com/example/jdk/Jdk.java:32"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 11,
+          "samples": [
+            "java/com/example/jdk/Jdk.java:16",
+            "java/com/example/jdk/Jdk.java:24",
+            "java/com/example/jdk/Jdk.java:32"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 51,
+      "exports": 11,
+      "bridgeable": 11,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "java/mojoanything/",
+      "package": "root",
+      "files": [
+        "java/mojoanything/JdkMojoNative.java",
+        "java/mojoanything/MojoAnythingError.java",
+        "java/mojoanything/MojoAnythingJson.java"
+      ],
+      "loc": 519,
+      "wave": 0,
+      "readiness": 22,
+      "status": "caution",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 24,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:53",
+            "java/mojoanything/MojoAnythingError.java:54",
+            "java/mojoanything/MojoAnythingError.java:55"
+          ]
+        },
+        {
+          "risk": "dynamic-regex",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:54"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 53,
+          "samples": [
+            "java/mojoanything/JdkMojoNative.java:77",
+            "java/mojoanything/JdkMojoNative.java:86",
+            "java/mojoanything/JdkMojoNative.java:115"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 12,
+          "samples": [
+            "java/mojoanything/JdkMojoNative.java:10",
+            "java/mojoanything/MojoAnythingError.java:3",
+            "java/mojoanything/MojoAnythingError.java:16"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 11,
+          "samples": [
+            "java/mojoanything/JdkMojoNative.java:54",
+            "java/mojoanything/JdkMojoNative.java:57",
+            "java/mojoanything/JdkMojoNative.java:117"
+          ]
+        },
+        {
+          "risk": "class-inheritance",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:61",
+            "java/mojoanything/MojoAnythingJson.java:27"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "java/mojoanything/JdkMojoNative.java:48",
+            "java/mojoanything/MojoAnythingError.java:31"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "java/mojoanything/MojoAnythingJson.java:165"
+          ]
+        },
+        {
+          "risk": "concurrency",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "java/mojoanything/MojoAnythingError.java:5"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 35,
+          "samples": [
+            "java/mojoanything/JdkMojoNative.java:32",
+            "java/mojoanything/JdkMojoNative.java:34",
+            "java/mojoanything/JdkMojoNative.java:35"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 7.1,
+      "priority": 35,
+      "exports": 5,
+      "bridgeable": 0,
+      "notes": [
+        "Every export is JS-shaped (functions, plugin objects, iterators): porting the logic means adding a data-only function, an API change.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "original/",
+      "package": "root",
+      "files": [
+        "original/Jdk.java"
+      ],
+      "loc": 42,
+      "wave": 0,
+      "readiness": 99,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 55,
+      "exports": 11,
+      "bridgeable": 11,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "original/",
+    "java/com/example/jdk/"
+  ],
+  "dependencies": []
+}

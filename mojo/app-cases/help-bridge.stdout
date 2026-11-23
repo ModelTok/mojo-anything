@@ -1,0 +1,39 @@
+2. Scaffold the port of one unit, with the bindings its callers need
+
+Usage: mojo-anything bridge [OPTIONS] <ROOT> <UNIT>
+
+Arguments:
+  <ROOT>
+          Repository root
+
+  <UNIT>
+          Unit id, as `analyze` lists it
+
+Options:
+      --kind <KIND>
+          Bridge to generate; defaults to the plan's choice
+
+          Possible values:
+          - node: A Mojo port behind a Node-API addon
+          - wasm: A Mojo port compiled to a WebAssembly module (wasm64), loaded by `index.cjs`
+
+  -o, --out <OUT>
+          Port folder; defaults to `<root>/mojo/<name>`
+
+      --name <NAME>
+          Port name; defaults to `<unit>-mojo`
+
+      --force
+          Bridge a unit the plan marks blocked or keep
+
+      --keep <KEEP>
+          Keep an export in TS: `name` or `"name: reason"`. Repeatable
+
+      --batch <BATCH>
+          Add a batch class: `function:param` runs `function` over many `param` values kept on the native side (what `profile` recommends for leaves called in loops)
+
+      --as-json <TYPE_PARAM>
+          Bridge a type parameter as JSON values (`--as-json T`) when the app only fills it with data, instead of keeping the generic export in TS. Repeatable
+
+  -h, --help
+          Print help (see a summary with '-h')

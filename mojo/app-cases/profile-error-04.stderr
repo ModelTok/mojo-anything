@@ -1,0 +1,6 @@
+error: invalid value 'cobol' for '--lang <LANG>'
+  [possible values: ts, python, c, go, ruby, java, kotlin, php, csharp, cpp]
+
+  tip: a similar value exists: 'c'
+
+For more information, try '--help'.

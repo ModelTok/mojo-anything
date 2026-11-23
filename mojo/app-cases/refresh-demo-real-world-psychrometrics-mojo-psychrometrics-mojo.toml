@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["refresh", "."]
+status.code = 0
+fs.sandbox = true
+fs.base = "refresh-demo-real-world-psychrometrics-mojo-psychrometrics-mojo.in"

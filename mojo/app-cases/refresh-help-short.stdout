@@ -1,0 +1,10 @@
+2b. Regenerate the bindings from the signatures in the port (`port.mojo`)
+
+Usage: mojo-anything refresh [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --batch <BATCH>  Add a batch class: `function:param` runs `function` over many `param` values kept on the native side. Repeat for more
+  -h, --help           Print help

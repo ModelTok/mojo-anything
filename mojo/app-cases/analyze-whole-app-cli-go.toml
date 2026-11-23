@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["analyze", ".", "--whole-app"]
+status.code = 0
+fs.sandbox = true
+fs.base = "analyze-whole-app-cli-go.in"

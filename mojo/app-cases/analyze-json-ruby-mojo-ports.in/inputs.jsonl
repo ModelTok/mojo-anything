@@ -1,0 +1,11 @@
+{"fn": "repeat", "args": ["ab", 3]}
+{"fn": "repeat", "args": ["ab", 9]}
+{"fn": "repeat", "args": ["x", -1]}
+{"fn": "echo", "args": [{"$sym": "abc"}]}
+{"fn": "echo", "args": [{"$hash": [[1, "one"], [{"$sym": "k"}, 2]]}]}
+{"fn": "echo", "args": [{"b": 1, "a": [2.5, null, true, "z"]}]}
+{"fn": "echo", "args": [[{"$num": "NaN"}, {"$num": "-0"}, 1e21, 100.0]]}
+{"fn": "echo", "args": [18446744073709551615]}
+{"fn": "half", "args": [5e-324]}
+{"fn": "half", "args": [{"$num": "Infinity"}]}
+{"fn": "half", "args": [3.0]}

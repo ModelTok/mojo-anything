@@ -1,0 +1,12 @@
+Created [CWD]/mojo/kit-mojo (CAbi) for kit::add, kit::wide, kit::wrap, kit::count_bytes, kit::half, kit::mean, kit::evens, kit::scale, kit::is_upper, kit::shout, kit::checked_sqrt, kit::touch, kit::text::join
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  exports.mojo
+  cpp/shim.cpp
+  cpp/wrapper.cpp
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/kit-mojo && mojo-anything build [CWD]/mojo/kit-mojo && mojo-anything diff [CWD]/mojo/kit-mojo
+- C++ callers keep the original header: compile cpp/wrapper.cpp and link .mojo-anything/build/libkit_mojo.so instead of src/kit.cpp. The wrapper replaces only the bridged functions of src/kit.cpp, so move its other definitions into a file of their own that stays in the build (`gate`'s `cpp api` names any left behind).
+- The library is not self-contained yet: once it uses the Mojo standard library it needs libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's .pixi/envs/default/lib, and it finds it there through an absolute RUNPATH. Ship that file beside it (and set the runpath to $ORIGIN) before linking it into a program that runs elsewhere.

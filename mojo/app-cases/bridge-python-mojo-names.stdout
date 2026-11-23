@@ -1,0 +1,12 @@
+Created [CWD]/mojo/names-mojo (MojoPy) for pick, match, lengths, spin
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  _native.mojo
+  python/names_mojo/__init__.py
+  py_num.mojo
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/names-mojo && mojo-anything build [CWD]/mojo/names-mojo && mojo-anything diff [CWD]/mojo/names-mojo
+- `total` stays in Python: takes `*args`.
+- `Box` stays in Python: class: public attribute `v`.

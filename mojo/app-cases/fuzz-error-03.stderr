@@ -1,0 +1,4 @@
+error: invalid value 'some' for '--keep[=<KEEP>]'
+  [possible values: mismatches, all]
+
+For more information, try '--help'.

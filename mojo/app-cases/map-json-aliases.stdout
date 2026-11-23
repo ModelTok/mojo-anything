@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/greet.ts",
+      "loc": 5,
+      "readiness": 100,
+      "exports": 1
+    },
+    {
+      "unit": "src/util/",
+      "loc": 3,
+      "readiness": 98,
+      "exports": 1
+    },
+    {
+      "unit": "src/lib/",
+      "loc": 1,
+      "readiness": 98,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

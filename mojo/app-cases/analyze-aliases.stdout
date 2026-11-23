@@ -1,0 +1,46 @@
+# Rust migration plan: cwd (TypeScript/JavaScript)
+
+1 packages, 3 source files (9 lines), 0 test files, 0 UI files, grouped into 3 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/greet.ts` | 5 | 51 | 100 | 0 | Mojo (wasm) | - |
+| 2 | `src/util/` | 3 | 50 | 98 | 0 | Mojo (wasm) | - |
+
+### `src/greet.ts`
+
+5 lines in 1 files, wave 1, priority 51, readiness 100, bridge **Mojo (wasm)**.
+
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+### `src/util/`
+
+3 lines in 1 files, wave 0, priority 50, readiness 98, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. aliases-fixture (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/lib/` | ready | 1 | 98 | Mojo (wasm) | - |
+| 0 | `src/util/` | ready | 3 | 98 | Mojo (wasm) | - |
+| 1 | `src/greet.ts` | ready | 5 | 100 | Mojo (wasm) | - |
+
+## Risk guide
+

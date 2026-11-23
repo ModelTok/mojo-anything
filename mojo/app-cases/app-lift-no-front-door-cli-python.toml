@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["app", "lift", "."]
+status.code = 2
+fs.sandbox = true
+fs.base = "app-lift-no-front-door-cli-python.in"

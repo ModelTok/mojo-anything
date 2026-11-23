@@ -1,0 +1,1 @@
+error: bridging PHP units into Rust comes next (PHP FFI over a C ABI); for now a PHP app can be analyzed, recorded and replayed (`app record`, `app replay`) and get a Rust front door (`app front-door`) that hands everything to the original

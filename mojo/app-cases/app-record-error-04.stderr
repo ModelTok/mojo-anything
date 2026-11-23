@@ -1,0 +1,1 @@
+error: unknown normalizer `nope`: use timestamps, uuids, key-order or define it as `name=regex`

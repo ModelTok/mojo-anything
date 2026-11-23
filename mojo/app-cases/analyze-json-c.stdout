@@ -1,0 +1,191 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "c",
+  "summary": {
+    "packages": 1,
+    "source_files": 3,
+    "test_files": 1,
+    "ui_files": 0,
+    "loc": 90,
+    "units": 3,
+    "ready": 3,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 1,
+      "units": [
+        "src/checksum.c",
+        "src/main.c",
+        "src/text.c"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/checksum.c",
+      "package": "root",
+      "files": [
+        "src/checksum.c"
+      ],
+      "loc": 38,
+      "wave": 0,
+      "readiness": 85,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 8,
+          "samples": [
+            "src/checksum.c:5",
+            "src/checksum.c:8",
+            "src/checksum.c:8"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "src/checksum.c:9",
+            "src/checksum.c:10",
+            "src/checksum.c:35"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "src/checksum.c:8",
+            "src/checksum.c:12",
+            "src/checksum.c:18"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 1,
+      "fan_in": 1,
+      "density": 7.9,
+      "priority": 78,
+      "exports": 5,
+      "bridgeable": 5,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "1 test files import it directly."
+      ]
+    },
+    {
+      "id": "src/main.c",
+      "package": "root",
+      "files": [
+        "src/main.c"
+      ],
+      "loc": 9,
+      "wave": 1,
+      "readiness": 97,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "src/main.c:5",
+            "src/main.c:5"
+          ]
+        }
+      ],
+      "internal_deps": [
+        "src/checksum.c",
+        "src/text.c"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 11.1,
+      "priority": 79,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": []
+    },
+    {
+      "id": "src/text.c",
+      "package": "root",
+      "files": [
+        "src/text.c"
+      ],
+      "loc": 43,
+      "wave": 0,
+      "readiness": 74,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 11,
+          "samples": [
+            "src/text.c:6",
+            "src/text.c:10",
+            "src/text.c:11"
+          ]
+        },
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 3,
+          "samples": [
+            "src/text.c:25",
+            "src/text.c:32",
+            "src/text.c:43"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "src/text.c:11",
+            "src/text.c:45",
+            "src/text.c:45"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 16.3,
+      "priority": 75,
+      "exports": 4,
+      "bridgeable": 3,
+      "notes": [
+        "Leaf: imports no other unit."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/checksum.c",
+    "src/text.c"
+  ],
+  "dependencies": []
+}

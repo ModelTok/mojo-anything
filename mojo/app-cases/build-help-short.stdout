@@ -1,0 +1,10 @@
+3b. Build the port (Node-API addon, Python extension, shared library)
+
+Usage: mojo-anything build [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --profile <PROFILE>  Target: this machine [default: host] [possible values: host]
+  -h, --help               Print help (see more with '--help')

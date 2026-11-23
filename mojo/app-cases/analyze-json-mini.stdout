@@ -1,0 +1,273 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 3,
+    "source_files": 6,
+    "test_files": 1,
+    "ui_files": 1,
+    "loc": 50,
+    "units": 6,
+    "ready": 4,
+    "caution": 0,
+    "blocked": 1,
+    "keep": 1,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "a",
+      "dir": "packages/a",
+      "order": 1,
+      "runtime": "node",
+      "workspace_deps": [],
+      "test_files": 1,
+      "units": [
+        "packages/a/src/fs.ts",
+        "packages/a/src/parse/",
+        "packages/a/src/svelte.ts",
+        "packages/a/src/util.ts",
+        "packages/a/src/view/"
+      ]
+    },
+    {
+      "name": "b",
+      "dir": "packages/b",
+      "order": 2,
+      "runtime": "portable",
+      "workspace_deps": [
+        "a"
+      ],
+      "test_files": 0,
+      "units": [
+        "packages/b/src/index.ts"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "packages/a/src/fs.ts",
+      "package": "a",
+      "files": [
+        "packages/a/src/fs.ts"
+      ],
+      "loc": 5,
+      "wave": 1,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [
+        "node"
+      ],
+      "risks": [],
+      "internal_deps": [
+        "packages/a/src/util.ts"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 58,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": []
+    },
+    {
+      "id": "packages/a/src/parse/",
+      "package": "a",
+      "files": [
+        "packages/a/src/parse/helpers.ts",
+        "packages/a/src/parse/index.ts"
+      ],
+      "loc": 15,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "packages/a/src/parse/helpers.ts:1",
+            "packages/a/src/parse/helpers.ts:3"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "yaml"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 6.7,
+      "priority": 73,
+      "exports": 2,
+      "bridgeable": 2,
+      "notes": [
+        "Leaf: imports no other unit."
+      ]
+    },
+    {
+      "id": "packages/a/src/svelte.ts",
+      "package": "a",
+      "files": [
+        "packages/a/src/svelte.ts"
+      ],
+      "loc": 4,
+      "wave": 0,
+      "readiness": 92,
+      "status": "blocked",
+      "bridge": "mojo-node",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "svelte"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 54,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "`svelte` has no Rust equivalent.",
+        "Leaf: imports no other unit."
+      ]
+    },
+    {
+      "id": "packages/a/src/util.ts",
+      "package": "a",
+      "files": [
+        "packages/a/src/util.ts"
+      ],
+      "loc": 19,
+      "wave": 0,
+      "readiness": 94,
+      "status": "ready",
+      "bridge": "mojo-node",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 3,
+          "samples": [
+            "packages/a/src/util.ts:4",
+            "packages/a/src/util.ts:5",
+            "packages/a/src/util.ts:10"
+          ]
+        },
+        {
+          "risk": "regex-syntax",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "packages/a/src/util.ts:1"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 1,
+      "fan_in": 2,
+      "density": 26.3,
+      "priority": 89,
+      "exports": 3,
+      "bridgeable": 3,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "1 test files import it directly."
+      ]
+    },
+    {
+      "id": "packages/a/src/view/",
+      "package": "a",
+      "files": [
+        "packages/a/src/view/App.vue"
+      ],
+      "loc": 3,
+      "wave": 1,
+      "readiness": 100,
+      "status": "keep",
+      "bridge": "keep-in-js",
+      "platforms": [
+        "ui"
+      ],
+      "risks": [],
+      "internal_deps": [
+        "packages/a/src/util.ts"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 58,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "UI code: keep in the original language."
+      ]
+    },
+    {
+      "id": "packages/b/src/index.ts",
+      "package": "b",
+      "files": [
+        "packages/b/src/index.ts"
+      ],
+      "loc": 4,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [
+        "a"
+      ],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "packages/a/src/util.ts",
+    "packages/a/src/parse/",
+    "packages/a/src/fs.ts",
+    "packages/b/src/index.ts"
+  ],
+  "dependencies": [
+    {
+      "name": "svelte",
+      "used_by": 1,
+      "replacement": "-",
+      "fit": "none",
+      "note": "The Svelte compiler is JS only. Keep it in JS."
+    },
+    {
+      "name": "yaml",
+      "used_by": 1,
+      "replacement": "python:yaml",
+      "fit": "partial",
+      "note": "No YAML parser in Mojo: PyYAML through CPython interop. Comments and layout are not kept."
+    }
+  ]
+}

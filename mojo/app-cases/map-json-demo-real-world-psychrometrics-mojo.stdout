@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "facade/src/",
+      "loc": 58,
+      "readiness": 95,
+      "exports": 3
+    }
+  ],
+  "glue": []
+}

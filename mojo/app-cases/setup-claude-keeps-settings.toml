@@ -1,0 +1,6 @@
+bin.name = "run-phase1"
+args = ["setup", "--agent", "claude"]
+env.add.HOME = "."
+status.code = 0
+fs.sandbox = true
+fs.base = "setup-claude-keeps-settings.in"

@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["record", "--count", "many"]
+status.code = 2
+fs.sandbox = true

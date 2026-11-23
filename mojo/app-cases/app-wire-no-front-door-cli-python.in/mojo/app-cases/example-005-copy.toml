@@ -1,0 +1,5 @@
+bin.name = "tcli"
+args = ["copy", "input.txt", "out.txt"]
+status.code = 0
+fs.sandbox = true
+fs.base = "example-005-copy.in"

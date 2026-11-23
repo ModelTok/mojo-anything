@@ -1,0 +1,21 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "csharp",
+  "summary": {
+    "packages": 1,
+    "source_files": 0,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 0,
+    "units": 0,
+    "ready": 0,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [],
+  "units": [],
+  "start_here": [],
+  "dependencies": []
+}

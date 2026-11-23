@@ -1,0 +1,14 @@
+Run a build against `<repo>/mojo/app-cases/`, print passed/total, write a report with a diff per failing case; exits non-zero on any mismatch
+
+Usage: mojo-anything app replay [OPTIONS] [REPO]
+
+Arguments:
+  [REPO]  Repository root [default: .]
+
+Options:
+      --build <BUILD>      Command line of the build to test (the original, the front door, the final binary); the original when omitted
+      --timeout <TIMEOUT>  Seconds before a run is killed
+      --port <PORT>        Servers: the port the build always listens on; otherwise it gets a free one through PORT and `{port}`
+      --case <CASE>        Replay only this case, by the name the report gives it (a library: only this unit). The fast, repeatable loop for fixing one mismatch
+      --json               
+  -h, --help               Print help

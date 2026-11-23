@@ -1,0 +1,137 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "python",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 46,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "tcli.py"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "tcli.py",
+      "package": "root",
+      "files": [
+        "tcli.py"
+      ],
+      "loc": 46,
+      "wave": 0,
+      "readiness": 85,
+      "status": "ready",
+      "bridge": "mojo-py",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "tcli.py:13",
+            "tcli.py:52"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "tcli.py:27",
+            "tcli.py:27"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "tcli.py:10"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 3,
+          "samples": [
+            "tcli.py:19",
+            "tcli.py:31",
+            "tcli.py:37"
+          ]
+        },
+        {
+          "risk": "clock-and-random",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "tcli.py:45"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 4.3,
+      "priority": 57,
+      "exports": 2,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "tcli.py"
+  ],
+  "dependencies": [],
+  "whole_app": {
+    "shape": "cli",
+    "entry_points": [
+      {
+        "kind": "cli",
+        "path": "tcli.py",
+        "evidence": "`if __name__ == \"__main__\"` at tcli.py:51"
+      }
+    ],
+    "dependencies": [],
+    "pieces": [
+      {
+        "wave": 0,
+        "units": [
+          "tcli.py"
+        ],
+        "loc": 46,
+        "tangled": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "D1",
+        "topic": "shape",
+        "question": "The app is a cli, entered through tcli.py. Port every entry point, in that shape?",
+        "recommendation": "Yes: a clap front door (`app front-door`) takes every command over first"
+      }
+    ]
+  }
+}

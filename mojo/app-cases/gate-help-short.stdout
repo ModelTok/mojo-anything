@@ -1,0 +1,11 @@
+5. Check the definition of done for a port
+
+Usage: mojo-anything gate [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --json                  
+      --node-arg <NODE_ARGS>  
+  -h, --help                  Print help

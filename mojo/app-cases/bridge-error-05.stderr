@@ -1,0 +1,4 @@
+error: invalid value 'jvm' for '--kind <KIND>'
+  [possible values: node, wasm]
+
+For more information, try '--help'.

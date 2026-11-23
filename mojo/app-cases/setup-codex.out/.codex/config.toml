@@ -1,0 +1,3 @@
+[mcp_servers.mojo-anything]
+command = "[..]"
+args = ["mcp"]

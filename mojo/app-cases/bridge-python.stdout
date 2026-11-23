@@ -1,0 +1,15 @@
+Created [CWD]/mojo/textkit-mojo (MojoPy) for slugify, word_counts, chunk, page_count, mean, clipped
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  _native.mojo
+  python/textkit_mojo/__init__.py
+  py_num.mojo
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/textkit-mojo && mojo-anything build [CWD]/mojo/textkit-mojo && mojo-anything diff [CWD]/mojo/textkit-mojo
+- Class `Stack` is not bridged to Mojo yet; it stays in Python.
+- `walk` stays in Python: generator: returns a lazy iterator.
+- `apply` stays in Python: calls its parameter `fn`: a callable.
+- `configure` stays in Python: takes `**kwargs`.
+- `Limits` stays in Python: class: decorated with `@dataclasses.dataclass`, public class attribute `max_length`, public class attribute `sep`.

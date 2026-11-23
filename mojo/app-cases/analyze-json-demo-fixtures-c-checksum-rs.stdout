@@ -1,0 +1,125 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "c",
+  "summary": {
+    "packages": 1,
+    "source_files": 2,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 100,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "include/",
+        "shadow/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "include/",
+      "package": "root",
+      "files": [
+        "include/checksum_rs.h"
+      ],
+      "loc": 19,
+      "wave": 0,
+      "readiness": 90,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 4,
+          "samples": [
+            "include/checksum_rs.h:10",
+            "include/checksum_rs.h:11",
+            "include/checksum_rs.h:17"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "<sys/types.h>"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 47,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "shadow/",
+      "package": "root",
+      "files": [
+        "shadow/checksum_shadow.c"
+      ],
+      "loc": 81,
+      "wave": 0,
+      "readiness": 81,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 16,
+          "samples": [
+            "shadow/checksum_shadow.c:19",
+            "shadow/checksum_shadow.c:20",
+            "shadow/checksum_shadow.c:22"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "<sys/types.h>"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 5,
+      "bridgeable": 5,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "shadow/"
+  ],
+  "dependencies": [
+    {
+      "name": "<sys/types.h>",
+      "used_by": 2,
+      "replacement": "std.os, std.ffi",
+      "fit": "good",
+      "note": "`std.os` for files and the environment; the rest of libc through `external_call`."
+    }
+  ]
+}

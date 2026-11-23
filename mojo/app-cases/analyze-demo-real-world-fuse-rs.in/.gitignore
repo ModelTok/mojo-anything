@@ -1,0 +1,7 @@
+target/
+*.node
+pkg/
+.mojo-anything/
+*.so
+*.pyd
+__pycache__/

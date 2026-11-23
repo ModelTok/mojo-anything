@@ -1,0 +1,37 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "flip.py",
+  "language": "python",
+  "kind": "mojo-py",
+  "crate_name": "flip-mojo",
+  "exports": [
+    {
+      "name": "invert",
+      "file": "flip.py",
+      "line": 5,
+      "params": [
+        {
+          "name": "data",
+          "ts_type": "unknown",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "keep_ascii",
+          "ts_type": "boolean",
+          "optional": true,
+          "rest": false,
+          "default": "False"
+        }
+      ],
+      "returns": "unknown",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

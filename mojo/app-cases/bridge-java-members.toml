@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "src/main/java/com/example/members/"]
+status.code = 0
+fs.sandbox = true
+fs.base = "bridge-java-members.in"

@@ -1,0 +1,7 @@
+error: the following required arguments were not provided:
+  <ROOT>
+  <UNIT>
+
+Usage: mojo-anything bridge <ROOT> <UNIT>
+
+For more information, try '--help'.

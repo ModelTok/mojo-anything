@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["app", "replay", ".", "--build", "false"]
+status.code = 1
+fs.sandbox = true
+fs.base = "app-replay-build-fails-cli-python.in"

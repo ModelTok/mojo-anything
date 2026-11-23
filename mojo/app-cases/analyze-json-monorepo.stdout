@@ -1,0 +1,108 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 3,
+    "source_files": 2,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 7,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "@m/a",
+      "dir": "packages/a",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "packages/a/src/index.ts"
+      ]
+    },
+    {
+      "name": "@m/b",
+      "dir": "packages/b",
+      "order": 2,
+      "runtime": "portable",
+      "workspace_deps": [
+        "@m/a"
+      ],
+      "test_files": 0,
+      "units": [
+        "packages/b/src/titles.ts"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "packages/a/src/index.ts",
+      "package": "@m/a",
+      "files": [
+        "packages/a/src/index.ts"
+      ],
+      "loc": 3,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    },
+    {
+      "id": "packages/b/src/titles.ts",
+      "package": "@m/b",
+      "files": [
+        "packages/b/src/titles.ts"
+      ],
+      "loc": 4,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [
+        "@m/a"
+      ],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "packages/a/src/index.ts",
+    "packages/b/src/titles.ts"
+  ],
+  "dependencies": []
+}

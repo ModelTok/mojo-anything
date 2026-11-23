@@ -1,0 +1,90 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ruby",
+  "summary": {
+    "packages": 2,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 27,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "textkit",
+      "dir": "textkit",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "textkit/lib/textkit.rb"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "textkit/lib/textkit.rb",
+      "package": "textkit",
+      "files": [
+        "textkit/lib/textkit.rb"
+      ],
+      "loc": 27,
+      "wave": 0,
+      "readiness": 92,
+      "status": "ready",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "textkit/lib/textkit.rb:10",
+            "textkit/lib/textkit.rb:20",
+            "textkit/lib/textkit.rb:28"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "textkit/lib/textkit.rb:29"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "textkit/lib/textkit.rb:11"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 3,
+      "bridgeable": 3,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "textkit/lib/textkit.rb"
+  ],
+  "dependencies": []
+}

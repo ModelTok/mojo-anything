@@ -1,0 +1,19 @@
+{
+  "command": "[..]",
+  "agents": [
+    "codex"
+  ],
+  "changes": [
+    {
+      "agent": "codex",
+      "file": "./.codex/config.toml",
+      "action": "added"
+    },
+    {
+      "agent": "codex",
+      "file": "./.codex/skills/mojo-anything/SKILL.md",
+      "action": "added"
+    }
+  ],
+  "dry_run": false
+}

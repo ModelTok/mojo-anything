@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["map", ".", "--write"]
+status.code = 0
+fs.sandbox = true
+fs.base = "map-write-go-mojo-ports.in"

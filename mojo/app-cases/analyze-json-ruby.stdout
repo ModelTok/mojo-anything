@@ -1,0 +1,163 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ruby",
+  "summary": {
+    "packages": 1,
+    "source_files": 3,
+    "test_files": 1,
+    "ui_files": 0,
+    "loc": 55,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "textkit",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 1,
+      "units": [
+        "lib/textkit.rb",
+        "lib/textkit/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "lib/textkit.rb",
+      "package": "textkit",
+      "files": [
+        "lib/textkit.rb"
+      ],
+      "loc": 2,
+      "wave": 1,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [
+        "lib/textkit/"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 1,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 65,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "1 test files import it directly."
+      ]
+    },
+    {
+      "id": "lib/textkit/",
+      "package": "textkit",
+      "files": [
+        "lib/textkit/nums.rb",
+        "lib/textkit/words.rb"
+      ],
+      "loc": 53,
+      "wave": 0,
+      "readiness": 75,
+      "status": "ready",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "lib/textkit/words.rb:11"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 7,
+          "samples": [
+            "lib/textkit/nums.rb:9",
+            "lib/textkit/nums.rb:17",
+            "lib/textkit/nums.rb:27"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "lib/textkit/nums.rb:18",
+            "lib/textkit/nums.rb:18",
+            "lib/textkit/words.rb:9"
+          ]
+        },
+        {
+          "risk": "generators",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "lib/textkit/words.rb:27",
+            "lib/textkit/words.rb:27"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "lib/textkit/nums.rb:12",
+            "lib/textkit/nums.rb:20"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "lib/textkit/words.rb:17"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "lib/textkit/words.rb:27"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "lib/textkit/nums.rb:10"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 7.5,
+      "priority": 66,
+      "exports": 7,
+      "bridgeable": 6,
+      "notes": [
+        "Leaf: imports no other unit."
+      ]
+    }
+  ],
+  "start_here": [
+    "lib/textkit/"
+  ],
+  "dependencies": []
+}

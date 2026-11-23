@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "servers": {
+      "mojo-anything": {
+        "type": "local",
+        "command": [
+          "[..]",
+          "mcp"
+        ]
+      }
+    }
+  }
+}

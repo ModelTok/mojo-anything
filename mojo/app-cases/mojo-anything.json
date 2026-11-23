@@ -1,0 +1,19 @@
+{
+  "schema": "mojo-anything/app-cases@1",
+  "name": "run-phase1",
+  "run": [
+    "tool/record/run-phase1"
+  ],
+  "normalize": [
+    "timestamps",
+    "uuids"
+  ],
+  "normalizers": {
+    "binary": "/[^\\s\"'`]*/tool/(fallback|build)/mojo-anything",
+    "pixi-path": "/[^\\s()]*/\\.pixi/bin/pixi",
+    "pixi-version": "pixi [0-9]+\\.[0-9]+\\.[0-9]+",
+    "scratch": "/tmp/mojo-anything-[A-Za-z0-9_.-]+",
+    "tool-version": "Python [0-9][0-9.]*|\\bv[0-9]+\\.[0-9]+\\.[0-9]+|cc \\([^)\\n]*\\) [0-9][0-9.]*|go version go[0-9][0-9.]* [a-z0-9/]+|ruby [0-9][0-9.]* \\([^)\\n]*\\) \\[[^]\\n]*\\]|openjdk version \\\\?\"[0-9][0-9.]*\\\\?\" [0-9-]+|javac [0-9][0-9.]*|info: kotlinc-jvm [^ \\n]+ \\(JRE [^)\\n]*\\)"
+  },
+  "timeout_secs": 120
+}

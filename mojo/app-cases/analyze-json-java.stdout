@@ -1,0 +1,108 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "java",
+  "summary": {
+    "packages": 1,
+    "source_files": 2,
+    "test_files": 1,
+    "ui_files": 0,
+    "loc": 94,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "textkit",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 1,
+      "units": [
+        "src/main/java/com/example/text/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/main/java/com/example/text/",
+      "package": "textkit",
+      "files": [
+        "src/main/java/com/example/text/Nums.java",
+        "src/main/java/com/example/text/Strings.java"
+      ],
+      "loc": 94,
+      "wave": 0,
+      "readiness": 80,
+      "status": "ready",
+      "bridge": "mojo-jvm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 7,
+          "samples": [
+            "src/main/java/com/example/text/Strings.java:21",
+            "src/main/java/com/example/text/Strings.java:28",
+            "src/main/java/com/example/text/Strings.java:28"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "src/main/java/com/example/text/Nums.java:11",
+            "src/main/java/com/example/text/Nums.java:26",
+            "src/main/java/com/example/text/Nums.java:30"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/main/java/com/example/text/Strings.java:51"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/main/java/com/example/text/Strings.java:69"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "src/main/java/com/example/text/Strings.java:60"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 13.8,
+      "priority": 83,
+      "exports": 8,
+      "bridgeable": 8,
+      "notes": [
+        "Leaf: imports no other unit."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/main/java/com/example/text/"
+  ],
+  "dependencies": []
+}

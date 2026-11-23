@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/textkit/",
+      "loc": 76,
+      "readiness": 89,
+      "exports": 11
+    }
+  ],
+  "glue": []
+}

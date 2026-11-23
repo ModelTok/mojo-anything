@@ -1,0 +1,52 @@
+# Rust migration plan: cwd (Ruby)
+
+1 packages, 1 source files (46 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+No unit is a safe first port yet. See the blocked units and dependencies below.
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `tcli.rb` | ready | 46 | 77 | Fiddle (C ABI) | String offsets and slicing (5); Dynamic typing (2) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Dynamic typing** (Medium): Values whose shape is checked at runtime need an explicit Rust enum or `serde_json::Value`.
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.
+- **Callback-shaped APIs** (Medium): Function-typed parameters and methods cross the bridge on every call. Keep boundaries coarse: pass data in, get data out.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+
+## Whole app
+
+Shape: **cli**.
+
+| Entry point | Kind | Found from |
+| --- | --- | --- |
+| `tcli.rb` | cli | `ARGV` at tcli.rb:49 |
+
+### Every dependency
+
+None.
+
+### Pieces, in port order
+
+- wave 0: `tcli.rb` (46 lines)
+
+### Decisions for the user
+
+**D1** (shape): The app is a cli, entered through tcli.rb. Port every entry point, in that shape?
+
+> Yes: a clap front door (`app front-door`) takes every command over first
+

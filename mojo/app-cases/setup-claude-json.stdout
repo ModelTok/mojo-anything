@@ -1,0 +1,19 @@
+{
+  "command": "[..]",
+  "agents": [
+    "claude"
+  ],
+  "changes": [
+    {
+      "agent": "claude",
+      "file": "./.claude.json",
+      "action": "added"
+    },
+    {
+      "agent": "claude",
+      "file": "./.claude/skills/mojo-anything/SKILL.md",
+      "action": "added"
+    }
+  ],
+  "dry_run": false
+}

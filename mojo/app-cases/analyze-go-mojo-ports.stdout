@@ -1,0 +1,39 @@
+# Rust migration plan: cwd (Go)
+
+1 packages, 1 source files (27 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `textkit/textkit.go` | 27 | 51 | 95 | 0 | cgo | Division and modulo (1); Null references (1) |
+
+### `textkit/textkit.go`
+
+27 lines in 1 files, wave 0, priority 51, readiness 95, bridge **cgo**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Division and modulo x1: `textkit/textkit.go:30`
+- Null references x1: `textkit/textkit.go:17`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. example.com/textkit (`textkit`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `textkit/textkit.go` | ready | 27 | 95 | cgo | Division and modulo (1); Null references (1) |
+
+## Risk guide
+
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+- **Null references** (Medium): Any reference may be null in the source: decide per parameter whether it is `Option` and what null means, instead of mapping every value to `Option`.

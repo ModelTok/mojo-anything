@@ -1,0 +1,1 @@
+error: no coding agent found (looked for ~/.claude, ~/.codex, ~/.cursor, ~/.gemini, ~/.config/opencode and their commands); name one with --agent claude|codex|cursor|gemini|opencode

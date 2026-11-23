@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "lib/textkit/",
+      "loc": 53,
+      "readiness": 75,
+      "exports": 7
+    },
+    {
+      "unit": "lib/textkit.rb",
+      "loc": 2,
+      "readiness": 100,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

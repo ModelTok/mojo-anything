@@ -1,0 +1,12 @@
+{
+  "build": [
+    "python3",
+    "tcli.py"
+  ],
+  "passed": 7,
+  "total": 7,
+  "skipped": 0,
+  "failures": [],
+  "fallback": null,
+  "report": "[CWD]/mojo/app-cases/replay-report.md"
+}

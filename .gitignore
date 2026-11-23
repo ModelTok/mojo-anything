@@ -10,3 +10,9 @@ website/.wrangler/
 
 # pixi environments
 .pixi/
+
+# Phase 1 binary for the Phase 2 port (scripts/build-fallback.sh)
+tool/fallback/
+tool/build/
+tool/record/chunks/
+mojo/app-cases/replay-report.md

@@ -1,0 +1,7 @@
+error: unexpected argument '--nope' found
+
+  tip: a similar argument exists: '--node-arg'
+
+Usage: mojo-anything fuzz --node-arg <NODE_ARGS> [CRATE_DIR]
+
+For more information, try '--help'.

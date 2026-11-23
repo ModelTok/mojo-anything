@@ -1,0 +1,11 @@
+Created [CWD]/mojo/textkit-mojo (Ffi) for Echo, Repeat, Count, Add, Split, Half, IsNeg, Pair
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  exports.mojo
+  go/go.mod
+  go/textkit.go
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/textkit-mojo && mojo-anything build [CWD]/mojo/textkit-mojo && mojo-anything diff [CWD]/mojo/textkit-mojo

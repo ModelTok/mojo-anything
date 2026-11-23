@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "packages/a/src/index.ts"]
+status.code = 0
+fs.sandbox = true
+fs.base = "bridge-monorepo.in"

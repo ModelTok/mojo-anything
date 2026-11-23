@@ -1,0 +1,80 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/main/kotlin/com/example/owners/",
+  "language": "kotlin",
+  "kind": "mojo-jvm",
+  "crate_name": "owners-mojo",
+  "exports": [
+    {
+      "name": "slug",
+      "file": "src/main/kotlin/com/example/owners/Text.kt",
+      "line": 4,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "String"
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "String",
+      "prototype": "com.example.owners.TextKt.slug(String s)"
+    },
+    {
+      "name": "parse",
+      "file": "src/main/kotlin/com/example/owners/Text.kt",
+      "line": 13,
+      "params": [
+        {
+          "name": "s",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false,
+          "native_type": "String"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "long",
+      "prototype": "com.example.owners.Units.parse(String s)",
+      "jvm_holder": {
+        "companion": "Companion"
+      },
+      "jvm_constructor": true
+    },
+    {
+      "name": "sign",
+      "file": "src/main/kotlin/com/example/owners/Text.kt",
+      "line": 22,
+      "params": [
+        {
+          "name": "n",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "long"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "long",
+      "prototype": "com.example.owners.Shapes$Sign.sign(Long n)",
+      "jvm_holder": "object"
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

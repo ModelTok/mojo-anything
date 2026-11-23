@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "nope"]
+status.code = 2
+fs.sandbox = true

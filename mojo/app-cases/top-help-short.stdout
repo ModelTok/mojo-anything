@@ -1,0 +1,29 @@
+Rewrite TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin apps in Mojo, one verified piece at a time
+
+Usage: mojo-anything <COMMAND>
+
+Commands:
+  analyze  1. Map a repository and write a ranked, ordered migration plan
+  bridge   2. Scaffold the port of one unit, with the bindings its callers need
+  refresh  2b. Regenerate the bindings from the signatures in the port (`port.mojo`)
+  record   3a. Record what the TS functions return on generated and given inputs
+  build    3b. Build the port (Node-API addon, Python extension, shared library)
+  diff     3c. Replay recorded cases against the built Mojo port
+  bench    3d. Time the recorded cases on the original and on the Mojo port, bridge included
+  fuzz     3e. Run fresh inputs from a new seed through the original and the port and report where they differ: what the recorded cases did not cover
+  profile  Run a real workload under the language's profiler and say what to port: hot functions, their callers, and loops to batch. `mojo-anything profile <repo> -- node bench.mjs` (also `python3 x.py`, `go test -bench . ./pkg`, `java ...`, `ruby x.rb`)
+  shadow   4. Generate a drop-in module that runs the original and the Mojo port side by side
+  gate     5. Check the definition of done for a port
+  package  6. Lay out installable packages and a CI workflow for every platform; never publishes
+  app      Record the whole app's behavior and replay any build against it (CLIs)
+  mcp      Serve every step as MCP tools over stdio
+  setup    Register mojo-anything with your coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenCode): the MCP server and, where the agent reads skills, the workflow skill. Keeps your other settings; run it again any time
+  map      Map the port: every unit of the original, the crate that ports it, its cases and last diff, the whole app's glue, and which recordings the original changed past since they were made. Commit the map (`--write`) to see upstream changes in it
+  doctor   Check pixi and the pinned Mojo, the language runtimes, the agent setup and the MCP server, with the command that fixes each problem. Exits 1 when something required is missing
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+Loop per unit: analyze -> bridge -> record -> port port.mojo -> build -> diff -> shadow -> gate

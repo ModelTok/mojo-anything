@@ -1,0 +1,31 @@
+# Rust migration plan: cwd (C)
+
+1 packages, 1 source files (15 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+No unit is a safe first port yet. See the blocked units and dependencies below.
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `include/` | ready | 15 | 88 | C ABI | Pointers and manual memory (6) |
+
+## system libraries dependencies
+
+| Package | Units | Mojo | Fit | Note |
+| --- | ---: | --- | --- | --- |
+| `<sys/types.h>` | 1 | std.os, std.ffi | good | `std.os` for files and the environment; the rest of libc through `external_call`. |
+
+## Risk guide
+
+- **Pointers and manual memory** (High): Pointer arithmetic and manual memory become slices, indices and owned types. Code that exposes pointers across the boundary needs `unsafe`, isolated and explained.

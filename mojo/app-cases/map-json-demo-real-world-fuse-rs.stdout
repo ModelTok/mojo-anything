@@ -1,0 +1,31 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "fuse.mjs",
+      "loc": 55,
+      "readiness": 88,
+      "exports": 1
+    },
+    {
+      "unit": "adapter/",
+      "loc": 59,
+      "readiness": 93,
+      "exports": 1
+    },
+    {
+      "unit": "bench.mjs",
+      "loc": 19,
+      "readiness": 90,
+      "exports": 0
+    },
+    {
+      "unit": "index.cjs",
+      "loc": 271,
+      "readiness": 60,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

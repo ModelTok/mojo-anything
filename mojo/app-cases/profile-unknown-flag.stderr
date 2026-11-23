@@ -1,0 +1,7 @@
+error: unexpected argument '--nope' found
+
+  tip: to pass '--nope' as a value, use '-- --nope'
+
+Usage: mojo-anything profile [OPTIONS] <ROOT> -- <COMMAND>...
+
+For more information, try '--help'.

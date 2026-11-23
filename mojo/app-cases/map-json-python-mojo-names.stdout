@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/names/",
+      "loc": 15,
+      "readiness": 98,
+      "exports": 6
+    }
+  ],
+  "glue": []
+}

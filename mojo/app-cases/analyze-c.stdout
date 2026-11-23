@@ -1,0 +1,54 @@
+# Rust migration plan: cwd (C)
+
+1 packages, 3 source files (90 lines), 1 test files, 0 UI files, grouped into 3 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/checksum.c` | 38 | 78 | 85 | 1 | C ABI | Pointers and manual memory (8); Division and modulo (4); Integer width and overflow (3) |
+| 2 | `src/text.c` | 43 | 75 | 74 | 0 | C ABI | Pointers and manual memory (11); String offsets and slicing (3); Integer width and overflow (3) |
+
+### `src/checksum.c`
+
+38 lines in 1 files, wave 0, priority 78, readiness 85, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- 1 test files import it directly.
+- Pointers and manual memory x8: `src/checksum.c:5`, `src/checksum.c:8`, `src/checksum.c:8`
+- Division and modulo x4: `src/checksum.c:9`, `src/checksum.c:10`, `src/checksum.c:35`
+- Integer width and overflow x3: `src/checksum.c:8`, `src/checksum.c:12`, `src/checksum.c:18`
+
+### `src/text.c`
+
+43 lines in 1 files, wave 0, priority 75, readiness 74, bridge **C ABI**.
+
+- Leaf: imports no other unit.
+- Pointers and manual memory x11: `src/text.c:6`, `src/text.c:10`, `src/text.c:11`
+- String offsets and slicing x3: `src/text.c:25`, `src/text.c:32`, `src/text.c:43`
+- Integer width and overflow x3: `src/text.c:11`, `src/text.c:45`, `src/text.c:45`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. root (`.`, portable, 1 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/checksum.c` | ready | 38 | 85 | C ABI | Pointers and manual memory (8); Division and modulo (4) |
+| 0 | `src/text.c` | ready | 43 | 74 | C ABI | Pointers and manual memory (11); String offsets and slicing (3) |
+| 1 | `src/main.c` | ready | 9 | 97 | C ABI | Pointers and manual memory (2) |
+
+## Risk guide
+
+- **String offsets and slicing** (High): JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross the boundary must be converted, or non-ASCII text gets wrong ranges silently.
+- **Integer width and overflow** (Medium): Python ints never overflow; C, Go and Java ints wrap or are undefined on overflow. Pick i64, i128 or a bignum crate deliberately, and use wrapping_* where the source wraps.
+- **Division and modulo** (Medium): Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined.
+- **Pointers and manual memory** (High): Pointer arithmetic and manual memory become slices, indices and owned types. Code that exposes pointers across the boundary needs `unsafe`, isolated and explained.

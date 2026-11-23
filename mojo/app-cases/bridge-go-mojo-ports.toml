@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "textkit/textkit.go"]
+status.code = 0
+fs.sandbox = true
+fs.base = "bridge-go-mojo-ports.in"

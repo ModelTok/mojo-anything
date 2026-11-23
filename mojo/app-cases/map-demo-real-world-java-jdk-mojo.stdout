@@ -1,0 +1,19 @@
+# Port map: cwd
+
+0 of 3 units have a Mojo port.
+
+## Ports
+
+None yet: `mojo-anything bridge` starts one.
+
+## Not ported yet
+
+In the order `analyze` suggests.
+
+| Unit | Lines | Exports | Readiness |
+| --- | ---: | ---: | ---: |
+| `original/` | 42 | 11 | 99 |
+| `java/com/example/jdk/` | 75 | 11 | 83 |
+| `java/mojoanything/` | 519 | 5 | 22 |
+
+Regenerate with `mojo-anything map --write`. Commit this file: when the original changes upstream, the next map marks every port whose recording it outdated.

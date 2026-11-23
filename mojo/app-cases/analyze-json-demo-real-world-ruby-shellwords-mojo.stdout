@@ -1,0 +1,163 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ruby",
+  "summary": {
+    "packages": 1,
+    "source_files": 2,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 96,
+    "units": 1,
+    "ready": 0,
+    "caution": 1,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "ruby/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "ruby/",
+      "package": "root",
+      "files": [
+        "ruby/shellwords_mojo.rb",
+        "ruby/shellwords_mojo_native.rb"
+      ],
+      "loc": 96,
+      "wave": 0,
+      "readiness": 46,
+      "status": "caution",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 9,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:40",
+            "ruby/shellwords_mojo_native.rb:44",
+            "ruby/shellwords_mojo_native.rb:46"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 8,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:23",
+            "ruby/shellwords_mojo_native.rb:25",
+            "ruby/shellwords_mojo_native.rb:26"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 7,
+          "samples": [
+            "ruby/shellwords_mojo.rb:10",
+            "ruby/shellwords_mojo.rb:14",
+            "ruby/shellwords_mojo.rb:18"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 7,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:16",
+            "ruby/shellwords_mojo_native.rb:17",
+            "ruby/shellwords_mojo_native.rb:18"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:25",
+            "ruby/shellwords_mojo_native.rb:31",
+            "ruby/shellwords_mojo_native.rb:70"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:21",
+            "ruby/shellwords_mojo_native.rb:21",
+            "ruby/shellwords_mojo_native.rb:42"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:18"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 6,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:71",
+            "ruby/shellwords_mojo_native.rb:73",
+            "ruby/shellwords_mojo_native.rb:79"
+          ]
+        },
+        {
+          "risk": "json",
+          "severity": "low",
+          "count": 2,
+          "samples": [
+            "ruby/shellwords_mojo_native.rb:77",
+            "ruby/shellwords_mojo_native.rb:82"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "fiddle"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 13.5,
+      "priority": 58,
+      "exports": 7,
+      "bridgeable": 6,
+      "notes": [
+        "1 gems dependencies not in the crate table: check them by hand.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "ruby/"
+  ],
+  "dependencies": [
+    {
+      "name": "fiddle",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    }
+  ]
+}

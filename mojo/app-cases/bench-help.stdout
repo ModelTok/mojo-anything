@@ -1,0 +1,13 @@
+3d. Time the recorded cases on the original and on the Mojo port, bridge included
+
+Usage: mojo-anything bench [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+      --min-ms <MIN_MS>              Minimum measured time per function and side, in milliseconds [default: 200]
+      --resolve-from <RESOLVE_FROM>  Resolve npm packages the original imports from this folder's `node_modules`
+      --json                         
+      --node-arg <NODE_ARGS>         
+  -h, --help                         Print help

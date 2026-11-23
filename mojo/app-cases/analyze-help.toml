@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["analyze", "--help"]
+status.code = 0
+fs.sandbox = true

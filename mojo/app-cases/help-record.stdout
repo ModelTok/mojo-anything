@@ -1,0 +1,53 @@
+3a. Record what the TS functions return on generated and given inputs
+
+Usage: mojo-anything record [OPTIONS] [CRATE_DIR] [-- <TEST_COMMAND>...]
+
+Arguments:
+  [CRATE_DIR]
+          Crate folder made by `bridge`
+          
+          [default: .]
+
+  [TEST_COMMAND]...
+          The test command for `--from-tests`, after `--`; it runs in the original's folder
+
+Options:
+      --count <COUNT>
+          Generated cases per function
+          
+          [default: 200]
+
+      --inputs <INPUTS>
+          Extra cases: JSONL of `{"fn": name, "args": [...]}`
+
+      --module <MODULE>
+          Import the original from this JS module (e.g. built output) instead of the TS source
+
+      --resolve-from <RESOLVE_FROM>
+          Resolve npm packages from this folder's `node_modules` (when the repo has none installed)
+
+      --node-arg <NODE_ARGS>
+          Extra arguments for node, e.g. `--node-arg=--import=tsx`
+
+      --float-tolerance <FLOAT_TOLERANCE>
+          Floats match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9 for numeric code. Saved with the crate for diff and gate; 0 removes it
+
+      --from-tests
+          Also record every call the original's own test suite makes to the unit's functions: `--from-tests -- npx jest` (TS/JS, any runner) or `-- pytest` (Python)
+
+      --profile <PROFILE>
+          Target: this machine
+
+          Possible values:
+          - host: This machine
+          
+          [default: host]
+
+      --pin-clock
+          Pin the clock and random numbers while recording and diffing (TS/JS with the node bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`, `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port reads them from `pinned.mojo`. Kept for later runs until `--no-pin-clock`
+
+      --no-pin-clock
+          Stop pinning the clock and random numbers
+
+  -h, --help
+          Print help (see a summary with '-h')

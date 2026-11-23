@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["mcp"]
+status.code = 0
+fs.sandbox = true
+fs.base = "mcp-call-analyze-python.in"

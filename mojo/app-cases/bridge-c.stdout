@@ -1,0 +1,12 @@
+Created [CWD]/mojo/checksum-mojo (CAbi) for adler32, fnv1a, clamp, gcd, mean3
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  exports.mojo
+  exports_shadow.mojo
+  include/checksum_mojo.h
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/checksum-mojo && mojo-anything build [CWD]/mojo/checksum-mojo && mojo-anything diff [CWD]/mojo/checksum-mojo
+- Link .mojo-anything/build/libchecksum_mojo.so instead of the C objects; include/checksum_mojo.h has the prototypes.
+- The library is not self-contained yet: once it uses the Mojo standard library it needs libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's .pixi/envs/default/lib, and it finds it there through an absolute RUNPATH. Ship that file beside it (and set the runpath to $ORIGIN) before linking it into a program that runs elsewhere.

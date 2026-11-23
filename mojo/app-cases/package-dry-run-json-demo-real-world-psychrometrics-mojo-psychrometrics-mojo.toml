@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["package", ".", "--dry-run", "--json"]
+status.code = 2
+fs.sandbox = true
+fs.base = "package-dry-run-json-demo-real-world-psychrometrics-mojo-psychrometrics-mojo.in"

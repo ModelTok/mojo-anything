@@ -1,0 +1,19 @@
+ok        pixi     [..] ([..])
+ok        mojo     Mojo 1.2.0 (2016d0cd), through pixi (the Mojo every unit pins)
+ok        python   [..]
+ok        node     [..]
+ok        cc       [..]
+ok        go       [..]
+ok        ruby     [..]
+ok        java     [..] (Java and Kotlin units need 22+)
+ok        javac    [..] (Java and Kotlin units need 22+)
+ok        kotlinc  [..]
+missing   php      `php` not found or did not run (optional)
+                   fix: sudo apt install php-cli
+missing   dotnet   `dotnet` not found or did not run (optional)
+                   fix: install the .NET SDK from https://dotnet.microsoft.com/download
+ok        mcp      `[..] mcp` answered with 18 tools
+missing   agents   no coding agent found (Claude Code, Codex, Cursor, Gemini CLI, OpenCode); the CLI works without one (optional)
+                   fix: [..] setup --agent claude
+
+Everything required is in place. Language runtimes are optional: each matters only for the languages you port.

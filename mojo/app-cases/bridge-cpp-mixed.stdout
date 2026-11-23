@@ -1,0 +1,13 @@
+Created [CWD]/mojo/mixed-mojo (CAbi) for mixed::sum_long, mixed::sum_int64, mixed::twice_long, mixed::twice_int64, mixed::check, mixed::even, mixed::fused, mixed::length
+  port.mojo
+  pixi.toml
+  .gitignore
+  README.md
+  mojo-anything.json
+  exports.mojo
+  cpp/shim.cpp
+  cpp/wrapper.cpp
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/mixed-mojo && mojo-anything build [CWD]/mojo/mixed-mojo && mojo-anything diff [CWD]/mojo/mixed-mojo
+- C++ callers keep the original header: compile cpp/wrapper.cpp and link .mojo-anything/build/libmixed_mojo.so instead of src/mixed.cpp. The wrapper replaces only the bridged functions of src/mixed.cpp, so move its other definitions into a file of their own that stays in the build (`gate`'s `cpp api` names any left behind).
+- The library is not self-contained yet: once it uses the Mojo standard library it needs libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's .pixi/envs/default/lib, and it finds it there through an absolute RUNPATH. Ship that file beside it (and set the runpath to $ORIGIN) before linking it into a program that runs elsewhere.
+- `mixed::odd` stays in C++: is a class: member functions do not cross the C ABI shim; write a free function with plain arguments over it (a facade) and bridge that.

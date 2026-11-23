@@ -1,0 +1,16 @@
+{
+  "theme": "dark",
+  "mcpServers": {
+    "other": {
+      "command": "other"
+    },
+    "mojo-anything": {
+      "command": "[..]",
+      "args": [
+        "mcp"
+      ],
+      "type": "stdio",
+      "env": {}
+    }
+  }
+}

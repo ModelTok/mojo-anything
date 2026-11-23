@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/checksum.c",
+      "loc": 38,
+      "readiness": 85,
+      "exports": 5
+    },
+    {
+      "unit": "src/text.c",
+      "loc": 43,
+      "readiness": 74,
+      "exports": 4
+    },
+    {
+      "unit": "src/main.c",
+      "loc": 9,
+      "readiness": 97,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

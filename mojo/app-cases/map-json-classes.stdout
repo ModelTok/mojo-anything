@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/stats.ts",
+      "loc": 66,
+      "readiness": 93,
+      "exports": 3
+    }
+  ],
+  "glue": []
+}

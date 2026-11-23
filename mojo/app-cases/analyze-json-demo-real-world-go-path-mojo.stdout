@@ -1,0 +1,139 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "go",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 275,
+    "units": 1,
+    "ready": 0,
+    "caution": 1,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "mojo-anything.local/path_mojo",
+      "dir": "go",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "go/path.go"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "go/path.go",
+      "package": "mojo-anything.local/path_mojo",
+      "files": [
+        "go/path.go"
+      ],
+      "loc": 275,
+      "wave": 0,
+      "readiness": 34,
+      "status": "caution",
+      "bridge": "cgo",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 45,
+          "samples": [
+            "go/path.go:27",
+            "go/path.go:40",
+            "go/path.go:42"
+          ]
+        },
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 8,
+          "samples": [
+            "go/path.go:205",
+            "go/path.go:215",
+            "go/path.go:238"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 13,
+          "samples": [
+            "go/path.go:36",
+            "go/path.go:42",
+            "go/path.go:57"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 6,
+          "samples": [
+            "go/path.go:72",
+            "go/path.go:149",
+            "go/path.go:209"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "go/path.go:40",
+            "go/path.go:68"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "go/path.go:25"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 15,
+          "samples": [
+            "go/path.go:131",
+            "go/path.go:137",
+            "go/path.go:140"
+          ]
+        },
+        {
+          "risk": "json",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "go/path.go:21"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 6.2,
+      "priority": 40,
+      "exports": 7,
+      "bridgeable": 7,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "go/path.go"
+  ],
+  "dependencies": []
+}

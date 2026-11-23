@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/Text/",
+      "loc": 21,
+      "readiness": 100,
+      "exports": 2
+    },
+    {
+      "unit": "src/Util/",
+      "loc": 16,
+      "readiness": 96,
+      "exports": 2
+    }
+  ],
+  "glue": []
+}

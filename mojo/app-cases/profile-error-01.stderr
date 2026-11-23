@@ -1,0 +1,7 @@
+error: the following required arguments were not provided:
+  <ROOT>
+  <COMMAND>...
+
+Usage: mojo-anything profile <ROOT> -- <COMMAND>...
+
+For more information, try '--help'.

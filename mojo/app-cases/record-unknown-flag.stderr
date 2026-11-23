@@ -1,0 +1,8 @@
+error: unexpected argument '--nope' found
+
+  tip: a similar argument exists: '--node-arg'
+  tip: to pass '--nope' as a value, use '-- --nope'
+
+Usage: mojo-anything record --node-arg <NODE_ARGS> [CRATE_DIR] [-- <TEST_COMMAND>...]
+
+For more information, try '--help'.

@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "shadow/",
+      "loc": 81,
+      "readiness": 81,
+      "exports": 5
+    },
+    {
+      "unit": "include/",
+      "loc": 19,
+      "readiness": 90,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

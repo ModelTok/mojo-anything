@@ -1,0 +1,4 @@
+bin.name = "run-phase1"
+args = ["analyze", "missing-dir"]
+status.code = 2
+fs.sandbox = true

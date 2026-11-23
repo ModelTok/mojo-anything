@@ -1,0 +1,13 @@
+Map the port: every unit of the original, the crate that ports it, its cases and last diff, the whole app's glue, and which recordings the original changed past since they were made. Commit the map (`--write`) to see upstream changes in it
+
+Usage: mojo-anything map [OPTIONS] [REPO]
+
+Arguments:
+  [REPO]  Repository root [default: .]
+
+Options:
+      --crates <CRATES>  Also look for crates in this folder (crates kept outside the repository)
+      --write            Write the map to mojo/PORT_MAP.md in the repository instead of printing it
+      --check            Exit 1 when the original changed since any port was recorded
+      --json             
+  -h, --help             Print help

@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "bench/",
+      "loc": 75,
+      "readiness": 70,
+      "exports": 2
+    },
+    {
+      "unit": "java/com/example/text/",
+      "loc": 283,
+      "readiness": 71,
+      "exports": 8
+    },
+    {
+      "unit": "java/mojoanything/",
+      "loc": 715,
+      "readiness": 11,
+      "exports": 19
+    }
+  ],
+  "glue": []
+}

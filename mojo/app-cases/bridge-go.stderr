@@ -1,0 +1,1 @@
+error: unit `cmd/strkit/` exports no functions; bridge a unit with an exported function API

@@ -1,0 +1,135 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "go",
+  "summary": {
+    "packages": 1,
+    "source_files": 2,
+    "test_files": 1,
+    "ui_files": 0,
+    "loc": 97,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "example.com/strkit",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 1,
+      "units": [
+        "cmd/strkit/",
+        "strkit/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "cmd/strkit/",
+      "package": "example.com/strkit",
+      "files": [
+        "cmd/strkit/main.go"
+      ],
+      "loc": 11,
+      "wave": 1,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "cgo",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "cmd/strkit/main.go:11"
+          ]
+        }
+      ],
+      "internal_deps": [
+        "strkit/"
+      ],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 27.3,
+      "priority": 84,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": []
+    },
+    {
+      "id": "strkit/",
+      "package": "example.com/strkit",
+      "files": [
+        "strkit/strkit.go"
+      ],
+      "loc": 86,
+      "wave": 0,
+      "readiness": 85,
+      "status": "ready",
+      "bridge": "cgo",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "strkit/strkit.go:32"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "strkit/strkit.go:67",
+            "strkit/strkit.go:72",
+            "strkit/strkit.go:72"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "strkit/strkit.go:67",
+            "strkit/strkit.go:79"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "strkit/strkit.go:49",
+            "strkit/strkit.go:55"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 1,
+      "density": 10.5,
+      "priority": 81,
+      "exports": 8,
+      "bridgeable": 7,
+      "notes": [
+        "Leaf: imports no other unit."
+      ]
+    }
+  ],
+  "start_here": [
+    "strkit/"
+  ],
+  "dependencies": []
+}

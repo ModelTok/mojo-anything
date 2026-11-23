@@ -1,0 +1,19 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "python/textkit_rs/",
+      "loc": 84,
+      "readiness": 83,
+      "exports": 0
+    },
+    {
+      "unit": "bench_batch.py",
+      "loc": 26,
+      "readiness": 82,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

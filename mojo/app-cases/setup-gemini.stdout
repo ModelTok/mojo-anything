@@ -1,0 +1,5 @@
+Set up mojo-anything for Gemini CLI
+  Gemini CLI added     ./.gemini/settings.json
+
+The agents run `[..] mcp`. Restart them, then ask, for example:
+  "Profile this repo's slowest workflow with mojo-anything and move the hot loop to Mojo."

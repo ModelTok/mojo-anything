@@ -1,0 +1,43 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "packages/a/src/util.ts",
+      "loc": 19,
+      "readiness": 94,
+      "exports": 3
+    },
+    {
+      "unit": "packages/a/src/parse/",
+      "loc": 15,
+      "readiness": 100,
+      "exports": 2
+    },
+    {
+      "unit": "packages/a/src/fs.ts",
+      "loc": 5,
+      "readiness": 100,
+      "exports": 1
+    },
+    {
+      "unit": "packages/b/src/index.ts",
+      "loc": 4,
+      "readiness": 100,
+      "exports": 1
+    },
+    {
+      "unit": "packages/a/src/view/",
+      "loc": 3,
+      "readiness": 100,
+      "exports": 0
+    },
+    {
+      "unit": "packages/a/src/svelte.ts",
+      "loc": 4,
+      "readiness": 92,
+      "exports": 0
+    }
+  ],
+  "glue": []
+}

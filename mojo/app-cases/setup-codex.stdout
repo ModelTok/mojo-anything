@@ -1,0 +1,6 @@
+Set up mojo-anything for Codex
+  Codex      added     ./.codex/config.toml
+  Codex      added     ./.codex/skills/mojo-anything/SKILL.md
+
+The agents run `[..] mcp`. Restart them, then ask, for example:
+  "Profile this repo's slowest workflow with mojo-anything and move the hot loop to Mojo."

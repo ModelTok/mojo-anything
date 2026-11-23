@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["map", ".", "--check"]
+status.code = 0
+fs.sandbox = true
+fs.base = "map-check-demo-real-world-vercel-ms-mojo.in"

@@ -1,0 +1,25 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "original/",
+      "loc": 42,
+      "readiness": 99,
+      "exports": 11
+    },
+    {
+      "unit": "java/com/example/jdk/",
+      "loc": 75,
+      "readiness": 83,
+      "exports": 11
+    },
+    {
+      "unit": "java/mojoanything/",
+      "loc": 519,
+      "readiness": 22,
+      "exports": 5
+    }
+  ],
+  "glue": []
+}

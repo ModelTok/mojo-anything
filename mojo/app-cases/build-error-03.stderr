@@ -1,0 +1,4 @@
+error: invalid value 'android' for '--profile <PROFILE>'
+  [possible values: host]
+
+For more information, try '--help'.

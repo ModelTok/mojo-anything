@@ -1,0 +1,37 @@
+# Rust migration plan: cwd (Python)
+
+1 packages, 1 source files (11 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/mathkit/` | 11 | 51 | 99 | 0 | Mojo (Python extension) | Exceptions (1) |
+
+### `src/mathkit/`
+
+11 lines in 1 files, wave 0, priority 51, readiness 99, bridge **Mojo (Python extension)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Exceptions x1: `src/mathkit/ops.py:10`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. mathkit (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/mathkit/` | ready | 11 | 99 | Mojo (Python extension) | Exceptions (1) |
+
+## Risk guide
+
+- **Exceptions** (Low): Thrown errors become `Result`. Errors crossing the bridge must map back to the same JS error shape.

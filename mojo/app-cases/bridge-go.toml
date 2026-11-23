@@ -1,0 +1,5 @@
+bin.name = "run-phase1"
+args = ["bridge", ".", "cmd/strkit/"]
+status.code = 2
+fs.sandbox = true
+fs.base = "bridge-go.in"

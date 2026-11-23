@@ -1,0 +1,9 @@
+# my settings
+model = "o3"  # keep this
+
+[mcp_servers.other]
+command = "other"
+
+[mcp_servers.mojo-anything]
+command = "[..]"
+args = ["mcp"]

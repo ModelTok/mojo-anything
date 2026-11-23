@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/floats.ts",
+      "loc": 22,
+      "readiness": 99,
+      "exports": 7
+    }
+  ],
+  "glue": []
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/stats.ts",
+  "language": "ts",
+  "kind": "mojo-node",
+  "crate_name": "stats-mojo",
+  "exports": [],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "Blocked",
+      "file": "src/stats.ts",
+      "line": 78,
+      "reason": "class: extends another class"
+    },
+    {
+      "name": "TextStats",
+      "file": "src/stats.ts",
+      "line": 7,
+      "reason": "class: not ported to Mojo yet"
+    },
+    {
+      "name": "LruCache",
+      "file": "src/stats.ts",
+      "line": 44,
+      "reason": "class: not ported to Mojo yet"
+    }
+  ]
+}

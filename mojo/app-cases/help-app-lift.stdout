@@ -1,0 +1,10 @@
+Make `mojo/app` a pure app (a Mojo binary for a CLI), once replay passes with fallback rate 0 and every unit passes gate: removes the fallback and the kill switches, strips the units' bridges, runs the lift checklist and replays the pure binary. Checked on a copy first; the original stays in place
+
+Usage: mojo-anything app lift [OPTIONS] [REPO]
+
+Arguments:
+  [REPO]  Repository root [default: .]
+
+Options:
+      --json  
+  -h, --help  Print help

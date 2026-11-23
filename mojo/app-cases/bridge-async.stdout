@@ -1,0 +1,12 @@
+Created [CWD]/mojo/pipeline-mojo (MojoNode) for normalize, countWords, upper
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  node_shim.c
+  binding.gyp
+  index.cjs
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/pipeline-mojo && mojo-anything build [CWD]/mojo/pipeline-mojo && mojo-anything diff [CWD]/mojo/pipeline-mojo

@@ -1,0 +1,12 @@
+Created [CWD]/mojo/greet-mojo (MojoNode) for greet
+  port.mojo
+  .gitignore
+  README.md
+  mojo-anything.json
+  pixi.toml
+  json.mojo
+  dispatcher.mojo
+  node_shim.c
+  binding.gyp
+  index.cjs
+- Port each function in port.mojo, then: mojo-anything record [CWD]/mojo/greet-mojo && mojo-anything build [CWD]/mojo/greet-mojo && mojo-anything diff [CWD]/mojo/greet-mojo

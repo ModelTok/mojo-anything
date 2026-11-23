@@ -1,0 +1,75 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 18,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "async-fixture",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/pipeline.ts"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/pipeline.ts",
+      "package": "async-fixture",
+      "files": [
+        "src/pipeline.ts"
+      ],
+      "loc": 18,
+      "wave": 0,
+      "readiness": 94,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "async",
+          "severity": "medium",
+          "count": 5,
+          "samples": [
+            "src/pipeline.ts:7",
+            "src/pipeline.ts:8",
+            "src/pipeline.ts:14"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 49,
+      "exports": 3,
+      "bridgeable": 3,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/pipeline.ts"
+  ],
+  "dependencies": []
+}

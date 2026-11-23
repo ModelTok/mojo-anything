@@ -1,0 +1,36 @@
+# Rust migration plan: cwd (TypeScript/JavaScript)
+
+1 packages, 1 source files (22 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/floats.ts` | 22 | 52 | 99 | 0 | Mojo (wasm) | - |
+
+### `src/floats.ts`
+
+22 lines in 1 files, wave 0, priority 52, readiness 99, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. wasm-floats (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/floats.ts` | ready | 22 | 99 | Mojo (wasm) | - |
+
+## Risk guide
+

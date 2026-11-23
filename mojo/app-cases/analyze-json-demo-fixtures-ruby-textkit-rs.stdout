@@ -1,0 +1,259 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ruby",
+  "summary": {
+    "packages": 1,
+    "source_files": 3,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 276,
+    "units": 2,
+    "ready": 0,
+    "caution": 1,
+    "blocked": 1,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "bench_batch.rb",
+        "ruby/"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "bench_batch.rb",
+      "package": "root",
+      "files": [
+        "bench_batch.rb"
+      ],
+      "loc": 25,
+      "wave": 0,
+      "readiness": 74,
+      "status": "blocked",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "dynamic-code",
+          "severity": "high",
+          "count": 2,
+          "samples": [
+            "bench_batch.rb:5",
+            "bench_batch.rb:13"
+          ]
+        },
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 1,
+          "samples": [
+            "bench_batch.rb:21"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 11,
+          "samples": [
+            "bench_batch.rb:6",
+            "bench_batch.rb:7",
+            "bench_batch.rb:8"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "bench_batch.rb:6",
+            "bench_batch.rb:25"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "bench_batch.rb:21"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 8,
+          "samples": [
+            "bench_batch.rb:15",
+            "bench_batch.rb:16",
+            "bench_batch.rb:18"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 44.0,
+      "priority": 65,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Uses dynamic code (eval, new Function or computed imports).",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    },
+    {
+      "id": "ruby/",
+      "package": "root",
+      "files": [
+        "ruby/textkit_rs.rb",
+        "ruby/textkit_rs_shadow.rb"
+      ],
+      "loc": 251,
+      "wave": 0,
+      "readiness": 19,
+      "status": "caution",
+      "bridge": "fiddle",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 10,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:40",
+            "ruby/textkit_rs_shadow.rb:44",
+            "ruby/textkit_rs_shadow.rb:46"
+          ]
+        },
+        {
+          "risk": "monkeypatching",
+          "severity": "high",
+          "count": 7,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:85",
+            "ruby/textkit_rs_shadow.rb:98",
+            "ruby/textkit_rs_shadow.rb:115"
+          ]
+        },
+        {
+          "risk": "dynamic-typing",
+          "severity": "medium",
+          "count": 23,
+          "samples": [
+            "ruby/textkit_rs.rb:11",
+            "ruby/textkit_rs.rb:15",
+            "ruby/textkit_rs.rb:19"
+          ]
+        },
+        {
+          "risk": "callbacks",
+          "severity": "medium",
+          "count": 15,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:23",
+            "ruby/textkit_rs_shadow.rb:25",
+            "ruby/textkit_rs_shadow.rb:26"
+          ]
+        },
+        {
+          "risk": "null-references",
+          "severity": "medium",
+          "count": 14,
+          "samples": [
+            "ruby/textkit_rs.rb:27",
+            "ruby/textkit_rs.rb:27",
+            "ruby/textkit_rs.rb:51"
+          ]
+        },
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 7,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:16",
+            "ruby/textkit_rs_shadow.rb:17",
+            "ruby/textkit_rs_shadow.rb:18"
+          ]
+        },
+        {
+          "risk": "reflection",
+          "severity": "medium",
+          "count": 4,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:25",
+            "ruby/textkit_rs_shadow.rb:31",
+            "ruby/textkit_rs_shadow.rb:73"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:18"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 16,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:58",
+            "ruby/textkit_rs_shadow.rb:73",
+            "ruby/textkit_rs_shadow.rb:74"
+          ]
+        },
+        {
+          "risk": "json",
+          "severity": "low",
+          "count": 4,
+          "samples": [
+            "ruby/textkit_rs_shadow.rb:65",
+            "ruby/textkit_rs_shadow.rb:68",
+            "ruby/textkit_rs_shadow.rb:90"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [
+        "fiddle"
+      ],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 5.6,
+      "priority": 31,
+      "exports": 10,
+      "bridgeable": 10,
+      "notes": [
+        "1 gems dependencies not in the crate table: check them by hand.",
+        "1 imports use aliases or virtual modules and were not followed.",
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [
+    "ruby/"
+  ],
+  "dependencies": [
+    {
+      "name": "fiddle",
+      "used_by": 1,
+      "replacement": null,
+      "fit": "unknown",
+      "note": ""
+    }
+  ]
+}

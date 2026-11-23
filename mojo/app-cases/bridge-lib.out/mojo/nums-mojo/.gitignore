@@ -1,0 +1,6 @@
+.pixi/
+.mojo-anything/
+*.node
+*.so
+*.dylib
+*.wasm

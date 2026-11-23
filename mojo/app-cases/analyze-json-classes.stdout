@@ -1,0 +1,89 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 66,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "classes-fixture",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "src/stats.ts"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "src/stats.ts",
+      "package": "classes-fixture",
+      "files": [
+        "src/stats.ts"
+      ],
+      "loc": 66,
+      "wave": 0,
+      "readiness": 93,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "ordered-collections",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/stats.ts:45"
+          ]
+        },
+        {
+          "risk": "class-inheritance",
+          "severity": "medium",
+          "count": 1,
+          "samples": [
+            "src/stats.ts:78"
+          ]
+        },
+        {
+          "risk": "exceptions",
+          "severity": "low",
+          "count": 1,
+          "samples": [
+            "src/stats.ts:49"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 4.5,
+      "priority": 64,
+      "exports": 3,
+      "bridgeable": 2,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "src/stats.ts"
+  ],
+  "dependencies": []
+}

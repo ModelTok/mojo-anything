@@ -1,0 +1,38 @@
+# Rust migration plan: cwd (TypeScript/JavaScript)
+
+1 packages, 1 source files (18 lines), 0 test files, 0 UI files, grouped into 1 units.
+
+| Ready | Caution | Blocked | Keep in source language |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 0 | 0 |
+
+## Start here
+
+Best first ports: safe to port (readiness) and worth porting (loops and string work, tests, size).
+
+| # | Unit | Lines | Priority | Readiness | Tests | Bridge | Main risks |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | `src/pipeline.ts` | 18 | 49 | 94 | 0 | Mojo (wasm) | Async and promises (5) |
+
+### `src/pipeline.ts`
+
+18 lines in 1 files, wave 0, priority 49, readiness 94, bridge **Mojo (wasm)**.
+
+- Leaf: imports no other unit.
+- No tests found: write characterization tests against the original code first.
+- Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`).
+- Async and promises x5: `src/pipeline.ts:7`, `src/pipeline.ts:8`, `src/pipeline.ts:14`
+
+## Order by package
+
+Packages come after the workspace packages they use. Inside a package, port by wave: a unit's imports are in earlier waves.
+
+### 1. async-fixture (`.`, portable, 0 test files)
+
+| Wave | Unit | Status | Lines | Readiness | Bridge | Main risks |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| 0 | `src/pipeline.ts` | ready | 18 | 94 | Mojo (wasm) | Async and promises (5) |
+
+## Risk guide
+
+- **Async and promises** (Medium): Promises have no Mojo counterpart across the bridge: keep the async shell in JS and port the sync core.

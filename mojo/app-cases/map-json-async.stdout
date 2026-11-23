@@ -1,0 +1,13 @@
+{
+  "root": "[CWD]",
+  "ports": [],
+  "not_ported": [
+    {
+      "unit": "src/pipeline.ts",
+      "loc": 18,
+      "readiness": 94,
+      "exports": 3
+    }
+  ],
+  "glue": []
+}

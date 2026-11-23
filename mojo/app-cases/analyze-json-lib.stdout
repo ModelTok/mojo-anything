@@ -1,0 +1,94 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "ts",
+  "summary": {
+    "packages": 2,
+    "source_files": 2,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 14,
+    "units": 2,
+    "ready": 2,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "strlib",
+      "dir": "ts",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "ts/src/nums.ts",
+        "ts/src/text.ts"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "ts/src/nums.ts",
+      "package": "strlib",
+      "files": [
+        "ts/src/nums.ts"
+      ],
+      "loc": 3,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 50,
+      "exports": 1,
+      "bridgeable": 1,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    },
+    {
+      "id": "ts/src/text.ts",
+      "package": "strlib",
+      "files": [
+        "ts/src/text.ts"
+      ],
+      "loc": 11,
+      "wave": 0,
+      "readiness": 100,
+      "status": "ready",
+      "bridge": "wasm",
+      "platforms": [],
+      "risks": [],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 0.0,
+      "priority": 51,
+      "exports": 2,
+      "bridgeable": 2,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first.",
+        "Portable code: a wasm build of the Mojo port would keep it running in browsers and Node. That bridge is not built yet, so `bridge` ports it for Node (`--kind node`)."
+      ]
+    }
+  ],
+  "start_here": [
+    "ts/src/text.ts",
+    "ts/src/nums.ts"
+  ],
+  "dependencies": []
+}

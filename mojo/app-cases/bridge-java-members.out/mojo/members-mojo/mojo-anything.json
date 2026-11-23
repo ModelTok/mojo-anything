@@ -1,0 +1,40 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "[CWD]",
+  "unit": "src/main/java/com/example/members/",
+  "language": "java",
+  "kind": "mojo-jvm",
+  "crate_name": "members-mojo",
+  "exports": [
+    {
+      "name": "twice",
+      "file": "src/main/java/com/example/members/Limits.java",
+      "line": 10,
+      "params": [
+        {
+          "name": "value",
+          "ts_type": "int",
+          "optional": false,
+          "rest": false,
+          "native_type": "int"
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "int",
+      "prototype": "com.example.members.Limits.twice(int value)"
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "id",
+      "file": "src/main/java/com/example/members/Limits.java",
+      "line": 15,
+      "reason": "generic: erased types cannot be recovered"
+    }
+  ]
+}

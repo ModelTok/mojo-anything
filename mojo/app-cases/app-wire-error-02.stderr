@@ -1,0 +1,6 @@
+error: the following required arguments were not provided:
+  <UNIT>
+
+Usage: mojo-anything app wire <REPO> <UNIT>
+
+For more information, try '--help'.

@@ -1,0 +1,103 @@
+{
+  "schema": "mojo-anything/bridge@1",
+  "root": "../facade",
+  "unit": "src/psychrometrics.cpp",
+  "language": "cpp",
+  "kind": "c-abi",
+  "crate_name": "psychrometrics-mojo",
+  "exports": [
+    {
+      "name": "EnergyPlus::Psychrometrics::PsyRhoAirFnPbTdbW",
+      "file": "src/psychrometrics.cpp",
+      "line": 24,
+      "params": [
+        {
+          "name": "pb",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "tdb",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "dw",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "Real64 PsyRhoAirFnPbTdbW(Real64 const pb, Real64 const tdb, Real64 const dw)"
+    },
+    {
+      "name": "EnergyPlus::Psychrometrics::PsyHFnTdbW",
+      "file": "src/psychrometrics.cpp",
+      "line": 41,
+      "params": [
+        {
+          "name": "TDB",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "dW",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "Real64 PsyHFnTdbW(Real64 const TDB, Real64 const dW)"
+    },
+    {
+      "name": "EnergyPlus::Psychrometrics::PsyTdbFnHW",
+      "file": "src/psychrometrics.cpp",
+      "line": 56,
+      "params": [
+        {
+          "name": "H",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        },
+        {
+          "name": "dW",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false,
+          "native_type": "double"
+        }
+      ],
+      "returns": "number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false,
+      "native_return": "double",
+      "prototype": "Real64 PsyTdbFnHW(Real64 const H, Real64 const dW)"
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}

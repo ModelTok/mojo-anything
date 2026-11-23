@@ -1,0 +1,130 @@
+{
+  "schema": "mojo-anything/analyze@1",
+  "language": "c",
+  "summary": {
+    "packages": 1,
+    "source_files": 1,
+    "test_files": 0,
+    "ui_files": 0,
+    "loc": 85,
+    "units": 1,
+    "ready": 1,
+    "caution": 0,
+    "blocked": 0,
+    "keep": 0,
+    "parse_errors": 0
+  },
+  "packages": [
+    {
+      "name": "root",
+      "dir": "",
+      "order": 1,
+      "runtime": "portable",
+      "workspace_deps": [],
+      "test_files": 0,
+      "units": [
+        "tcli.c"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "tcli.c",
+      "package": "root",
+      "files": [
+        "tcli.c"
+      ],
+      "loc": 85,
+      "wave": 0,
+      "readiness": 58,
+      "status": "ready",
+      "bridge": "c-abi",
+      "platforms": [],
+      "risks": [
+        {
+          "risk": "pointers",
+          "severity": "high",
+          "count": 25,
+          "samples": [
+            "tcli.c:13",
+            "tcli.c:13",
+            "tcli.c:14"
+          ]
+        },
+        {
+          "risk": "string-offsets",
+          "severity": "high",
+          "count": 7,
+          "samples": [
+            "tcli.c:25",
+            "tcli.c:31",
+            "tcli.c:32"
+          ]
+        },
+        {
+          "risk": "integer-semantics",
+          "severity": "medium",
+          "count": 3,
+          "samples": [
+            "tcli.c:28",
+            "tcli.c:76",
+            "tcli.c:83"
+          ]
+        },
+        {
+          "risk": "division-semantics",
+          "severity": "medium",
+          "count": 2,
+          "samples": [
+            "tcli.c:43",
+            "tcli.c:43"
+          ]
+        }
+      ],
+      "internal_deps": [],
+      "workspace_deps": [],
+      "external_deps": [],
+      "direct_tests": 0,
+      "fan_in": 0,
+      "density": 14.1,
+      "priority": 64,
+      "exports": 0,
+      "bridgeable": 0,
+      "notes": [
+        "Leaf: imports no other unit.",
+        "No tests found: write characterization tests against the original code first."
+      ]
+    }
+  ],
+  "start_here": [],
+  "dependencies": [],
+  "whole_app": {
+    "shape": "cli",
+    "entry_points": [
+      {
+        "kind": "cli",
+        "path": "tcli.c",
+        "evidence": "`int main(` at tcli.c:20"
+      }
+    ],
+    "dependencies": [],
+    "pieces": [
+      {
+        "wave": 0,
+        "units": [
+          "tcli.c"
+        ],
+        "loc": 85,
+        "tangled": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "D1",
+        "topic": "shape",
+        "question": "The app is a cli, entered through tcli.c. Port every entry point, in that shape?",
+        "recommendation": "Yes: a clap front door (`app front-door`) takes every command over first"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "dir": "[CWD]/mojo/app-cases",
+  "run": [
+    "python3",
+    "tcli.py"
+  ],
+  "cases": 7,
+  "examples": 7,
+  "inputs": 0,
+  "traps": 0,
+  "noisy": [
+    "example-006-now"
+  ],
+  "noise": [
+    {
+      "case": "example-006-now",
+      "field": "stdout",
+      "kind": "values"
+    }
+  ],
+  "unstable": [],
+  "timed_out": []
+}

@@ -1,0 +1,10 @@
+4. Generate a drop-in module that runs the original and the Mojo port side by side
+
+Usage: mojo-anything shadow [OPTIONS] [CRATE_DIR]
+
+Arguments:
+  [CRATE_DIR]  [default: .]
+
+Options:
+  -o, --out <OUT>  Where to write the module; defaults to `<crate>/shadow/<name>.shadow.ts`
+  -h, --help       Print help
