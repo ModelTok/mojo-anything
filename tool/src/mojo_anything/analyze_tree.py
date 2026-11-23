@@ -31,26 +31,36 @@ class Decline(Exception):
     pass
 
 
-def find_bindings(repo):
-    """1 when tree-sitter's bindings import: from this interpreter's path, else from the
-    repository's pixi environment (the Mojo tool's CPython is the first `python3` on PATH,
-    which outside `pixi run` is not the environment's); 0 otherwise (every file declines)."""
-    try:
-        import tree_sitter  # noqa: F401
+_SITE = []
 
-        return 1
-    except ImportError:
-        pass
+
+def _pinned(module):
+    """Whether a module was loaded from the pixi environment, whose versions pixi.lock pins
+    to the grammar crates in Cargo.lock."""
+    f = getattr(module, "__file__", None)
+    if not _SITE or not f:
+        return False
+    return os.path.realpath(f).startswith(os.path.join(_SITE[0], ""))
+
+
+def find_bindings(repo):
+    """1 when tree-sitter's bindings import from the repository's pixi environment, which goes
+    first on the path (the Mojo tool's CPython is the first `python3` on PATH, which outside
+    `pixi run` is not the environment's, and another copy of the bindings may come earlier);
+    0 otherwise (every file declines)."""
     v = "python%d.%d" % sys.version_info[:2]
     site = os.path.join(repo, ".pixi", "envs", "default", "lib", v, "site-packages")
-    if os.path.isdir(site) and site not in sys.path:
-        sys.path.append(site)
+    if not os.path.isdir(site):
+        return 0
+    site = os.path.realpath(site)
+    sys.path[:] = [site] + [p for p in sys.path if not p or os.path.realpath(p) != site]
+    del _SITE[:]
+    _SITE.append(site)
     try:
-        import tree_sitter  # noqa: F401,F811
-
-        return 1
+        import tree_sitter
     except ImportError:
         return 0
+    return 1 if _pinned(tree_sitter) else 0
 
 
 def _language(lang):
@@ -61,8 +71,12 @@ def _language(lang):
             import tree_sitter
 
             m = importlib.import_module(_GRAMMARS[lang])
+            if not (_pinned(tree_sitter) and _pinned(m)):
+                raise Decline("the bindings are not the pinned ones")
             _LANGUAGES[lang] = tree_sitter.Language(m.language())
-        except (ImportError, ValueError) as e:
+        except Decline:
+            raise
+        except Exception as e:  # noqa: BLE001 - a grammar that does not load sends the case back
             raise Decline("the grammar does not load: " + str(e))
     return _LANGUAGES[lang]
 
@@ -1281,4 +1295,6 @@ def read_file(lang, path):
         return ("decline", str(e))
     except RecursionError:
         return ("decline", "too deep")
+    except Exception as e:  # noqa: BLE001 - any failure of the bindings sends the case back
+        return ("decline", "the bindings failed: " + type(e).__name__)
     return ("ok", loc(text), imports, risks, loops, exports)

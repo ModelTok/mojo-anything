@@ -487,10 +487,63 @@ def plain(binary, args, cwd, log):
     )
 
 
+def test_a_foreign_tree_sitter_on_the_path_is_not_read() raises:
+    """Bindings of another version earlier on the interpreter's path (an old
+    core whose `Language` takes a path and a name) neither crash the command
+    nor stand in for the pinned ones."""
+    var t = _py()
+    _ = Python.import_module("builtins").exec(
+        """
+def foreign(binary, args, cwd, log):
+    site = os.path.join(os.path.dirname(cwd), "foreign-site")
+    for name, body in (("tree_sitter", "class Language:\\n    def __init__(self, path, name):\\n        pass\\n"),
+                       ("tree_sitter_java", "def language():\\n    return 0\\n")):
+        os.makedirs(os.path.join(site, name), exist_ok=True)
+        with open(os.path.join(site, name, "__init__.py"), "w") as f:
+            f.write(body)
+    env = {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/"), "PYTHONPATH": site}
+    if os.path.exists(log):
+        os.remove(log)
+    env["MOJO_ANYTHING_FALLBACK_LOG"] = log
+    p = subprocess.run([os.path.abspath(binary)] + list(args), cwd=cwd, env=env,
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
+    return (p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace"))
+""",
+        t,
+    )
+    var files = _files(
+        ["A.java=public class A { public static int f(int x) { return x; } }\n"]
+    )
+    var old = t["fixture"](PythonObject("old"), PythonObject("foreign"), files)
+    var new = String(
+        py=t["fixture"](PythonObject("new"), PythonObject("foreign"), files)
+    )
+    var args = Python.list()
+    args.append(PythonObject("analyze"))
+    args.append(PythonObject("."))
+    var o = t["run"](PythonObject(FALLBACK), args, old, PythonObject(""))
+    var log = new + ".fallback.log"
+    var n = t["foreign"](
+        PythonObject(MOJO), args, PythonObject(new), PythonObject(log)
+    )
+    assert_equal(
+        String(py=n[2]), String(py=o[2]), "stderr with foreign bindings"
+    )
+    assert_equal(
+        String(py=n[1]), String(py=o[1]), "stdout with foreign bindings"
+    )
+    assert_equal(
+        String(py=t["log_text"](PythonObject(log))),
+        "",
+        "fell back with foreign bindings",
+    )
+
+
 def main() raises:
+    test_a_foreign_tree_sitter_on_the_path_is_not_read()
     test_answers_outside_the_pixi_environment()
     test_java_plans_match_the_phase1_binary()
     test_out_writes_a_java_plan()
     test_what_tree_sitter_may_read_otherwise_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_analyze_java: 4 passed")
+    print("test_analyze_java: 5 passed")
