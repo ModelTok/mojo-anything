@@ -845,6 +845,342 @@ def get(d, key):
 
 def has(d, key):
     return key in d
+
+
+# --- recording -------------------------------------------------------------------
+
+_DOC_SKIP = ("node_modules", "target", "vendor", ".git")
+
+
+def doc_links(repo):
+    # Whether a symlink named like a doc (`.md`, `.markdown`, `.sh`) lies within
+    # the four levels the example scan reads: the Rust walk reads the file it
+    # points at, the Mojo walk skips links.
+    stack = [(repo, 1)]
+    while stack:
+        d, depth = stack.pop()
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            continue
+        for e in entries:
+            if e.name in _DOC_SKIP:
+                continue
+            try:
+                if e.is_symlink():
+                    stem, dot, ext = e.name.rpartition(".")
+                    if dot and ext.lower() in ("md", "markdown", "sh"):
+                        return True
+                elif e.is_dir() and depth < 4:
+                    stack.append((e.path, depth + 1))
+            except OSError:
+                pass
+    return False
+
+
+def sort_paths(paths):
+    return sorted(paths, key=path_key)
+
+
+def sorted_strs(items):
+    return sorted(items, key=lambda s: s.encode("utf-8", "surrogateescape"))
+
+
+def read_input_file(candidates):
+    # The first candidate that is a file of at most 1 MiB, read; None otherwise.
+    for p in candidates:
+        try:
+            ok = os.path.isfile(p) and os.stat(p).st_size <= 1 << 20
+        except OSError:
+            ok = False
+        if ok:
+            try:
+                with open(p, "rb") as f:
+                    return f.read()
+            except OSError:
+                return None
+    return None
+
+
+class _Unsure(Exception):
+    pass
+
+
+def _serde_reads_alike(v, depth):
+    # What serde_json's `Value` refuses although Python's json reads it: lone
+    # surrogates, numbers beyond f64, nesting past its recursion limit.
+    if depth > 100:
+        raise _Unsure()
+    if isinstance(v, str):
+        try:
+            v.encode("utf-8")
+        except UnicodeEncodeError:
+            raise _Unsure()
+    elif isinstance(v, bool) or v is None:
+        pass
+    elif isinstance(v, int):
+        if abs(v) > 1.7976931348623157e308:
+            raise _Unsure()
+    elif isinstance(v, float):
+        if v != v or v in (float("inf"), float("-inf")):
+            raise _Unsure()
+    elif isinstance(v, list):
+        for x in v:
+            _serde_reads_alike(x, depth + 1)
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            _serde_reads_alike(k, depth + 1)
+            _serde_reads_alike(x, depth + 1)
+
+
+def _json_value(text):
+    # ("ok", value), ("none", None) when serde_json refuses it too, or
+    # ("odd", None) when serde_json could read it otherwise.
+    try:
+        v = json.loads(text, parse_constant=_const)
+    except Exception:
+        return ("none", None)
+    try:
+        _serde_reads_alike(v, 0)
+    except _Unsure:
+        return ("odd", None)
+    return ("ok", v)
+
+
+def _read_utf8(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def package_names(repo):
+    # The bin names of package.json, as app_names reads them.
+    text = _read_utf8(os.path.join(repo, "package.json"))
+    if text is None:
+        return ("ok", [])
+    kind, v = _json_value(text)
+    if kind != "ok":
+        return (kind if kind == "odd" else "ok", [])
+    if not isinstance(v, dict):
+        return ("ok", [])
+    b = v.get("bin")
+    if isinstance(b, str):
+        n = v.get("name")
+        return ("ok", [n if isinstance(n, str) else ""])
+    if isinstance(b, dict):
+        return ("ok", list(b.keys()))
+    return ("ok", [])
+
+
+def pyproject_names(repo):
+    # The script names of pyproject.toml; "odd" when tomllib refuses a file
+    # toml_edit might read.
+    text = _read_utf8(os.path.join(repo, "pyproject.toml"))
+    if text is None:
+        return ("ok", [])
+    try:
+        doc = tomllib.loads(text)
+    except Exception:
+        return ("odd", [])
+    out = []
+    for path in (("project", "scripts"), ("tool", "poetry", "scripts")):
+        t = doc
+        for k in path:
+            t = t.get(k) if isinstance(t, dict) else None
+        if isinstance(t, dict):
+            out.extend(t.keys())
+    return ("ok", out)
+
+
+def dir_entries(dir, dirs_only):
+    # Names in `dir` whose type (not following links) is a folder when
+    # `dirs_only`, anything else otherwise.
+    try:
+        entries = list(os.scandir(dir))
+    except OSError:
+        return []
+    out = []
+    for e in entries:
+        try:
+            if e.is_dir(follow_symlinks=False) == dirs_only:
+                out.append(e.name)
+        except OSError:
+            pass
+    return out
+
+
+def json_container(data):
+    # 1: an object or array for serde_json, 0: not, -1: unsure.
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return 0
+    kind, v = _json_value(text)
+    if kind == "odd":
+        return -1
+    return 1 if kind == "ok" and isinstance(v, (dict, list)) else 0
+
+
+_INPUT_KEYS = ("name", "args", "stdin", "env", "files", "remove")
+
+
+def _str_list(v):
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _str_dict(v):
+    return isinstance(v, dict) and all(isinstance(x, str) for x in v.values())
+
+
+def _by_key(d):
+    return [(k, d[k]) for k in sorted(d, key=lambda k: k.encode("utf-8"))]
+
+
+def input_line(line):
+    # One `--inputs` line as serde reads `Input` (deny_unknown_fields), or
+    # None for anything it could read otherwise or refuse.
+    try:
+        v = json.loads(line, object_pairs_hook=_pairs, parse_constant=_const)
+        _plain(v)
+    except Exception:
+        return None
+    if not isinstance(v, dict) or any(k not in _INPUT_KEYS for k in v):
+        return None
+    name = v.get("name")
+    stdin = v.get("stdin")
+    args = v.get("args", [])
+    env = v.get("env", {})
+    files = v.get("files", {})
+    remove = v.get("remove", [])
+    if name is not None and not isinstance(name, str):
+        return None
+    if stdin is not None and not isinstance(stdin, str):
+        return None
+    if not (_str_list(args) and _str_dict(env) and _str_dict(files) and _str_list(remove)):
+        return None
+    return (name, args, stdin, _by_key(env), _by_key(files), remove)
+
+
+def case_key(args, stdin, env_pairs, files, remove):
+    return repr((tuple(args), stdin, tuple(tuple(p) for p in env_pairs),
+                 tuple(files.items()), tuple(remove)))
+
+
+def sorted_files(d):
+    return {k: d[k] for k in sorted(d, key=path_key)}
+
+
+def _run_pair(job):
+    one = run_in(job)
+    if one["error"]:
+        return one
+    two = run_in(job)
+    if two["error"]:
+        return two
+    return {"error": "", "one": one, "two": two}
+
+
+def run_pairs(jobs):
+    # Each case twice, one run after the other, cases on up to 8 threads.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers()) as pool:
+        futures = [pool.submit(_run_pair, j) for j in jobs]
+        out = []
+        for f in futures:
+            try:
+                out.append(f.result())
+            except Exception as e:
+                out.append({"error": "", "odd": str(e)})
+        return out
+
+
+def pair_kind(r):
+    if "odd" in r:
+        return "odd"
+    if r["error"]:
+        return "error"
+    for k in ("one", "two"):
+        x = r[k]
+        if not names_plain(x["files"].keys()) or not names_plain(x["removed"]):
+            return "odd"
+    return "ok"
+
+
+def written(run, case_files):
+    return {p: b for p, b in run["files"].items() if case_files.get(p) != b}
+
+
+def dict_get(d, key, default):
+    return d.get(key, default)
+
+
+def is_none(x):
+    return x is None
+
+
+def put(d, key, value):
+    d[key] = value
+
+
+def merge_tokens(line):
+    # app.rs `tokens`: runs of alphanumerics, every other character alone;
+    # None when Python cannot say what Rust's is_alphanumeric would.
+    out = []
+    start = None
+    for i, c in enumerate(line):
+        if c.isascii():
+            alnum = c.isalnum()
+        else:
+            k = alnum_kind(c)
+            if k < 0:
+                return None
+            alnum = k == 1
+        if alnum:
+            if start is None:
+                start = i
+        else:
+            if start is not None:
+                out.append(line[start:i])
+                start = None
+            out.append(c)
+    if start is not None:
+        out.append(line[start:])
+    return out
+
+
+def remove_file(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def remove_tree(path):
+    # remove_dir_all: a link goes, not what it points at.
+    if os.path.islink(path):
+        remove_file(path)
+    elif os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def make_dirs(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        return ""
+    except OSError as e:
+        return os_error(e)
+
+
+def write_file(path, data):
+    # std::fs::write after create_dir_all of the parent; "" or the error.
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        return ""
+    except OSError as e:
+        return os_error(e)
 """
 
 

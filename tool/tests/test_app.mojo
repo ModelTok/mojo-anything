@@ -526,24 +526,6 @@ def test_record_checks_match_the_phase1_binary() raises:
     _ = t["gone"](PythonObject(d))
 
 
-def test_a_recording_goes_to_the_phase1_binary() raises:
-    var t = _py()
-    var d = String(
-        py=t["fixture"](
-            PythonObject("record-run"),
-            PythonObject("mojo/app-cases/app-record-cli-python.in"),
-        )
-    )
-    var log = _both(
-        t,
-        ["app", "record", ".", "--no-traps", "--", "python3", "tcli.py"],
-        d,
-        d + "/mojo/app-cases/example-001-upper.stdout",
-    )
-    assert_equal(log, "app record .\n")
-    _ = t["gone"](PythonObject(d))
-
-
 def main() raises:
     test_reports_do_not_carry_sandbox_paths()
     test_unordered_lines_pair_up_by_value_within_the_tolerance()
@@ -563,5 +545,4 @@ def main() raises:
     test_a_base_with_a_trailing_slash_reads_the_same_files()
     test_text_rust_classifies_otherwise_is_declined()
     test_record_checks_match_the_phase1_binary()
-    test_a_recording_goes_to_the_phase1_binary()
-    print("test_app: 19 passed")
+    print("test_app: 18 passed")

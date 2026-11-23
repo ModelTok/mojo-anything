@@ -111,24 +111,37 @@ struct Op(Copyable, Movable):
     var j: Int
 
 
+def _same_line(
+    a: String, b: String, tol: Optional[Float64], exact: Bool
+) -> Bool:
+    if exact:
+        return a == b
+    return line_matches_within(a, b, tol)
+
+
 def diff_ops(
-    a: List[String], b: List[String], tol: Optional[Float64]
+    a: List[String],
+    b: List[String],
+    tol: Optional[Float64],
+    exact: Bool = False,
 ) -> List[Op]:
     """An edit script from `a` (expected) to `b` (actual): the common head and
     tail first, then a longest common subsequence of what is left, or delete
-    all then insert all when the table would pass 4,000,000 cells."""
+    all then insert all when the table would pass 4,000,000 cells. With
+    `exact`, lines are equal only when they are the same text (`merge_noise`).
+    """
     var head = 0
     while (
         head < len(a)
         and head < len(b)
-        and line_matches_within(a[head], b[head], tol)
+        and _same_line(a[head], b[head], tol, exact)
     ):
         head += 1
     var tail = 0
     while (
         tail < len(a) - head
         and tail < len(b) - head
-        and line_matches_within(a[len(a) - 1 - tail], b[len(b) - 1 - tail], tol)
+        and _same_line(a[len(a) - 1 - tail], b[len(b) - 1 - tail], tol, exact)
     ):
         tail += 1
     var ops = List[Op]()
@@ -143,7 +156,7 @@ def diff_ops(
         while i >= 0:
             var j = m - 1
             while j >= 0:
-                if line_matches_within(a[head + i], b[head + j], tol):
+                if _same_line(a[head + i], b[head + j], tol, exact):
                     lcs[i * w + j] = lcs[(i + 1) * w + j + 1] + 1
                 else:
                     lcs[i * w + j] = max(
@@ -157,7 +170,7 @@ def diff_ops(
             if (
                 i < n
                 and j < m
-                and line_matches_within(a[head + i], b[head + j], tol)
+                and _same_line(a[head + i], b[head + j], tol, exact)
             ):
                 ops.append(Op(_EQUAL, head + i, head + j))
                 i += 1
