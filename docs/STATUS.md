@@ -40,6 +40,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, servers in `app record` and `app replay`, a library's `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-6.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of workspaces with no source file, `map` of repositories with no port and no unit | 524 | 524 | 57.4% (301/524), [log](measurements/2026-11-23-phase2-replay-7.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Python workspaces with source files (read through CPython's `ast`), `map` of Python repositories with no port | 524 | 524 | 53.6% (281/524), [log](measurements/2026-11-23-phase2-replay-8.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Java, Go, Ruby and C# workspaces with source files (read through tree-sitter's Python bindings), `map` of those repositories with no port | 524 | 524 | 44.8% (235/524), [log](measurements/2026-11-23-phase2-replay-9.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -125,8 +126,25 @@ ASCII, a `pyproject.toml` tomllib refuses, and any file under an interpreter oth
 3.12 or 3.13. `--whole-app` still falls back. `analyze` now falls back in 94 of its 147 cases
 and `map` in 90 of 137 ([log](measurements/2026-11-23-phase2-replay-8.md));
 `tool/tests/test_analyze_python.mojo` and `test_map.mojo` run both binaries on copies of the
-same projects (`pixi run check-tool`: 19 test files, 133 tests). The other languages still
-need tree-sitter's grammars, which the pixi environment does not have.
+same projects (`pixi run check-tool`: 19 test files, 133 tests).
+
+Since the ninth row, `analyze` also answers Java, Go, Ruby and C# workspaces with source files,
+and `map` those repositories with no port. The pixi environment now holds tree-sitter 0.26.1
+and the grammars at the versions Cargo.lock pins (DECISIONS.md F19), and the facts the Rust
+tool takes from each tree (imports, risks and their lines, loops, exports and their types) are
+read through the Python bindings (`tool/src/mojo_anything/analyze_tree.py`); the manifests
+(`pom.xml`, `build.gradle`, `go.mod`, `Gemfile`, `.csproj`), import resolution, the workspace
+and the report are Mojo. Only the bindings in the repository's pixi environment are used, even
+outside `pixi run`. A tree with an error (the bindings' core is 0.26, Rust's 0.27), a type
+outside ASCII, a Go name outside ASCII, two `.csproj` files in one folder, any failure in the
+bindings, and everything listed above for the eighth row go to the Phase 1 binary before
+anything is written. Ruby exports carry no types in the Mojo tool (only what blocks them is
+read), as no Ruby type reaches the bridgeability check. `analyze` now falls back in 68 of its
+147 cases and `map` in 70 of 137 ([log](measurements/2026-11-23-phase2-replay-9.md));
+`tool/tests/test_analyze_java.mojo`, `test_analyze_go.mojo`, `test_analyze_ruby.mojo`,
+`test_analyze_csharp.mojo` and `test_map.mojo` run both binaries on copies of the same projects
+(`pixi run check-tool`: 23 test files, 148 tests). TS (read by oxc in the Rust tool), Kotlin,
+PHP, C and C++, `--whole-app`, and `map` with ports still fall back.
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
