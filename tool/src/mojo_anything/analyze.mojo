@@ -54,9 +54,12 @@ def scan(root, exts):
                 return 1
     return 1 if bad else 0
 
-def ignore_files(root):
-    # 1 when an ignore file under root may hold a pattern globset refuses
-    # (a class, alternates or a trailing escape), or cannot be read as UTF-8.
+def ignore_files(root, ts):
+    # 1 when an ignore file under root holds alternates (globset reads them,
+    # walk.mojo does not) or a trailing escape, or cannot be read as UTF-8;
+    # in a TS workspace also a class (a pattern globset may refuse stops the
+    # TS walk with an error).
+    special = "[]{}" if ts else "{}"
     for base, dirs, files in os.walk(root):
         for name in dirs + files:
             if not (name in (".gitignore", ".ignore") or (name == "exclude" and base.endswith("/.git/info"))):
@@ -69,7 +72,7 @@ def ignore_files(root):
             for line in text.split("\\n"):
                 if line.startswith("#"):
                     continue
-                if any(c in line for c in "[]{}") or line.rstrip("\\r").endswith("\\\\"):
+                if any(c in line for c in special) or line.rstrip("\\r").endswith("\\\\"):
                     return 1
     return 0
 
@@ -99,6 +102,13 @@ def _const(name):
 def _finite(v):
     if isinstance(v, float):
         return v == v and v not in (float("inf"), float("-inf"))
+    if isinstance(v, int) and not isinstance(v, bool):
+        # serde_json reads an integer beyond u64/i64 as f64: out of range
+        # past f64's largest.
+        try:
+            return float(v) not in (float("inf"), float("-inf"))
+        except OverflowError:
+            return False
     if isinstance(v, list):
         return all(_finite(x) for x in v)
     if isinstance(v, dict):
@@ -278,6 +288,19 @@ def _extension(name: String) -> String:
     if dot <= 0:
         return ""
     return String(name[byte = dot + 1 :])
+
+
+def _file_name(path: String) -> String:
+    """Path::file_name: the last normal component ("" for none: `..`, `/`);
+    trailing `/` and `.` components are not components."""
+    var parts = List[String]()
+    for p in path.split("/"):
+        var s = String(p)
+        if s.byte_length() > 0 and s != ".":
+            parts.append(s)
+    if len(parts) == 0 or parts[len(parts) - 1] == "..":
+        return ""
+    return parts[len(parts) - 1]
 
 
 def _keep(path: String) -> Bool:
@@ -718,7 +741,8 @@ def empty_workspace(
         exts.append(PythonObject(e))
     if Int(py=py["scan"](PythonObject(root), exts)) != 0:
         return Discovery(0, True)
-    if lang == "ts" and Int(py=py["ignore_files"](PythonObject(root))) != 0:
+    var ts = PythonObject(lang == "ts")
+    if Int(py=py["ignore_files"](PythonObject(root), ts)) != 0:
         return Discovery(0, True)
     return discover_packages(lang, root, py)
 
@@ -784,6 +808,11 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
             )
     var packages = 1
     if state == "dir":
+        # Rust's compiled-file walk sees the root itself (depth 0): a root
+        # folder named like a compiled file makes the plan carry a warning.
+        var own = _file_name(root)
+        if not _ascii(own) or _extension(own).lower() in _compiled():
+            return fallback(argv)
         var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)

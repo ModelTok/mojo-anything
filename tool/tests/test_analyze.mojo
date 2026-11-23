@@ -366,6 +366,35 @@ def test_ts_ignore_files_with_plain_patterns_are_read() raises:
     assert_equal(log, "analyze .\n", "fallback of a class in .gitignore")
 
 
+def test_review_findings_go_to_the_phase1_binary() raises:
+    """What the Rust tool answers otherwise than an empty plan: a root folder
+    named like a compiled file (Rust warns: its compiled walk sees the root
+    itself), a package.json integer beyond f64 (serde_json: number out of
+    range), brace alternates in an ignore file (globset reads them, the Mojo
+    walk does not)."""
+    var t = _py()
+    var zeros = String("")
+    for _ in range(400):
+        zeros += "0"
+    var cases = List[Tuple[String, String, String]]()
+    cases.append(("so-root", "lib.so/go.mod=module x\n", "lib.so"))
+    cases.append(("jar-root", "app.JAR/go.mod=module x\n", "app.JAR/"))
+    cases.append(("big-int", 'package.json={"n": 1' + zeros + "}\n", "."))
+    cases.append(
+        (
+            "braces",
+            ".gitignore={legacy,old}/\n|go.mod=x\n|legacy/go.mod=x\n",
+            ".",
+        )
+    )
+    for c in cases:
+        var spec = List[String]()
+        for part in c[1].split("|"):
+            spec.append(String(part))
+        var log = _both(t, c[0], spec, ["analyze", c[2]])
+        assert_equal(log, "analyze " + c[2] + "\n", "fallback of " + c[0])
+
+
 def main() raises:
     test_detects_the_language_as_the_phase1_tool()
     test_empty_plans_match_the_phase1_binary()
@@ -373,5 +402,6 @@ def main() raises:
     test_out_writes_the_plan()
     test_what_is_not_ported_goes_to_the_phase1_binary()
     test_ts_ignore_files_with_plain_patterns_are_read()
+    test_review_findings_go_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_analyze: 6 passed")
+    print("test_analyze: 7 passed")
