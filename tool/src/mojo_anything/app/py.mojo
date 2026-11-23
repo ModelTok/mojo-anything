@@ -735,6 +735,10 @@ def copy_tree(src, dst):
         return str(e)
     except OSError as e:
         return os_error(e)
+    except Exception:
+        # Anything else (a tree too deep, a name Python cannot print) is
+        # not an error the Rust tool would print: the caller declines.
+        return None
 
 
 def run_in(job):

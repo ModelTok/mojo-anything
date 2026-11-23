@@ -1464,7 +1464,10 @@ def snapshot_to(
         var to = join(dir, path)
         if path.endswith("/") and Bool(py=h["is_dir"](PythonObject(src))):
             to = dir
-        var err = String(py=h["copy_tree"](PythonObject(src), PythonObject(to)))
+        var copied = h["copy_tree"](PythonObject(src), PythonObject(to))
+        if _is_none(h, copied):
+            raise decline()
+        var err = String(py=copied)
         if err != "":
             raise Error(err)
 
@@ -1680,6 +1683,7 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         or p.value("pace")
         or len(p.all("arg")) > 0
         or config.http
+        or config.effects
     ):
         raise decline()
     var tol = p.value("float-tolerance")
