@@ -230,3 +230,38 @@ fn usage_errors_do_not_fall_back() {
         assert_eq!(mojo.stderr, rust.stderr, "{args:?}");
     }
 }
+
+/// `setup` through the Mojo tool registers the Mojo tool, not the Phase 1 binary it would
+/// otherwise exec into. The recording cannot catch this: its `binary` normaliser masks both
+/// `tool/build/` and `tool/fallback/`.
+#[test]
+fn setup_registers_the_mojo_binary() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let home = std::env::temp_dir().join(format!("mojo-front-door-setup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let out = run(
+        tool,
+        &["setup", "--agent", "cursor", "--json", "--no-backup"],
+        &[("HOME", &home.to_string_lossy())],
+    );
+    let text = std::fs::read_to_string(home.join(".cursor/mcp.json")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let config: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let want = std::fs::canonicalize(tool).unwrap();
+    assert_eq!(
+        config["mcpServers"]["mojo-anything"]["command"],
+        want.to_string_lossy().as_ref(),
+        "{text}"
+    );
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["command"], want.to_string_lossy().as_ref());
+}

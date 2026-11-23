@@ -10,15 +10,26 @@ from std.sys import argv, exit, stderr
 from mojo_anything.cli import decide
 from mojo_anything.cli_parse import PARSED, USAGE_ERROR, Parsed, parse
 from mojo_anything.fallback import fallback, report_owned
+from mojo_anything.doctor import run_doctor
+from mojo_anything.setup import run_setup
 
 
 def owned() -> List[String]:
     """The subcommands answered in Mojo. Later tasks add to it."""
-    return List[String]()
+    var out = List[String]()
+    out.append("setup")
+    out.append("doctor")
+    return out^
 
 
-def run(p: Parsed) raises -> Int:
-    """Runs an owned subcommand; returns its exit code."""
+def run(p: Parsed, args: List[String]) raises -> Int:
+    """Runs an owned subcommand; returns its exit code. A command may still
+    hand a case it cannot answer exactly to the Phase 1 binary (`fallback`),
+    before it has written anything."""
+    if p.path() == "setup":
+        return run_setup(p, args)
+    if p.path() == "doctor":
+        return run_doctor(p)
     raise Error("not owned: " + p.path())
 
 
@@ -42,9 +53,11 @@ def main():
         exit(2)
     if outcome.kind == PARSED and outcome.parsed.path() in owned():
         report_owned()
+        var code: Int
         try:
-            exit(run(outcome.parsed))
+            code = run(outcome.parsed, args)
         except e:
             print("error:", e, file=stderr)
-            exit(2)
+            code = 2
+        exit(code)
     exit(fallback(args))

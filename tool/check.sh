@@ -8,9 +8,10 @@ cd "$(dirname "$0")/.."
 copy=$(mktemp -d)
 trap 'rm -rf "$copy"' EXIT
 cp src/mojo/json.mojo tool/src/mojo_anything/json.mojo
+python tool/skill_files.py
 cp -r tool/src tool/tests "$copy/"
 mojo format -q "$copy/src" "$copy/tests" > /dev/null
-if ! diff -ru -x json.mojo tool/src "$copy/src" || ! diff -ru tool/tests "$copy/tests"; then
+if ! diff -ru -x json.mojo -x skill_files.mojo tool/src "$copy/src" || ! diff -ru tool/tests "$copy/tests"; then
   echo "mojo format would change the files above: run \`pixi run mojo format tool\`" >&2
   exit 1
 fi

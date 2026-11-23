@@ -18,3 +18,5 @@ tool/record/chunks/
 mojo/app-cases/replay-report.md
 # copied from src/mojo/json.mojo by tool/build.sh
 tool/src/mojo_anything/json.mojo
+# written from skills/mojo-anything/ by tool/skill_files.py
+tool/src/mojo_anything/skill_files.mojo
