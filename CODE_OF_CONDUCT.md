@@ -29,12 +29,12 @@ someone represents the project elsewhere.
 
 ## Enforcement
 
-Report unacceptable behavior to the maintainer, [@erkamyaman](https://github.com/erkamyaman),
+Report unacceptable behavior to the maintainers of [ModelTok/mojo-anything](https://github.com/ModelTok/mojo-anything),
 through GitHub. For something you'd rather not post in public, use
-[Report a vulnerability](https://github.com/erkamyaman/rust-anything/security/advisories/new) and
+[Report a vulnerability](https://github.com/ModelTok/mojo-anything/security/advisories/new) and
 say it's a conduct report. Every report is reviewed, and the reporter's privacy is respected.
 
-The maintainer may remove, edit or reject comments, commits, code, issues and other contributions
+The maintainers may remove, edit or reject comments, commits, code, issues and other contributions
 that break this code, and may ban, temporarily or permanently, anyone whose behavior is harmful.
 
 ## Attribution
