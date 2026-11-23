@@ -433,13 +433,17 @@ def _comparable(
 
 struct ReplaySetup(Movable):
     """What app.rs `replay` settles before it replays a CLI's cases or a
-    server's: the repository, the settings, the build and the time limit."""
+    server's: the repository, the settings, the build and the time limit;
+    or a library's state (library.mojo), whose units replay through their
+    bindings instead."""
 
     var repo: String
     var config: Config
     var norm: Normalizers
     var command: List[String]
     var timeout: Int
+    var library: PythonObject
+    """py library_state's state, or None when this is no library."""
 
     def __init__(
         out self,
@@ -448,12 +452,17 @@ struct ReplaySetup(Movable):
         var norm: Normalizers,
         var command: List[String],
         timeout: Int,
+        library: PythonObject,
     ):
         self.repo = repo
         self.config = config^
         self.norm = norm^
         self.command = command^
         self.timeout = timeout
+        self.library = library
+
+    def is_library(self) raises -> Bool:
+        return not (self.library is PythonObject(None))
 
 
 def replay_setup(h: PythonObject, opts: Options) raises -> ReplaySetup:
@@ -466,7 +475,23 @@ def replay_setup(h: PythonObject, opts: Options) raises -> ReplaySetup:
     var dir = join(repo, CASES_DIR)
     var loaded = load_config(h, repo)
     if not loaded and _has_old_front_door(h, repo):
-        raise Error(DECLINE)
+        # app.rs: a library's state (State::load), when nothing was
+        # recorded; any other state, or one serde might read otherwise, goes
+        # to the Phase 1 binary.
+        if not Bool(py=h.__contains__("library_state")):
+            raise Error(DECLINE)
+        var st = h["library_state"](PythonObject(repo))
+        if String(py=st[0]) != "lib":
+            raise Error(DECLINE)
+        if opts.build:
+            raise Error(
+                String(py=st[1]["name"])
+                + " is a library: its cases replay through each unit's"
+                " bindings, so --build does not apply"
+            )
+        var none = Config()
+        var norm = Normalizers(h, none)
+        return ReplaySetup(repo, none^, norm^, List[String](), 0, st[1])
     var command: List[String]
     if opts.build:
         command = shell_split(opts.build.value())
@@ -487,7 +512,9 @@ def replay_setup(h: PythonObject, opts: Options) raises -> ReplaySetup:
     var timeout = (
         opts.timeout_secs.value() if opts.timeout_secs else config.timeout_secs
     )
-    return ReplaySetup(repo, config^, norm^, command^, timeout)
+    return ReplaySetup(
+        repo, config^, norm^, command^, timeout, PythonObject(None)
+    )
 
 
 def replay(h: PythonObject, opts: Options, s: ReplaySetup) raises -> Outcome:

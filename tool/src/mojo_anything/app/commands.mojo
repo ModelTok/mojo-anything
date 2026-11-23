@@ -1,12 +1,15 @@
 # `mojo-anything app record` and `app replay` (main.rs `run_app`): the
-# settings first (record.mojo, replay.mojo), then a CLI's cases or a server's
-# (server.mojo), and the outcome printed as the Rust tool prints it. Anything
+# settings first (record.mojo, replay.mojo), then a CLI's cases, a server's
+# (server.mojo) or a library's units (library.mojo), and the outcome printed
+# as the Rust tool prints it. Anything
 # this port cannot answer exactly runs the Phase 1 binary.
 
 from std.python import Python, PythonObject
 
 from mojo_anything.app.cases import DECLINE
 from mojo_anything.app.py import py_helpers
+from mojo_anything.app.library import library_helpers
+from mojo_anything.app.library import replay as replay_library
 from mojo_anything.app.py_server import server_helpers
 from mojo_anything.app.record import (
     outcome_json as record_json,
@@ -16,6 +19,7 @@ from mojo_anything.app.record import (
 )
 from mojo_anything.app.replay import (
     Options,
+    Outcome,
     outcome_json as replay_json,
     replay,
     replay_setup,
@@ -30,6 +34,7 @@ from mojo_anything.fallback import fallback
 def _helpers() raises -> PythonObject:
     var h = py_helpers()
     server_helpers(h)
+    library_helpers(h)
     return h
 
 
@@ -75,9 +80,13 @@ def run_app_replay(p: Parsed, argv: List[String]) raises -> Int:
     var h = _helpers()
     try:
         var s = replay_setup(h, opts)
-        var outcome = replay_server(
-            h, s, port, opts.only
-        ) if s.config.http else replay(h, opts, s)
+        var outcome: Outcome
+        if s.is_library():
+            outcome = replay_library(h, s.repo, s.library, opts.only)
+        elif s.config.http:
+            outcome = replay_server(h, s, port, opts.only)
+        else:
+            outcome = replay(h, opts, s)
         if p.flag("json"):
             print(replay_json(h, outcome))
         else:
