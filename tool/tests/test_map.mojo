@@ -197,6 +197,44 @@ def test_python_maps_without_ports_match_the_phase1_binary() raises:
     assert_equal(log, "map .\n", "fallback of python-bad")
 
 
+def _java_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append("pom.xml=<artifactId>kit</artifactId>\n")
+    for i in range(6):
+        var body = String("package p", i, ";\npublic class M", i, " {\n")
+        body += "  public static String f(String s) {\n"
+        for _ in range(i * 2):
+            body += "    s = s.substring(1) + s.toLowerCase();\n"
+        body += "    return s;\n  }\n}\n"
+        spec.append(String("src/main/java/p", i, "/M", i, ".java=") + body)
+    return spec^
+
+
+def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
+    """Repositories of the languages read through tree-sitter, with units
+    and no port, and ones whose tree has an error (the Phase 1 binary's)."""
+    var t = _py()
+    var repos = List[Tuple[String, List[String]]]()
+    repos.append(("java", _java_repo()))
+    var flags = List[List[String]]()
+    flags.append(["map", "."])
+    flags.append(["map", ".", "--json"])
+    flags.append(["map", ".", "--write"])
+    flags.append(["map", ".", "--check"])
+    for r in repos:
+        for f in flags:
+            _owned(t, r[0], r[1], f)
+    var bad = List[Tuple[String, String]]()
+    bad.append(("java-bad", "pom.xml=x\n|A.java=class A { int f( }\n"))
+    for c in bad:
+        var spec = List[String]()
+        for part in c[1].split("|"):
+            spec.append(String(part))
+        assert_equal(
+            _both(t, c[0], spec, ["map", "."]), "map .\n", "fallback of " + c[0]
+        )
+
+
 def test_a_missing_repository_is_an_error_as_in_rust() raises:
     var t = _py()
     var empty = List[String]()
@@ -229,7 +267,8 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
 def main() raises:
     test_maps_without_ports_match_the_phase1_binary()
     test_python_maps_without_ports_match_the_phase1_binary()
+    test_tree_sitter_maps_without_ports_match_the_phase1_binary()
     test_a_missing_repository_is_an_error_as_in_rust()
     test_what_is_not_ported_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_map: 4 passed")
+    print("test_map: 5 passed")

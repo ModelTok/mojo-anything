@@ -1010,6 +1010,94 @@ def tree_plan(
 comptime PY_BRIDGE = "Mojo (Python extension)"
 
 
+def registry(lang: String) -> String:
+    """Lang::registry."""
+    if lang == "ts":
+        return "npm"
+    if lang == "python":
+        return "PyPI"
+    if lang == "c" or lang == "cpp":
+        return "system libraries"
+    if lang == "go":
+        return "Go modules"
+    if lang == "ruby":
+        return "gems"
+    if lang == "java" or lang == "kotlin":
+        return "Maven"
+    if lang == "php":
+        return "Composer"
+    return "NuGet"
+
+
+def bridge_label(lang: String) -> String:
+    """Bridge::for_lang(lang).label() (not TS)."""
+    if lang == "python":
+        return PY_BRIDGE
+    if lang == "c" or lang == "cpp":
+        return "C ABI"
+    if lang == "go":
+        return "cgo"
+    if lang == "ruby":
+        return "Fiddle (C ABI)"
+    if lang == "java" or lang == "kotlin":
+        return "Mojo (Java FFM)"
+    if lang == "php":
+        return "PHP FFI (C ABI)"
+    return "P/Invoke (C ABI)"
+
+
+def bridge_id(lang: String) -> String:
+    """Bridge::for_lang(lang) in serde's kebab case (not TS)."""
+    if lang == "python":
+        return "mojo-py"
+    if lang == "c" or lang == "cpp":
+        return "c-abi"
+    if lang == "go":
+        return "cgo"
+    if lang == "ruby":
+        return "fiddle"
+    if lang == "java" or lang == "kotlin":
+        return "mojo-jvm"
+    if lang == "php":
+        return "php-ffi"
+    return "dotnet-ffi"
+
+
+struct LangPlan(Movable):
+    """The plan of a workspace with source files of a language analyze.mojo
+    reads (`planned`), or `declined`; neither when it has no source file."""
+
+    var report: Report
+    var planned: Bool
+    var declined: Bool
+
+    def __init__(out self, lang: String):
+        self.report = Report(lang)
+        self.planned = False
+        self.declined = False
+
+
+def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
+    """analyze_lang for a folder, for the languages with a Mojo reader."""
+    var out = LangPlan(lang)
+    if lang == "python":
+        var pyh = py_helpers()
+        var ws = python_workspace(root, pyh)
+        if ws.declined:
+            out.declined = True
+        elif len(ws.files) > 0:
+            out.report = python_plan(root, ws, pyh, out.declined)
+            out.planned = not out.declined
+    elif lang == "java":
+        var ws = java_workspace(root, py)
+        if ws.declined:
+            out.declined = True
+        elif len(ws.files) > 0:
+            out.report = tree_plan(lang, registry(lang), root, ws, out.declined)
+            out.planned = not out.declined
+    return out^
+
+
 def _emit(
     p: Parsed, py: PythonObject, text: String, argv: List[String]
 ) raises -> Int:
@@ -1092,43 +1180,24 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
         var own = _file_name(root)
         if not _ascii(own) or _extension(own).lower() in _compiled():
             return fallback(argv)
-        if lang == "python":
-            var pyh = py_helpers()
-            var ws = python_workspace(root, pyh)
-            if ws.declined:
-                return fallback(argv)
-            if len(ws.files) > 0:
-                var declined = False
-                var report = python_plan(root, ws, pyh, declined)
-                if declined:
-                    return fallback(argv)
-                if p.flag("json"):
-                    return _emit(p, py, to_json(report, "mojo-py"), argv)
-                return _emit(
-                    p,
-                    py,
-                    markdown(report, _title(root), "Python", "PyPI", PY_BRIDGE),
-                    argv,
-                )
-        if lang == "java":
-            var ws = java_workspace(root, py)
-            if ws.declined:
-                return fallback(argv)
-            if len(ws.files) > 0:
-                var declined = False
-                var report = tree_plan("java", "Maven", root, ws, declined)
-                if declined:
-                    return fallback(argv)
-                if p.flag("json"):
-                    return _emit(p, py, to_json(report, "mojo-jvm"), argv)
-                return _emit(
-                    p,
-                    py,
-                    markdown(
-                        report, _title(root), "Java", "Maven", "Mojo (Java FFM)"
-                    ),
-                    argv,
-                )
+        var lp = lang_plan(lang, root, py)
+        if lp.declined:
+            return fallback(argv)
+        if lp.planned:
+            if p.flag("json"):
+                return _emit(p, py, to_json(lp.report, bridge_id(lang)), argv)
+            return _emit(
+                p,
+                py,
+                markdown(
+                    lp.report,
+                    _title(root),
+                    lang_name(lang),
+                    registry(lang),
+                    bridge_label(lang),
+                ),
+                argv,
+            )
         var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)

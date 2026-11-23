@@ -5,7 +5,8 @@
 # `analyze` to list (its empty plan, analyze.mojo's `empty_workspace`), and a
 # Python repository whose plan analyze.mojo builds, every unit of which is
 # then not ported yet: the map in Markdown, JSON or mojo/PORT_MAP.md
-# (`--write`), and `--check`, which has nothing to fail on. A repository that
+# (`--write`), and `--check`, which has nothing to fail on. Java
+# repositories are planned the same way (analyze.mojo's `lang_plan`). A repository that
 # does not exist gets the Rust tool's error. A `mojo-anything.json` anywhere
 # under the repository (a port to list), front-door glue (`mojo/app/glue`),
 # `--crates`, a repository that is a file or `/`, and every workspace
@@ -18,14 +19,12 @@ from mojo_anything.analyze import (
     detect_lang,
     empty_workspace,
     helpers,
-    python_plan,
-    python_workspace,
+    lang_plan,
 )
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback
 from mojo_anything.json_text import write_string
 from mojo_anything.plan import Report, UnitReport
-from mojo_anything.python_lang import py_helpers
 
 comptime MAP_FILE = "mojo/PORT_MAP.md"
 
@@ -195,20 +194,12 @@ def run_map(p: Parsed, argv: List[String]) raises -> Int:
     var py = helpers()
     var lang = detect_lang(root)
     var units = List[UnitReport]()
-    var planned = False
-    if lang == "python":
-        var pyh = py_helpers()
-        var ws = python_workspace(root, pyh)
-        if ws.declined:
-            return fallback(argv)
-        if len(ws.files) > 0:
-            var declined = False
-            var report = python_plan(root, ws, pyh, declined)
-            if declined:
-                return fallback(argv)
-            units = not_ported(report)
-            planned = True
-    if not planned:
+    var lp = lang_plan(lang, root, py)
+    if lp.declined:
+        return fallback(argv)
+    if lp.planned:
+        units = not_ported(lp.report)
+    else:
         var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)
