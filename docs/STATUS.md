@@ -28,25 +28,34 @@ Phase 2 moves the tool itself from Rust to Mojo (`tool/`). The Mojo binary
 (`tool/build/mojo-anything`, built by `pixi run build-tool`) answers what it owns and runs the
 Phase 1 binary (`tool/fallback/mojo-anything`, built from `v0.1.0` by
 `scripts/build-fallback.sh`) for everything else. The specification is the recording of the
-Phase 1 binary in `mojo/app-cases/` (519 cases, `tool/record/`).
+Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 
 | Checked | Owned in Mojo | Cases | Passed | Fallback rate |
 | --- | --- | --- | --- | --- |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `--help` and `help <command>` for every command, `-h` for all but the five `app` subcommands; no subcommand yet | 519 | 519 | 87.3% (453/519), [log](measurements/2026-11-23-phase2-replay.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | help and version for every command, clap's usage errors, `setup`, `doctor` (its MCP self-test still starts the Phase 1 `mcp`) | 524 | 524 | 73.7% (386/524), [log](measurements/2026-11-23-phase2-replay-2.md) |
 
 Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`
-([log](measurements/2026-11-23-phase2-replay.md)); all 66
-help and version cases run without a fallback. Mojo modules with tests (`pixi run check-tool`:
-format, build with warnings as errors, 36 tests): `fallback`, `process`, `walk`, `js_number`,
-`json_text`, `tolerance`, `recording`, `cli`. Not yet in Mojo: usage errors (the 103 exit-2
-cases), and every subcommand; `doctor`, `map`, `setup`, `app record` and `app replay` are the
-next ones in the plan (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`, Tasks 7
-and 8).
+([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls back in none of its 25
+cases; `doctor` in 2 of 5 (`doctor` and `doctor --json`, whose MCP self-test starts the Phase 1
+`mcp`); every other command still falls back except for its help and usage errors. Usage errors
+are the 46 of clap's own (`error: unexpected argument`, `invalid value`, a missing required
+argument, `unrecognized subcommand`), with clap's suggestions and usage lines; an input clap
+would word in a way not emulated (an empty enum value, a negative port) goes to the Phase 1
+binary. The other exit-2 cases are errors of the commands themselves and fall back with their
+commands. `setup` edits JSON settings with key order kept and Codex's TOML as text in
+toml_edit's layout, and hands over a file it cannot reproduce byte for byte (TOML layouts
+toml_edit re-formats, JSON numbers serde_json reads otherwise); `doctor` falls back when
+`tomllib` refuses Codex's settings, since toml_edit reads TOML 1.1. Mojo modules with tests
+(`pixi run check-tool`: format, build with warnings as errors, 72 tests): `fallback`,
+`process`, `walk`, `js_number`, `json_text`, `tolerance`, `recording`, `cli`, `cli_parse`,
+`setup`, `toml_edit`, `doctor`. Not yet in Mojo: `map`, `app record`, `app replay` and every
+other subcommand (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`).
 
-Known gap: a subcommand that falls back runs as the Phase 1 binary, so `setup` through the Mojo
-tool registers `tool/fallback/mojo-anything` with the agents (and `doctor` tests that MCP
-server), not the Mojo tool. The recording's `binary` normaliser masks both paths, so the replay
-cannot see it; owning `setup` (Task 7) has to narrow that normaliser.
+`setup` through the Mojo tool registers the Mojo binary, not `tool/fallback/mojo-anything`
+(`tests/mojo_front_door.rs` `setup_registers_the_mojo_binary`, which failed before `setup` was
+owned and passes since). The recording's `binary` normaliser still masks both paths, so the
+replay alone cannot see which one was registered.
 
 ## Porting units
 
