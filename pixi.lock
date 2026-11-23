@@ -50,6 +50,17 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-hd6e31c0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tornado-6.6.1-py312h1b36aeb_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-c-0.24.2-py310h88ea430_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-c-sharp-0.23.5-py312h1b36aeb_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-cpp-0.23.4-py310h88ea430_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-go-0.25.0-py310h88ea430_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-java-0.23.5-py310h88ea430_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-kotlin-1.1.0-py310h88ea430_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-php-0.25.1-py311hf4bc344_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-python-0.25.0-py312h5253ce2_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-ruby-0.23.1-py310h88ea430_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-typescript-0.23.2-py310h88ea430_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tree_sitter-0.26.1-py312h1b36aeb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zeromq-4.3.5-h901266b_12.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -104,6 +115,17 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/readline-8.3-ha7194a6_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tk-8.6.13-noxft_hf03c496_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tornado-6.6.1-py312h898233f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-c-0.24.2-py310hc83d45f_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-c-sharp-0.23.5-py312h898233f_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-cpp-0.23.4-py310hc83d45f_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-go-0.25.0-py310hc83d45f_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-java-0.23.5-py310hc83d45f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-kotlin-1.1.0-py310hc83d45f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-php-0.25.1-py311h274c74d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-python-0.25.0-py312h2fc9c67_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-ruby-0.23.1-py310hc83d45f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-typescript-0.23.2-py310hc83d45f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree_sitter-0.26.1-py312h898233f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/zeromq-4.3.5-h3469ab9_12.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/zstd-1.5.7-h9d15635_7.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -169,6 +191,17 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h8b90a29_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-hbeba79b_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tornado-6.6.1-py312h4de8a2e_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-c-0.24.2-py310h28d811c_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-c-sharp-0.23.5-py312hbd136b4_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-cpp-0.23.4-py310h28d811c_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-go-0.25.0-py310h28d811c_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-java-0.23.5-py310h28d811c_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-kotlin-1.1.0-py310h28d811c_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-php-0.25.1-py311hf4d5923_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-python-0.25.0-py312hb3ab3e3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-ruby-0.23.1-py310h28d811c_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-typescript-0.23.2-py310h28d811c_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree_sitter-0.26.1-py312h4de8a2e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zeromq-4.3.5-h6eb0046_12.conda
       - conda: https://conda.modular.com/max/noarch/mblack-26.7.0-release.conda
       - conda: https://conda.modular.com/max/noarch/mojo-python-1.2.0-release.conda
@@ -609,6 +642,164 @@ packages:
   run_exports: {}
   size: 1075148
   timestamp: 1794500523422
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-c-0.24.2-py310h88ea430_2.conda
+  noarch: python
+  sha256: 7982ee5b08b2fe16e69e70d8669916c55d7858ebdad8ceaa83416c18c2c324e2
+  md5: 33137bc8ea9408c785f1c6e8d641302c
+  depends:
+  - python
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 83038
+  timestamp: 1781661421940
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-c-sharp-0.23.5-py312h1b36aeb_3.conda
+  sha256: b844847a40da62eba8a286ce095afad658713b762b63b80679bf223dbaf32fde
+  md5: 58f63bbab9036889cd4481ffa2e5cdbb
+  depends:
+  - python
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 247361
+  timestamp: 1789521433581
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-cpp-0.23.4-py310h88ea430_2.conda
+  noarch: python
+  sha256: 01ece37b3fa52ea03157ea39440db0f667e5cbbf3606959fc9745afacbd307da
+  md5: 09f0b713d25b0d7431438ddec0c6709a
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 232587
+  timestamp: 1781661448257
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-go-0.25.0-py310h88ea430_2.conda
+  noarch: python
+  sha256: 7029fe82b8c66ea22e0b12b77315c6f5290f22da65207fa865fd3addacc45a8f
+  md5: f103c07b93e940b5c1ed7b394a269218
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 56717
+  timestamp: 1781661399611
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-java-0.23.5-py310h88ea430_1.conda
+  noarch: python
+  sha256: 4c5b9e847e68f799dda025c3b193736a4b5a6237ac2d11c43493685865628b58
+  md5: 534562b0ff72b0a8b1e56ba6c3d22e5a
+  depends:
+  - python
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 68570
+  timestamp: 1781649799223
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-kotlin-1.1.0-py310h88ea430_1.conda
+  noarch: python
+  sha256: c22ed1be9a6daa01e47c0d107cb3a9acb080cbfcf86c387566994a5363a283c9
+  md5: c1da6005114ce424a015a47b941e6f9a
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 228334
+  timestamp: 1781649823634
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-php-0.25.1-py311hf4bc344_0.conda
+  noarch: python
+  sha256: 5ce62296436b6a9b27641535151441db0643b233fadd11dc89364a9e4698a890
+  md5: da0276bb8ed46ce462d3d48b45c89d57
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=15
+  - _python_abi3_support 1.*
+  - cpython >=3.11
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 185650
+  timestamp: 1791310954564
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-python-0.25.0-py312h5253ce2_0.conda
+  sha256: 3b7d936c3d29cb470cca718bdc2dc11dccb64df53bbe1c5ac860d5aa92cdff17
+  md5: de645e37fa66e8d17b672dcb41c9ed4b
+  depends:
+  - python
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 85822
+  timestamp: 1769188515701
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-ruby-0.23.1-py310h88ea430_1.conda
+  noarch: python
+  sha256: 745e7442bdf7c4cb82d1134c3a60628d80fa81df9c21baf8baa8110feb199581
+  md5: dc4e54577a1184ccb97da2c98beaa433
+  depends:
+  - python
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 151039
+  timestamp: 1781650982860
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree-sitter-typescript-0.23.2-py310h88ea430_1.conda
+  noarch: python
+  sha256: ecc80deaed221b5a2d557e5004bc4c383213e88d3114a301728151ab5079ba89
+  md5: 1127788b5a5ca636689dda9444a47431
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 256228
+  timestamp: 1781652225975
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tree_sitter-0.26.1-py312h1b36aeb_0.conda
+  sha256: f96d108d254f508dcdffe246f238399f7a8157a1a3a9bf614e53cb7f2de91320
+  md5: 102a8c18582f081d6b0cadfb84bfd0ce
+  depends:
+  - python
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  - python_abi 3.12.* *_cp312
+  license: MIT and EPL-2.0
+  run_exports: {}
+  size: 167552
+  timestamp: 1794247682820
 - conda: https://conda.anaconda.org/conda-forge/linux-64/zeromq-4.3.5-h901266b_12.conda
   sha256: 37dc9a5ff564fdce07c5ad002ee572057cf41dedda274d7abc154e77094d981a
   md5: 292a05f1436b98e17055090b5ef07746
@@ -1039,6 +1230,153 @@ packages:
   run_exports: {}
   size: 1075521
   timestamp: 1794500527255
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-c-0.24.2-py310hc83d45f_2.conda
+  noarch: python
+  sha256: 3c6255ab3f1b61c8b3a6a1d81d0bf9bd20a5e411a7cc7235fc6d01f2cf4b6ea0
+  md5: fae7640f915176825b0aa2cea8606d13
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 81648
+  timestamp: 1781661425834
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-c-sharp-0.23.5-py312h898233f_3.conda
+  sha256: b3cc8029f9f61c53586b85523bb88584105ca918db65195836415d298cb210c6
+  md5: cffacd046074a7baf7b99448cdc6eba2
+  depends:
+  - python
+  - libgcc >=15
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 246568
+  timestamp: 1789521838043
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-cpp-0.23.4-py310hc83d45f_2.conda
+  noarch: python
+  sha256: 2ccc69411c8168eca69c761ad3e9da923404d34ade4ad05126431bad21b04f05
+  md5: f5f071b711583260412133b34460ebfc
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 231073
+  timestamp: 1781661482734
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-go-0.25.0-py310hc83d45f_2.conda
+  noarch: python
+  sha256: 4d99e268025085b75b7c7a158121316aeb410f005833f175827b72cc66b0dc55
+  md5: 7039256024aed264367e48ef2dcb63c7
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 56538
+  timestamp: 1781661414643
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-java-0.23.5-py310hc83d45f_1.conda
+  noarch: python
+  sha256: 332ef5d0da7877a26126fd2902072b2814849615aa40d3ce98b515b380145580
+  md5: 63db763c4ddbebaa50f9d14413d3456b
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 68617
+  timestamp: 1781649817230
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-kotlin-1.1.0-py310hc83d45f_1.conda
+  noarch: python
+  sha256: 7e4b4669aabe95c7296b77496e8d86e33897bf22b710f9e63bc3f5fc7b36826a
+  md5: fb5937f20bedaa2556821c19f2e88550
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 225563
+  timestamp: 1781649835004
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-php-0.25.1-py311h274c74d_0.conda
+  noarch: python
+  sha256: 8e299e32657fc5260c8163cac0700dd363b191ef3570738d89f8e1a653172f8f
+  md5: 37f3885ed7bdaffd115eb4a217e05c6a
+  depends:
+  - python
+  - libgcc >=15
+  - _python_abi3_support 1.*
+  - cpython >=3.11
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 182113
+  timestamp: 1791310921659
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-python-0.25.0-py312h2fc9c67_0.conda
+  sha256: bddfad43c7a1cf9c2b6cb31dc8b89bc938fca377dd053df29f5a6a6c27f503ae
+  md5: ba42744595365fabb5564b232982802d
+  depends:
+  - python
+  - libgcc >=14
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 84539
+  timestamp: 1769278871224
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-ruby-0.23.1-py310hc83d45f_1.conda
+  noarch: python
+  sha256: 6bdf4daa8f35e61a0153847afcf2a5b9048c898ad638e8368ad7194f5b52c7a2
+  md5: c9490e275b3eef0f6d3941b6c7496aee
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 151256
+  timestamp: 1781650991369
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree-sitter-typescript-0.23.2-py310hc83d45f_1.conda
+  noarch: python
+  sha256: 400ef18830b2e7e377749a0b4386f15e1761a66ad61e39b3e56164f6297bc082
+  md5: 46356593415a4952608280e3d2190d45
+  depends:
+  - python
+  - libgcc >=14
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 255252
+  timestamp: 1781652227564
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tree_sitter-0.26.1-py312h898233f_0.conda
+  sha256: 475a2094006ea29fbcb340874a1c78386c505262e6ccd6200cd16b310b758f0c
+  md5: 214e8e25d5de38081d5f5517943158f9
+  depends:
+  - python
+  - libgcc >=15
+  - python_abi 3.12.* *_cp312
+  license: MIT and EPL-2.0
+  run_exports: {}
+  size: 164106
+  timestamp: 1794247688169
 - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/zeromq-4.3.5-h3469ab9_12.conda
   sha256: 7879b0ebe3c9b7e28af4a6229c31a3da71afca79457f3beaffde3c5dfe8b8081
   md5: 244179625859a7d7dc9943defddc7643
@@ -1585,6 +1923,154 @@ packages:
   run_exports: {}
   size: 1075724
   timestamp: 1794500547665
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-c-0.24.2-py310h28d811c_2.conda
+  noarch: python
+  sha256: 86810e4c3dc2f68ad339e646e8b108b943a84cb231bddf520bd61f69ada672e8
+  md5: f46e32852888a0603de2eef00e2a9732
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 84847
+  timestamp: 1781661420484
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-c-sharp-0.23.5-py312hbd136b4_3.conda
+  sha256: afea658a0271f621107f77eff682653b1253fecc2f0d696c3c07063a8ae3593b
+  md5: af3fbb26c72a1ca7ed19e9b58354f083
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 280798
+  timestamp: 1789521492175
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-cpp-0.23.4-py310h28d811c_2.conda
+  noarch: python
+  sha256: 9f3b4ccf7901f7559b256eb46d25ce93b1df862c7548d75fbf292087823a26eb
+  md5: 89ce143d2714231173323c5be2a5e6ad
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 255055
+  timestamp: 1781661475356
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-go-0.25.0-py310h28d811c_2.conda
+  noarch: python
+  sha256: 53850bd2edcdb233036889d95c9c67608dc769e766bbc2976764739b3e8d81a7
+  md5: 01c335f9ee8c085bf99c19dc76257485
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 57162
+  timestamp: 1781661402662
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-java-0.23.5-py310h28d811c_1.conda
+  noarch: python
+  sha256: 9680b6e153e8090e3cdb8261d1f3a9018bfb98cb3f6a1c91a58d705f33429560
+  md5: 1c07ffbb94ba4595fe9d5e8e5f98eb91
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 71251
+  timestamp: 1781649883255
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-kotlin-1.1.0-py310h28d811c_1.conda
+  noarch: python
+  sha256: 1cf938402add1acf1d875b0041996ef2c3bd0b30facb309ee35102250ba37ea7
+  md5: cf6a90bc0caf08ec0fe62ce0c1636a1f
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 250834
+  timestamp: 1781649833731
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-php-0.25.1-py311hf4d5923_0.conda
+  noarch: python
+  sha256: 6f49fb8d22025e821b07c65f1cbc4006debffe6e6eb5440388e8f6b6e44f2c2b
+  md5: fab305ecf75dc6a51d95dae5dabf677e
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.11
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 193617
+  timestamp: 1791310924834
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-python-0.25.0-py312hb3ab3e3_0.conda
+  sha256: 35f2a5242329d0b794fe3ed4a0b315e2e4284bd838a7fd57da852ac23bb3f1b3
+  md5: e3883076f3f1021c713c9434f871e606
+  depends:
+  - python
+  - __osx >=11.0
+  - python 3.12.* *_cpython
+  - python_abi 3.12.* *_cp312
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 85846
+  timestamp: 1769188822400
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-ruby-0.23.1-py310h28d811c_1.conda
+  noarch: python
+  sha256: fe4e3be523f9d763f6bc770c3494e22cd183cd7a45027ba4cb43e886487ead77
+  md5: ac8345ff0b79a013db0cb669f2e44335
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 165922
+  timestamp: 1781651002421
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree-sitter-typescript-0.23.2-py310h28d811c_1.conda
+  noarch: python
+  sha256: ed36188d8a96a8bd5ce4a824a94634ce80deb7653249f066640c00d0045cd02c
+  md5: 7a268d75df79cf23f9852cf6f51bf701
+  depends:
+  - python
+  - __osx >=11.0
+  - _python_abi3_support 1.*
+  - cpython >=3.10
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 272847
+  timestamp: 1781652219804
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/tree_sitter-0.26.1-py312h4de8a2e_0.conda
+  sha256: e0f2fc5cd12c82b93769c6937622539ee7b523318a1e2fed432e72db5c99c902
+  md5: d212d9741a0bd8c336ce8a1b430d55c6
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.12.* *_cp312
+  license: MIT and EPL-2.0
+  run_exports: {}
+  size: 136111
+  timestamp: 1794247733462
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zeromq-4.3.5-h6eb0046_12.conda
   sha256: 4fe0cd73a686cc4466ca005166a5aa351dc665aa26166b68752d90930f214382
   md5: 89102eac6e230f7636c40a1411223484
