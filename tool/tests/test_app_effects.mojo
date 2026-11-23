@@ -156,6 +156,30 @@ def test_effects_match_the_phase1_binary() raises:
     runs.append(["app", "replay", "."])
     runs.append(_with(record, ["--effects", "smtp", "--db-dump", "false"]))
     runs.append(["app", "replay", "."])
+    # A dump and a reset error over 1 MiB: process::output keeps the last
+    # MiB of each stream. (Few lines: matching half a million equal lines
+    # takes the Phase 1 replayer minutes.)
+    runs.append(
+        _with(
+            record,
+            [
+                "--effects",
+                "http",
+                "--db-dump",
+                "head -c 1500001 /dev/zero | tr '\\0' a; echo; echo end",
+            ],
+        )
+    )
+    runs.append(["app", "replay", "."])
+    runs.append(
+        _with(
+            record,
+            [
+                "--db-reset",
+                "head -c 1500003 /dev/zero | tr '\\0' e >&2; exit 4",
+            ],
+        )
+    )
     # What record refuses.
     var bad: List[String] = [
         "--effects=ftp",

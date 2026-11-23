@@ -898,6 +898,7 @@ _SETTLE = 2.0
 _IO_TIMEOUT = 5.0
 _QUICK = 60
 _MAX_BODY = 1 << 30
+_KEEP = 1 << 20
 
 
 class _SinkOdd(Exception):
@@ -1126,7 +1127,8 @@ def _shell(cmd, cwd, pairs):
         raise _SinkOdd()
     if p.returncode < 0:
         raise _SinkOdd()
-    return (p.returncode, out, err)
+    # process::output keeps the last MiB of each stream.
+    return (p.returncode, out[-_KEEP:], err[-_KEEP:])
 
 
 class _Sinks:
