@@ -3,9 +3,8 @@
 # app's names, the shell lines in its docs, `--inputs`, semantic traps), two
 # runs of the original per case, the noise between them, and the trycmd files
 # in toml_edit's layout with mojo-anything.json in serde_json's. Servers,
-# effects, float files, a tolerance and `key-order`, and
-# anything whose bytes this port cannot be sure to write as the Rust tool
-# does, go to the Phase 1 binary before anything is written.
+# effects, and anything whose bytes this port cannot be sure to write as
+# the Rust tool does, go to the Phase 1 binary before anything is written.
 
 from std.collections import Set
 from std.python import Python, PythonObject
@@ -22,11 +21,21 @@ from mojo_anything.app.cases import (
     load_config,
     shell_tokens,
 )
-from mojo_anything.app.diff import Normalizers, diff_ops, _EQUAL, _DELETE
+from mojo_anything.app.canon import _char_len, _trim, _ws_len
+from mojo_anything.app.diff import (
+    Normalizers,
+    diff_ops,
+    tolerance_error,
+    _EQUAL,
+    _DELETE,
+)
+from mojo_anything.app.floats import float_width
 from mojo_anything.app.py import py_helpers, py_len, py_list, py_strings
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback
+from mojo_anything.js_number import json_number_to_string
 from mojo_anything.json_text import write_string
+from mojo_anything.tolerance import check as tolerance_ok
 from mojo_anything.walk import walk
 
 comptime MAX_TRAPS = 300
@@ -64,11 +73,6 @@ def _rsplit_once(s: String, sep: String) -> Optional[Tuple[String, String]]:
     )
 
 
-def _float_width(format: String) raises:
-    if format != "f32le" and format != "f64le":
-        raise Error("float file format `" + format + "`: use f32le or f64le")
-
-
 def _same_list(a: List[String], b: List[String]) -> Bool:
     if len(a) != len(b):
         return False
@@ -79,65 +83,6 @@ def _same_list(a: List[String], b: List[String]) -> Bool:
 
 
 # --- text as Rust's str reads it ------------------------------------------------
-
-
-def _ws_len(b: Span[UInt8, _], i: Int) -> Int:
-    """The length of the White_Space character (`char::is_whitespace`) that
-    starts at byte `i`, or 0."""
-    var n = len(b)
-    var c = Int(b[i])
-    if c == 9 or c == 10 or c == 11 or c == 12 or c == 13 or c == 32:
-        return 1
-    if c == 0xC2 and i + 1 < n:
-        var c1 = Int(b[i + 1])
-        if c1 == 0x85 or c1 == 0xA0:
-            return 2
-    if i + 2 < n:
-        var c1 = Int(b[i + 1])
-        var c2 = Int(b[i + 2])
-        if c == 0xE1 and c1 == 0x9A and c2 == 0x80:
-            return 3
-        if c == 0xE2 and c1 == 0x80:
-            if (c2 >= 0x80 and c2 <= 0x8A) or c2 == 0xA8 or c2 == 0xA9:
-                return 3
-            if c2 == 0xAF:
-                return 3
-        if c == 0xE2 and c1 == 0x81 and c2 == 0x9F:
-            return 3
-        if c == 0xE3 and c1 == 0x80 and c2 == 0x80:
-            return 3
-    return 0
-
-
-def _char_len(c: UInt8) -> Int:
-    if c < 0x80:
-        return 1
-    if c < 0xE0:
-        return 2
-    if c < 0xF0:
-        return 3
-    return 4
-
-
-def _trim(s: String) -> String:
-    """`str::trim`."""
-    var b = s.as_bytes()
-    var n = len(b)
-    var i = 0
-    var start = -1
-    var end = 0
-    while i < n:
-        var w = _ws_len(b, i)
-        if w > 0:
-            i += w
-            continue
-        if start < 0:
-            start = i
-        i += _char_len(b[i])
-        end = i
-    if start < 0:
-        return ""
-    return String(s[byte=start:end])
 
 
 def _first_word(s: String) -> String:
@@ -1150,7 +1095,9 @@ def settle_text(
     if Bool(py=ta[0]) and Bool(py=tb[0]):
         var x = norm.apply(h, String(py=ta[1]))
         var y = norm.apply(h, String(py=tb[1]))
-        if x == y:
+        if x == y or (
+            norm.key_order and norm.canonical(h, x) == norm.canonical(h, y)
+        ):
             return Settled(h["utf8"](PythonObject(x)), NOISE_NONE, False)
         if _same_lines_any_order(h, x, y):
             return Settled(h["utf8"](PythonObject(x)), NOISE_ORDER, False)
@@ -1388,8 +1335,7 @@ def config_json(
     unordered_fields: List[List[String]],
 ) -> String:
     """`Config` as serde_json's `to_string_pretty` writes it (empty and unset
-    fields skipped), for a recording without servers, effects, a tolerance,
-    or float files."""
+    fields skipped), for a recording without servers or effects."""
     var out = String("{\n")
     out += '  "schema": ' + write_string(SCHEMA) + ",\n"
     out += '  "name": ' + write_string(config.name) + ",\n"
@@ -1408,6 +1354,21 @@ def config_json(
             out += ",\n" if i + 1 < len(config.normalizer_names) else "\n"
         out += "  },\n"
     out += '  "timeout_secs": ' + String(config.timeout_secs)
+    if config.float_tolerance:
+        out += ',\n  "float_tolerance": ' + json_number_to_string(
+            config.float_tolerance.value()
+        )
+    if len(config.float_file_paths) > 0:
+        out += ',\n  "float_files": {\n'
+        for i in range(len(config.float_file_paths)):
+            out += (
+                "    "
+                + write_string(config.float_file_paths[i])
+                + ": "
+                + write_string(config.float_file_formats[i])
+            )
+            out += ",\n" if i + 1 < len(config.float_file_paths) else "\n"
+        out += "  }"
     if len(unordered_cases) > 0:
         out += ',\n  "unordered": {\n'
         for i in range(len(unordered_cases)):
@@ -1688,32 +1649,43 @@ def record(h: PythonObject, p: Parsed) raises -> Outcome:
         raise decline()
     var tol = p.value("float-tolerance")
     if tol:
+        # clap read it with Rust's f64 grammar; Python's float rounds the
+        # same digits to the same double.
         var t = Float64(
             py=Python.import_module("builtins").float(PythonObject(tol.value()))
         )
-        if not (t >= 0.0 and t < 1.0):
-            raise decline()
+        if not tolerance_ok(t):
+            raise Error(tolerance_error(t))
         if t > 0.0:
             config.float_tolerance = t
         else:
             config.float_tolerance = None
     var files = p.all("float-file")
-    for spec in files:
-        var pair = _rsplit_once(spec, "=")
-        if not pair:
-            raise Error(
-                "--float-file `" + spec + "`: use PATH=f32le or PATH=f64le"
-            )
-        _float_width(pair.value()[1])
-    var float_files = config.float_files or len(files) > 0
     if len(files) > 0:
-        config.float_files = False
+        # A BTreeMap of the given strings: sorted, a later path wins.
+        var paths = List[String]()
+        var formats = List[String]()
+        for spec in files:
+            var pair = _rsplit_once(spec, "=")
+            if not pair:
+                raise Error(
+                    "--float-file `" + spec + "`: use PATH=f32le or PATH=f64le"
+                )
+            var path = pair.value()[0]
+            var format = pair.value()[1]
+            _ = float_width(format)
+            var at = 0
+            while at < len(paths) and paths[at] < path:
+                at += 1
+            if at < len(paths) and paths[at] == path:
+                formats[at] = format
+            else:
+                paths.insert(at, path)
+                formats.insert(at, format)
+        config.float_file_paths = paths^
+        config.float_file_formats = formats^
     # The rest of the checks are Normalizers::new's.
     var norm = Normalizers(h, config)
-    # Not ported yet: a tolerance and float files (an f64 and a map in
-    # mojo-anything.json).
-    if config.float_tolerance or float_files:
-        raise decline()
     if len(p.all("fresh")) > 0:
         config.fresh = p.all("fresh")
     var t = p.value("timeout")

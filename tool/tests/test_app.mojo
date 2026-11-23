@@ -232,14 +232,9 @@ def test_normalizers_by_name() raises:
         ),
         "at [..] id [..] [..]",
     )
-    # `key-order` re-writes JSON as serde_json does: not ported, declined.
+    # `key-order` re-writes JSON as serde_json does (test_app_compare).
     c.normalize.append("key-order")
-    var declined = False
-    try:
-        _ = Normalizers(h, c)
-    except e:
-        declined = String(e) == DECLINE
-    assert_true(declined)
+    assert_true(Normalizers(h, c).key_order)
     c.normalize.append("nope")
     var refused = String("")
     try:
@@ -435,7 +430,6 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
         ' ["python3", "tcli.py"]'
     )
     var configs = List[String]()
-    configs.append(head + ', "normalize": ["key-order"]}')
     # serde_json refuses this before the unknown normalizer is looked at.
     configs.append(head + ', "http": 5, "normalize": ["bogus"]}')
     configs.append(head + ', "http": {"port": 1}}')

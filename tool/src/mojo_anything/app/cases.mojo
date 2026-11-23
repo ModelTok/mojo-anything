@@ -188,7 +188,9 @@ struct Config(Copyable, Movable):
     var timeout_secs: Int
     var http: Bool
     var float_tolerance: Optional[Float64]
-    var float_files: Bool
+    var float_file_paths: List[String]
+    """`float_files`' keys, sorted as a BTreeMap."""
+    var float_file_formats: List[String]
     var unordered: Dict[String, List[String]]
     var effects: Bool
     var fresh: List[String]
@@ -202,7 +204,8 @@ struct Config(Copyable, Movable):
         self.timeout_secs = 30
         self.http = False
         self.float_tolerance = None
-        self.float_files = False
+        self.float_file_paths = List[String]()
+        self.float_file_formats = List[String]()
         self.unordered = Dict[String, List[String]]()
         self.effects = False
         self.fresh = List[String]()
@@ -236,9 +239,10 @@ def load_config(h: PythonObject, repo: String) raises -> Optional[Config]:
     out.timeout_secs = Int(py=timeout)
     out.http = Bool(py=h["config_present"](c, PythonObject("http")))
     out.effects = Bool(py=h["config_present"](c, PythonObject("effects")))
-    out.float_files = (
-        py_len(h["config_map"](c, PythonObject("float_files"))) > 0
-    )
+    var floats = h["config_map"](c, PythonObject("float_files"))
+    for i in range(py_len(floats)):
+        out.float_file_paths.append(String(py=floats[i][0]))
+        out.float_file_formats.append(String(py=floats[i][1]))
     var tol = h["config_tolerance"](c)
     if Bool(py=tol[0]):
         out.float_tolerance = Float64(py=tol[1])

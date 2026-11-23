@@ -1,10 +1,10 @@
 # `mojo-anything app replay` for CLIs (port of `replay`, `check` and the
 # report in src/app.rs, and of `say_replay` in src/main.rs): every recorded
 # case runs against the build in a fresh working directory, and the report
-# names what differs. A server's cases (`http`), a library's, effects,
-# `fresh` files, float files, `key-order` and anything else this port does not
-# read exactly as the Rust tool does go to the Phase 1 binary, decided before
-# a single case runs.
+# names what differs. A server's cases (`http`), a library's, effects and
+# anything else this port does not read exactly as the Rust tool does go to
+# the Phase 1 binary, decided before a single case runs (or, for an output
+# only the run shows, before anything is written).
 
 from std.python import Python, PythonObject
 
@@ -27,6 +27,7 @@ from mojo_anything.app.cases import (
     words_quotable,
 )
 from mojo_anything.app.diff import Normalizers, compare
+from mojo_anything.app.floats import compare_floats
 from mojo_anything.app.py import py_helpers, py_len, py_list, py_strings
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback
@@ -176,14 +177,25 @@ def _check(
             if not Bool(py=h["has"](files, PythonObject(path))):
                 problems.append(Problem(field, "not written\n"))
                 continue
-            var d = compare(
-                h,
-                norm,
-                expected[PythonObject(path)],
-                files[PythonObject(path)],
-                False,
-                norm.is_unordered(spec.name, field),
-            )
+            var width = norm.float_width(path)
+            var d: Optional[String]
+            if width > 0:
+                d = compare_floats(
+                    h,
+                    expected[PythonObject(path)],
+                    files[PythonObject(path)],
+                    width,
+                    norm.float_tolerance,
+                )
+            else:
+                d = compare(
+                    h,
+                    norm,
+                    expected[PythonObject(path)],
+                    files[PythonObject(path)],
+                    False,
+                    norm.is_unordered(spec.name, field),
+                )
             if d:
                 problems.append(Problem(field, d.value()))
     return problems^
@@ -368,16 +380,40 @@ def _runnable(
         for v in s.env_values:
             if not Bool(py=h["safe_word"](PythonObject(v))):
                 return False
-        if s.has_stdout and not norm.safe(h, s.stdout):
+        if s.has_stdout and not _comparable(h, norm, s.stdout, s.binary):
             return False
-        if s.has_stderr and not norm.safe(h, s.stderr):
+        if s.has_stderr and not _comparable(h, norm, s.stderr, s.binary):
             return False
-        if s.has_effects and not norm.safe(h, s.effects):
+        if s.has_effects and not _comparable(h, norm, s.effects, s.binary):
             return False
         var names = py_strings(h["file_names"](s.out_files))
         for n in names:
-            if not norm.safe(h, s.out_files[PythonObject(n)]):
+            if norm.float_width(n) > 0:
+                continue
+            if not _comparable(h, norm, s.out_files[PythonObject(n)], False):
                 return False
+    return True
+
+
+def _comparable(
+    h: PythonObject, norm: Normalizers, blob: PythonObject, binary: Bool
+) raises -> Bool:
+    """Whether a recorded output normalises as the Rust tool's would: its
+    classes as `regex` reads them and, with `key-order`, JSON as serde_json
+    reads it."""
+    if not norm.safe(h, blob):
+        return False
+    if not norm.key_order or binary:
+        return True
+    var text = h["text_of"](blob)
+    if not Bool(py=text[0]):
+        return True
+    try:
+        _ = norm.canonical(h, norm.apply(h, String(py=text[1])))
+    except e:
+        if String(e) == DECLINE:
+            return False
+        raise e
     return True
 
 

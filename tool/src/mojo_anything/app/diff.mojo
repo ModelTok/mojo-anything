@@ -1,13 +1,17 @@
 # Comparing a run with its recording, and the diff the report shows (port of
 # `diff_ops`, `render_diff`, `compare` and `Normalizers` in src/app.rs). The
 # trycmd matching itself (`[..]`, `...`, any-order lines, float tolerance) is
-# `tolerance.mojo`'s.
+# `tolerance.mojo`'s, `key-order` is `canon.mojo`'s and float files are
+# `floats.mojo`'s.
 
 from std.collections import Dict
 from std.python import Python, PythonObject
 
+from mojo_anything.app.canon import sort_json_text
 from mojo_anything.app.cases import Config, decline
+from mojo_anything.app.floats import float_width, rust_display
 from mojo_anything.tolerance import (
+    check,
     lines,
     line_matches_within,
     lines_match_in_any_order,
@@ -30,13 +34,17 @@ struct Normalizers(Copyable, Movable):
     """Compiled Python patterns, in the order Rust applies them."""
     var kinds: PythonObject
     """The Unicode classes (`\\w`, `\\s`, `\\d`) the patterns use."""
+    var key_order: Bool
     var float_tolerance: Optional[Float64]
+    var float_paths: List[String]
+    var float_widths: List[Int]
     var unordered: Dict[String, List[String]]
 
     def __init__(out self, h: PythonObject, config: Config) raises:
-        """Raises the Rust tool's error for an unknown normalizer; declines
-        `key-order`, float files, a tolerance it would refuse and any pattern
-        Python's `re` might read otherwise than Rust's `regex`."""
+        """Raises the Rust tool's error for an unknown normalizer, a
+        tolerance out of range and an unknown float file format; declines any
+        pattern Python's `re` might read otherwise than Rust's `regex`, and a
+        float file path a `PathBuf` would compare equal to another spelling."""
         var builtins = List[String]()
         var key_order = False
         for name in config.normalize:
@@ -56,7 +64,10 @@ struct Normalizers(Copyable, Movable):
                 )
         self.patterns = h["new_list"]()
         self.kinds = h["no_kinds"]()
+        self.key_order = key_order
         self.float_tolerance = config.float_tolerance
+        self.float_paths = List[String]()
+        self.float_widths = List[Int]()
         self.unordered = config.unordered.copy()
         var all = builtins^
         for p in config.normalizer_patterns:
@@ -69,10 +80,28 @@ struct Normalizers(Copyable, Movable):
             self.kinds = h["merge_kinds"](self.kinds, r[2])
         if self.float_tolerance:
             var t = self.float_tolerance.value()
-            if not (t >= 0.0 and t < 1.0):
+            if not check(t):
+                raise Error(tolerance_error(t))
+        for i in range(len(config.float_file_paths)):
+            var width = float_width(config.float_file_formats[i])
+            var path = config.float_file_paths[i]
+            if not _plain_path(path):
                 raise decline()
-        if config.float_files or key_order:
-            raise decline()
+            self.float_paths.append(path)
+            self.float_widths.append(width)
+
+    def float_width(self, path: String) -> Int:
+        """Bytes per value when `path` is a float file, else 0."""
+        for i in range(len(self.float_paths)):
+            if self.float_paths[i] == path:
+                return self.float_widths[i]
+        return 0
+
+    def canonical(self, h: PythonObject, text: String) raises -> String:
+        """With `key-order`, the text with JSON keys sorted."""
+        if self.key_order:
+            return sort_json_text(h, text)
+        return text
 
     def is_unordered(self, name: String, field: String) -> Bool:
         var f = self.unordered.get(name)
@@ -97,6 +126,31 @@ struct Normalizers(Copyable, Movable):
     def safe(self, h: PythonObject, blob: PythonObject) raises -> Bool:
         """Whether `apply` can normalise this recorded output exactly."""
         return Bool(py=h["blob_safe"](self.kinds, blob))
+
+
+def tolerance_error(t: Float64) -> String:
+    """`tolerance::check`'s error."""
+    return (
+        "--float-tolerance must be at least 0 and below 1 (e.g. 1e-9), not "
+        + rust_display(t)
+    )
+
+
+def _plain_path(path: String) -> Bool:
+    """A relative path of normal components only (no `/` at either end, no
+    empty, `.` or `..` component), which a `PathBuf` compares as its text."""
+    if path == "":
+        return False
+    var start = 0
+    var b = path.as_bytes()
+    for i in range(len(b) + 1):
+        if i < len(b) and b[i] != 47:
+            continue
+        var part = String(path[byte=start:i])
+        if part == "" or part == "." or part == "..":
+            return False
+        start = i + 1
+    return True
 
 
 comptime _EQUAL = 0
@@ -279,8 +333,8 @@ def compare(
         var et = h["text_of"](expected)
         var at = h["text_of"](actual)
         if Bool(py=et[0]) and Bool(py=at[0]):
-            var e = norm.apply(h, String(py=et[1]))
-            var a = norm.apply(h, String(py=at[1]))
+            var e = norm.canonical(h, norm.apply(h, String(py=et[1])))
+            var a = norm.canonical(h, norm.apply(h, String(py=at[1])))
             var tol = norm.float_tolerance
             if unordered:
                 var el = lines(e)

@@ -183,6 +183,130 @@ def length(x):
     return len(x)
 
 
+def unpack_floats(b, width):
+    # Little-endian f32 or f64 values; an f32 widens to the same double as
+    # Rust's f64::from.
+    import struct
+    return struct.unpack("<%d%s" % (len(b) // width, "f" if width == 4 else "d"), b)
+
+
+# --- key-order: serde_json's Value, read by Python's json -------------------
+
+class _NotJson(Exception):
+    pass
+
+
+class _Obj(list):
+    pass
+
+
+_INF = (float("inf"), float("-inf"))
+
+
+def _canon_int(s):
+    # serde_json without arbitrary_precision: u64, i64, else the nearest f64
+    # (an error beyond f64); `-0` is the float -0.0.
+    if len(s) > 4000:
+        raise _Odd()
+    n = int(s)
+    if n == 0 and s.startswith("-"):
+        return -0.0
+    if -(1 << 63) <= n < (1 << 64):
+        return n
+    f = float(s)
+    if f in _INF:
+        raise _Odd()
+    return f
+
+
+def _canon_float(s):
+    if len(s) > 4000:
+        raise _Odd()
+    f = float(s)
+    if f in _INF:
+        raise _Odd()
+    if f == 0.0 and any(c in "123456789" for c in s.lower().split("e")[0]):
+        # An underflow to zero, which serde_json might not read as zero.
+        raise _Odd()
+    return f
+
+
+def _canon_const(name):
+    raise _NotJson()
+
+
+def _canon_str(s):
+    try:
+        s.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate, which serde_json refuses in a String.
+        raise _Odd()
+    return s
+
+
+class _Num(str):
+    # A number token, read once the text is known to be JSON.
+    pass
+
+
+class _Int(_Num):
+    pass
+
+
+def _canon_levels(v):
+    if isinstance(v, _Obj):
+        return 1 + max([_canon_levels(x) for k, x in v] or [0])
+    if isinstance(v, list):
+        return 1 + max([_canon_levels(x) for x in v] or [0])
+    return 0
+
+
+def _canon_node(v):
+    if isinstance(v, _Obj):
+        m = {}
+        for k, x in v:
+            m[_canon_str(k)] = x
+        return ("o", [(k, _canon_node(m[k])) for k in sorted(m)])
+    if isinstance(v, list):
+        return ("a", [_canon_node(x) for x in v])
+    if v is True:
+        return ("t",)
+    if v is False:
+        return ("F",)
+    if v is None:
+        return ("n",)
+    if isinstance(v, _Int):
+        n = _canon_int(str(v))
+        return ("f", n) if isinstance(n, float) else ("i", str(n))
+    if isinstance(v, _Num):
+        return ("f", _canon_float(str(v)))
+    return ("s", _canon_str(v))
+
+
+def canon_json(text):
+    # ("ok", tree) with object keys sorted (later duplicates win, as in
+    # serde_json's map), ("no", None) when serde_json refuses the text too,
+    # ("odd", None) when it could read it otherwise. The grammar is the same
+    # in both, so a text Python refuses serde_json refuses; one Python reads
+    # is refused by serde_json past its recursion limit of 128 levels (near
+    # it, this does not guess), and could be read otherwise for a lone
+    # surrogate or a number beyond f64.
+    try:
+        v = json.loads(text, object_pairs_hook=_Obj, parse_int=_Int,
+                       parse_float=_Num, parse_constant=_canon_const)
+        levels = _canon_levels(v)
+    except (_NotJson, ValueError, RecursionError):
+        return ("no", None)
+    if levels >= 130:
+        return ("no", None)
+    if levels >= 126:
+        return ("odd", None)
+    try:
+        return ("ok", _canon_node(v))
+    except _Odd:
+        return ("odd", None)
+
+
 def lossy_lines(b):
     # str::lines: `\\r` goes only with the `\\n` after it.
     text = b.decode("utf-8", "replace")
