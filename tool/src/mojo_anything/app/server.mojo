@@ -625,11 +625,122 @@ struct Plan(Movable):
 # --- the case files -------------------------------------------------------------------
 
 
-def toml_value(value: String) raises -> String:
-    """A string as toml_edit (toml_writer's `as_default`) writes it: the first
-    of basic, literal, multi-line basic and multi-line literal that needs no
-    escape, else basic (multi-line around a newline) with escapes. A
-    multi-line string starts with a newline when it holds one."""
+comptime _BARE = 0
+comptime _LITERAL = 1
+comptime _BASIC = 2
+comptime _ML_LITERAL = 3
+comptime _ML_BASIC = 4
+
+
+def _bare_byte(b: Byte) -> Bool:
+    """toml_writer `is_bare_key_byte`: A-Z a-z 0-9 - _."""
+    return (
+        (b >= 48 and b <= 57)
+        or (b >= 65 and b <= 90)
+        or (b >= 97 and b <= 122)
+        or b == 45
+        or b == 95
+    )
+
+
+def _toml_write(
+    decoded: String, encoding: Int, subset: Bool, newline: Bool
+) -> String:
+    """A port of toml_writer 1.2.0's `write_toml_value` (string.rs), which
+    toml_edit 0.25 calls for every key and string value."""
+    var delimiter = String("")
+    if encoding == _LITERAL:
+        delimiter = "'"
+    elif encoding == _BASIC:
+        delimiter = '"'
+    elif encoding == _ML_LITERAL:
+        delimiter = "'''"
+    elif encoding == _ML_BASIC:
+        delimiter = '"""'
+    if subset:
+        return delimiter + decoded + delimiter
+    var escaped = encoding == _BASIC or encoding == _ML_BASIC
+    var is_ml = encoding == _ML_LITERAL or encoding == _ML_BASIC
+    var out = delimiter
+    if newline and is_ml:
+        out += "\n"
+    if not escaped:
+        return out + decoded + delimiter
+    var hex = "0123456789ABCDEF".as_bytes()
+    var max_seq = 2 if is_ml else 0
+    var b = decoded.as_bytes()
+    var start = 0
+    while start < len(b):
+        var end = start
+        var esc = String("")
+        var has_esc = False
+        var seq = 0
+        var stop = False
+        for i in range(start, len(b)):
+            var c = b[i]
+            if c == 34:
+                seq += 1
+                if max_seq < seq:
+                    esc = '\\"'
+                    has_esc = True
+                    break
+            else:
+                seq = 0
+            if c == 8:
+                esc = "\\b"
+                has_esc = True
+                break
+            elif c == 9:
+                esc = "\\t"
+                has_esc = True
+                break
+            elif c == 10:
+                if not is_ml:
+                    esc = "\\n"
+                    has_esc = True
+                    break
+            elif c == 12:
+                esc = "\\f"
+                has_esc = True
+                break
+            elif c == 13:
+                esc = "\\r"
+                has_esc = True
+                break
+            elif c == 92:
+                esc = "\\\\"
+                has_esc = True
+                break
+            elif c != 34 and (c <= 0x1F or c == 0x7F):
+                stop = True
+                break
+            end = i + 1
+        out += String(decoded[byte=start:end]) + esc
+        start = end + (1 if has_esc else 0)
+        if stop and start < len(b):
+            var c = b[start]
+            out += (
+                "\\u00"
+                + chr(Int(hex[Int(c >> 4)]))
+                + chr(Int(hex[Int(c & 15)]))
+            )
+            start += 1
+    return out + delimiter
+
+
+def toml_value(value: String) -> String:
+    """A string value as toml_edit writes it: toml_writer's
+    `TomlStringBuilder::as_default` (ValueMetrics, then the first of basic,
+    literal, multi-line basic and multi-line literal that fits, else basic
+    or multi-line basic with escapes)."""
+    var b = value.as_bytes()
+    var subset = True
+    for c in b:
+        if not (_bare_byte(c) or c == 46 or c == 47 or c == 32 or c == 58):
+            subset = False
+            break
+    if subset:
+        return _toml_write(value, _BASIC, True, False)
     var singles = 0
     var doubles = 0
     var max_singles = 0
@@ -637,83 +748,67 @@ def toml_value(value: String) raises -> String:
     var codes = False
     var backslash = False
     var newline = False
-    for b in value.as_bytes():
-        if b == 39:
+    for c in b:
+        if c == 39:
             singles += 1
             max_singles = max(max_singles, singles)
         else:
             singles = 0
-        if b == 34:
+        if c == 34:
             doubles += 1
             max_doubles = max(max_doubles, doubles)
         else:
             doubles = 0
-        if b == 92:
+        if c == 92:
             backslash = True
-        elif b == 9:
+        elif c == 9:
             pass
-        elif b == 10:
+        elif c == 10:
             newline = True
-        elif b <= 0x1F or b == 0x7F:
+        elif c <= 0x1F or c == 0x7F:
             codes = True
-    var lead = "\n" if newline else ""
     if not codes and not backslash and max_doubles == 0 and not newline:
-        return '"' + value + '"'
+        return _toml_write(value, _BASIC, False, newline)
     if not codes and max_singles == 0 and not newline:
-        return "'" + value + "'"
+        return _toml_write(value, _LITERAL, False, newline)
     if not codes and not backslash and max_doubles <= 2:
-        return '"""' + lead + value + '"""'
+        return _toml_write(value, _ML_BASIC, False, newline)
     if not codes and max_singles <= 2:
-        return "'''" + lead + value + "'''"
-    if newline and max_doubles >= 3:
-        # How toml_writer escapes a run of quotes here is not reproduced.
-        raise decline()
-    var hex = "0123456789ABCDEF".as_bytes()
-    var out = '"""' + lead if newline else String('"')
-    for c in value.codepoint_slices():
-        var ch = String(c)
-        var b = ch.as_bytes()[0]
-        if ch == chr(8):
-            out += "\\b"
-        elif ch == "\t":
-            out += "\\t"
-        elif ch == "\n":
-            out += "\n" if newline else "\\n"
-        elif ch == chr(12):
-            out += "\\f"
-        elif ch == "\r":
-            out += "\\r"
-        elif ch == '"':
-            out += '"' if newline else '\\"'
-        elif ch == "\\":
-            out += "\\\\"
-        elif ch.byte_length() == 1 and (b <= 0x1F or b == 0x7F):
-            out += (
-                "\\u00"
-                + chr(Int(hex[Int(b >> 4)]))
-                + chr(Int(hex[Int(b & 15)]))
-            )
-        else:
-            out += ch
-    out += '"""' if newline else '"'
-    return out
+        return _toml_write(value, _ML_LITERAL, False, newline)
+    if newline:
+        return _toml_write(value, _ML_BASIC, False, newline)
+    return _toml_write(value, _BASIC, False, newline)
 
 
-def _toml_key(k: String) raises -> String:
-    """A bare key; one toml_edit would quote is declined."""
-    if k == "":
-        raise decline()
-    for b in k.as_bytes():
-        var ok = (
-            (b >= 48 and b <= 57)
-            or (b >= 65 and b <= 90)
-            or (b >= 97 and b <= 122)
-            or b == 45
-            or b == 95
-        )
-        if not ok:
-            raise decline()
-    return k
+def _toml_key(k: String) -> String:
+    """A key as toml_edit writes it: toml_writer's
+    `TomlKeyBuilder::as_default` (bare, then basic, literal, else basic with
+    escapes)."""
+    var bare = k != ""
+    var singles = False
+    var doubles = False
+    var codes = False
+    var backslash = False
+    for c in k.as_bytes():
+        if not _bare_byte(c):
+            bare = False
+        if c == 39:
+            singles = True
+        elif c == 34:
+            doubles = True
+        elif c == 92:
+            backslash = True
+        elif c == 9:
+            pass
+        elif c <= 0x1F or c == 0x7F:
+            codes = True
+    if bare:
+        return _toml_write(k, _BARE, False, False)
+    if not codes and not backslash and not doubles:
+        return _toml_write(k, _BASIC, False, False)
+    if not codes and not singles:
+        return _toml_write(k, _LITERAL, False, False)
+    return _toml_write(k, _BASIC, False, False)
 
 
 def _table(keys: List[String], values: List[String]) raises -> String:

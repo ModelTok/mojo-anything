@@ -365,6 +365,24 @@ def _start(command, args, files, effects, repo, port):
     finally:
         out.close()
         err.close()
+    try:
+        return _ready(command, child, d, cwd, log, sinks, port)
+    except BaseException:
+        # Nothing may outlive a decline: the Phase 1 binary runs next, maybe
+        # on the same port.
+        if child.poll() is None:
+            try:
+                child.kill()
+            except OSError:
+                pass
+        child.wait()
+        shutil.rmtree(d, ignore_errors=True)
+        if sinks is not None:
+            sinks.stop()
+        raise
+
+
+def _ready(command, child, d, cwd, log, sinks, port):
     deadline = time.monotonic() + _READY
     while True:
         try:
@@ -378,9 +396,6 @@ def _start(command, args, files, effects, repo, port):
         if rc is not None:
             if rc < 0:
                 # ExitStatus names the signal; not reproduced.
-                if sinks is not None:
-                    sinks.stop()
-                shutil.rmtree(d, ignore_errors=True)
                 raise _HttpOdd()
             failure = "exited (exit status: %d) before listening" % rc
         elif time.monotonic() > deadline:

@@ -95,7 +95,8 @@ def library_diff(crate_dir):
     try:
         p = subprocess.run([exe, "diff", crate_dir, "--json"], stdin=subprocess.DEVNULL,
                            capture_output=True, close_fds=False)
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: a NUL in the path, which Rust reports otherwise.
         return ("odd",)
     return library_diff_read(p.returncode, p.stdout, p.stderr)
 

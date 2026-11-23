@@ -8,7 +8,13 @@ from std.testing import assert_equal, assert_false, assert_true
 
 from mojo_anything.app.py import py_helpers
 from mojo_anything.app.py_server import server_helpers
-from mojo_anything.app.server import Req, parse_curl, toml_value, traps
+from mojo_anything.app.server import (
+    Req,
+    _toml_key,
+    parse_curl,
+    toml_value,
+    traps,
+)
 
 
 def _h() raises -> PythonObject:
@@ -217,6 +223,23 @@ def test_strings_take_toml_edits_quotes() raises:
     assert_equal(toml_value("it's \\ ok"), "'''it's \\ ok'''")
     assert_equal(toml_value("x\ny"), '"""\nx\ny"""')
     assert_equal(toml_value("a\tb" + chr(1)), '"a\\tb\\u0001"')
+    # toml_writer escapes a tab in every basic string, pretty or not.
+    assert_equal(toml_value("a\tb"), '"a\\tb"')
+    assert_equal(toml_value("x\n\ty"), '"""\nx\n\\ty"""')
+    # A run of quotes in an escaped multi-line string: the third is escaped
+    # and the count starts again after it.
+    assert_equal(toml_value('x""""y\n' + chr(1)), '"""\nx""\\""y\n\\u0001"""')
+    assert_equal(toml_value("v1.2/a b:c"), '"v1.2/a b:c"')
+
+
+def test_keys_take_toml_edits_quotes() raises:
+    assert_equal(_toml_key("content-type"), "content-type")
+    assert_equal(_toml_key("x.request-id"), '"x.request-id"')
+    assert_equal(_toml_key(""), '""')
+    assert_equal(_toml_key('q"k'), "'q\"k'")
+    assert_equal(_toml_key("q'k"), '"q\'k"')
+    assert_equal(_toml_key("a\\b'"), '"a\\\\b\'"')
+    assert_equal(_toml_key("t\tk"), '"t\\tk"')
 
 
 def main() raises:
@@ -227,4 +250,5 @@ def main() raises:
     test_an_interrupted_close_delimited_body_is_an_error()
     test_traps_change_path_segments_queries_and_bodies()
     test_strings_take_toml_edits_quotes()
-    print("test_app_server: 7 passed")
+    test_keys_take_toml_edits_quotes()
+    print("test_app_server: 8 passed")

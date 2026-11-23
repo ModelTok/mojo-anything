@@ -77,7 +77,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/chunked":
             return self.chunked()
         if path == "/headers":
-            extra = [("Set-Cookie", "a=1"), ("Set-Cookie", "b=2"), ("ETag", '"x"')]
+            extra = [("Set-Cookie", "a=1"), ("Set-Cookie", "b=2"), ("ETag", '"x"'),
+                     ("X.Request-Id", "1"), ("X-Tab", "a\tb")]
             return self.send(201 if BUG else 200, TEXT, "h\n", extra)
         if path == "/hook":
             sink = os.environ.get("MOJO_ANYTHING_HTTP_SINK")

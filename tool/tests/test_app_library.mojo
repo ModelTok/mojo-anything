@@ -51,6 +51,11 @@ STATES = {
         "units": [unit("text", "./units/text", "src/text.ts")],
         "api": [{"unit": "src/text.ts", "module": "text", "exports": ["a"]}],
     },
+    "nul": {
+        "schema": SCHEMA, "name": "nul", "commands": [], "kind": "library",
+        "units": [unit("text", "units/te\\u0000xt", "src/text.ts")],
+        "api": [{"unit": "src/text.ts", "module": "text", "exports": ["a"]}],
+    },
 }
 
 def fixture(name, state):
@@ -196,7 +201,7 @@ def test_a_library_without_units() raises:
 
 def test_other_states_go_to_the_phase1_binary() raises:
     var t = _py()
-    for state in ["http", "old", "dotted"]:
+    for state in ["http", "old", "dotted", "nul"]:
         var d = _pair(t, state)
         var log = _both(t, d[0], d[1], ["app", "replay", "."])
         assert_true(
