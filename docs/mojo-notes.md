@@ -267,3 +267,93 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
 - `from std.os import setenv, unsetenv` work inside `mojo run` tests.
 - Tests run with `mojo run -I tool/src tool/tests/test_<name>.mojo` (no `mojo test` in 1.2); the
   format check formats a copy and compares it (`tool/check.sh`).
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
+- Running other programs (`tool/src/mojo_anything/process.mojo`, `tool/tests/test_process.mojo`):
+  Python's `subprocess.Popen(..., stdin=DEVNULL, process_group=0)` started from Python source
+  run by `Python.import_module("builtins").exec(src, scope)`; the function is called
+  positionally as `scope["run"](a, b, ...)`. At the limit `os.killpg(pid, SIGKILL)` stops the
+  whole group. Output goes to `tempfile.mkstemp` files and is read with
+  `open(path, "r").read_bytes()`, so no byte crosses the interop one at a time. Chosen over
+  fork/exec through libc, which would need `poll` on two pipes by hand.
+- Interop spellings that build: `Python.list()` and `.append(PythonObject(s))`, `Python.dict()`
+  and `d[PythonObject(k)] = PythonObject(v)`, `result[i]` on a returned tuple, `Int(py=o)`,
+  `Bool(py=o)`, `Float64(py=o)`, `String(py=o)`; `PythonObject(x)` for `Float64` and `Bool`.
+- `@fieldwise_init struct S(Copyable, Movable)` with a hand-written `__init__(out self, ...)`
+  besides the field-wise one; `Dict[String, String]` iterates with `for item in d.items()`
+  (`item.key`, `item.value`); a `List` field is returned with `^`.
+- `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
+  `String::from_utf8_lossy` does for a lone `\xff`.
