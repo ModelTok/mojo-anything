@@ -251,3 +251,19 @@ mojo-wasm (github.com/lee101/mojo-wasm at 3551aa4: clang 22.1.8, wasm-ld) and No
 
 - `def` is the function keyword; `fn` is not used in the 1.2 examples.
 - Type aliases are declared with `comptime`.
+
+## The Mojo tool (Phase 2, `tool/`)
+
+Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
+`tests/mojo_front_door.rs` (2026-11-23).
+
+- Fallback route: `external_call["execv", Int32](path, argv)` replaces the front door with the
+  Phase 1 binary; the descriptors and `environ` carry over, so stdin, the environment, the exit
+  code and stderr reach the caller unchanged with no copying. Chosen over Python's `os.execv`,
+  which would load CPython just to leave. `execv` returns only on failure; errno then comes
+  from `__errno_location`.
+- `def` functions do not raise unless marked: `def f() raises:`. `std.testing`'s `assert_equal`
+  and `assert_true` raise, so every test function and the test's `main` say `raises`.
+- `from std.os import setenv, unsetenv` work inside `mojo run` tests.
+- Tests run with `mojo run -I tool/src tool/tests/test_<name>.mojo` (no `mojo test` in 1.2); the
+  format check formats a copy and compares it (`tool/check.sh`).

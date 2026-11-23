@@ -9,3 +9,8 @@ preview = ["pixi-build"]
 python = "3.12.*"
 mojo = "==1.2.0"
 emberjson = { git = "https://github.com/bgreni/EmberJson.git", tag = "0.5.0" }
+
+[tasks]
+# The Mojo tool (Phase 2): tool/build.sh and tool/check.sh.
+build-tool = "bash tool/build.sh"
+check-tool = "bash tool/check.sh"

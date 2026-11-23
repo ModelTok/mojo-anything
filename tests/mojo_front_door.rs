@@ -1,0 +1,155 @@
+//! The Mojo tool (`tool/`) in front of the Phase 1 binary: every subcommand it does not own runs
+//! the binary in `tool/fallback/` with the same arguments, stdin and environment, and replaying
+//! the recording in `mojo/app-cases/` through it passes every case.
+
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::sync::OnceLock;
+
+fn repo() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn pixi() -> PathBuf {
+    std::env::var_os("PATH")
+        .and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|p| p.join("pixi"))
+                .find(|p| p.is_file())
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".pixi/bin/pixi"))
+                .filter(|p| p.is_file())
+        })
+        .expect("pixi is on PATH or in ~/.pixi/bin")
+}
+
+fn fallback_binary() -> PathBuf {
+    repo().join("tool/fallback/mojo-anything")
+}
+
+/// Builds the Phase 1 binary (once per checkout) and the Mojo tool (once per test run).
+fn mojo_tool() -> &'static Path {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT.get_or_init(|| {
+        if !fallback_binary().is_file() {
+            let status = Command::new("bash")
+                .arg(repo().join("scripts/build-fallback.sh"))
+                .current_dir(repo())
+                .env_remove("CARGO_TARGET_DIR")
+                .status()
+                .expect("scripts/build-fallback.sh runs");
+            assert!(status.success(), "scripts/build-fallback.sh failed");
+        }
+        let out = Command::new(pixi())
+            .args(["run", "--manifest-path"])
+            .arg(repo().join("pixi.toml"))
+            .arg("build-tool")
+            .current_dir(repo())
+            .output()
+            .expect("pixi runs");
+        assert!(
+            out.status.success(),
+            "pixi run build-tool failed:\n{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        repo().join("tool/build/mojo-anything")
+    })
+}
+
+fn run(binary: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut cmd = Command::new(binary);
+    cmd.args(args).current_dir(repo());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.output().expect("the binary runs")
+}
+
+#[test]
+fn all_cases_through_fallback() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let out = run(
+        &fallback_binary(),
+        &["app", "replay", ".", "--build", &tool.to_string_lossy()],
+        &[],
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let first = stdout.lines().next().unwrap_or_default();
+    let (passed, total) = first
+        .trim_end_matches(" cases passed")
+        .split_once('/')
+        .expect("a passed/total line");
+    assert_eq!(passed, total, "{stdout}");
+    assert!(total.parse::<usize>().unwrap_or(0) > 500, "{stdout}");
+    assert!(
+        stdout.contains(&format!("Fallback rate: 100.0% ({total}/{total})")),
+        "every case falls back while the Mojo tool owns nothing:\n{stdout}"
+    );
+}
+
+#[test]
+fn fallback_keeps_exit_and_stderr() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let args = ["bridge", "/nonexistent"];
+    let mojo = run(tool, &args, &[]);
+    let rust = run(&fallback_binary(), &args, &[]);
+    assert_ne!(rust.status.code(), Some(0));
+    assert_eq!(mojo.status.code(), rust.status.code());
+    assert_eq!(
+        String::from_utf8_lossy(&mojo.stderr),
+        String::from_utf8_lossy(&rust.stderr)
+    );
+    assert_eq!(mojo.stdout, rust.stdout);
+}
+
+#[test]
+fn fallback_binary_missing() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let out = run(
+        tool,
+        &["analyze", "."],
+        &[("MOJO_ANYTHING_FALLBACK", "/nope")],
+    );
+    assert_ne!(out.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("tool/fallback"), "{stderr}");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+}
+
+#[test]
+fn fallback_is_logged_once_per_run() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let log = std::env::temp_dir().join(format!("mojo-front-door-log-{}", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let out = run(
+        tool,
+        &["--version"],
+        &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
+    );
+    assert!(out.status.success());
+    let logged = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_file(&log);
+    assert_eq!(logged.lines().count(), 1, "{logged}");
+}
