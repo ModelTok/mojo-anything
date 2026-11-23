@@ -41,6 +41,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of workspaces with no source file, `map` of repositories with no port and no unit | 524 | 524 | 57.4% (301/524), [log](measurements/2026-11-23-phase2-replay-7.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Python workspaces with source files (read through CPython's `ast`), `map` of Python repositories with no port | 524 | 524 | 53.6% (281/524), [log](measurements/2026-11-23-phase2-replay-8.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Java, Go, Ruby and C# workspaces with source files (read through tree-sitter's Python bindings), `map` of those repositories with no port | 524 | 524 | 44.8% (235/524), [log](measurements/2026-11-23-phase2-replay-9.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Kotlin, PHP and C workspaces with source files, `map` of those repositories with no port | 524 | 524 | 38.4% (201/524), [log](measurements/2026-11-24-phase2-replay-10.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -145,6 +146,25 @@ read), as no Ruby type reaches the bridgeability check. `analyze` now falls back
 `test_analyze_csharp.mojo` and `test_map.mojo` run both binaries on copies of the same projects
 (`pixi run check-tool`: 23 test files, 148 tests). TS (read by oxc in the Rust tool), Kotlin,
 PHP, C and C++, `--whole-app`, and `map` with ports still fall back.
+
+Since the tenth row, `analyze` also answers Kotlin, PHP and C workspaces with source files, and
+`map` those repositories with no port, read the same way (`analyze_tree.py` over the pinned
+grammars; manifests, resolution and the report in Mojo). Kotlin's discovery and `Lang::detect`
+keep a `build/` or `out/` folder whose path has no `src` component and prune one that has it,
+as the Rust code does (the reverse of its comments). PHP and Ruby exports carry no types in the
+Mojo tool, since no type their mappings give reaches the bridgeability check. C reads every
+`.h` and `.c` file for the project's scalar typedefs and structs of scalars, merges a header
+into the `.c` of the same stem, adds that header's includes, and keeps a unit with
+platform-specific code in C. A `composer.json` serde_json might read otherwise, an import or
+Composer name outside ASCII, a C typedef or struct name with two meanings (the Rust tool's
+result would depend on the walk's order), a tree with an error in any file C's typedef walk
+reads, and a Kotlin, Java or C# file outside every package folder when there is no root package
+(the Phase 1 binary panics there) go to the Phase 1 binary before anything is written.
+`analyze` now falls back in 48 of its 147 cases and `map` in 56 of 137
+([log](measurements/2026-11-24-phase2-replay-10.md)); `tool/tests/test_analyze_kotlin.mojo`,
+`test_analyze_php.mojo`, `test_analyze_c.mojo` and `test_map.mojo` run both binaries on copies
+of the same projects (`pixi run check-tool`: 26 test files, 157 tests). TS (read by oxc in the
+Rust tool), C++, `--whole-app`, and `map` with ports still fall back.
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
