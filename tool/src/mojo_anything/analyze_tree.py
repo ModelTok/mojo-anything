@@ -18,12 +18,13 @@ import sys
 
 _LANGUAGES = {}
 
-# The grammar module of each language.
+# The grammar module of each language, and the function giving its language.
 _GRAMMARS = {
-    "java": "tree_sitter_java",
-    "go": "tree_sitter_go",
-    "ruby": "tree_sitter_ruby",
-    "csharp": "tree_sitter_c_sharp",
+    "java": ("tree_sitter_java", "language"),
+    "go": ("tree_sitter_go", "language"),
+    "ruby": ("tree_sitter_ruby", "language"),
+    "csharp": ("tree_sitter_c_sharp", "language"),
+    "kotlin": ("tree_sitter_kotlin", "language"),
 }
 
 
@@ -70,10 +71,11 @@ def _language(lang):
         try:
             import tree_sitter
 
-            m = importlib.import_module(_GRAMMARS[lang])
+            module, function = _GRAMMARS[lang]
+            m = importlib.import_module(module)
             if not (_pinned(tree_sitter) and _pinned(m)):
                 raise Decline("the bindings are not the pinned ones")
-            _LANGUAGES[lang] = tree_sitter.Language(m.language())
+            _LANGUAGES[lang] = tree_sitter.Language(getattr(m, function)())
         except Decline:
             raise
         except Exception as e:  # noqa: BLE001 - a grammar that does not load sends the case back
@@ -1253,6 +1255,425 @@ def _cs_exports(root):
     return [(f[1], f[2]) for f in out]
 
 
+# ---- Kotlin (src/lang/kotlin.rs) ---------------------------------------------------------
+
+
+def kotlin_manifest(path):
+    """kotlin.rs `dependencies` of a pom.xml or build.gradle(.kts), read as
+    read_to_string(...).unwrap_or_default(): deps then dev_deps."""
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        text = ""
+    deps, dev = [], []
+    for line in _lines(text):
+        line = trim(line)
+        cut = [i for i in (line.find("("), line.find(" ")) if i >= 0]
+        if not cut:
+            continue
+        config, rest = line[: min(cut)], line[min(cut) + 1 :]
+        pieces = rest.replace("'", '"').split('"')
+        if len(pieces) < 2 or pieces[1].count(":") < 1:
+            continue
+        name = ":".join(pieces[1].split(":")[:2])
+        config = trim(config)
+        if config in ("implementation", "api", "compile", "compileOnly", "runtimeOnly"):
+            deps.append(name)
+        elif config in (
+            "testImplementation",
+            "testCompile",
+            "testRuntimeOnly",
+            "androidTestImplementation",
+        ):
+            dev.append(name)
+    return deps + dev
+
+
+_KT_CALL_RISKS = (
+    ("substring", "string-offsets"),
+    ("charAt", "string-offsets"),
+    ("indexOf", "string-offsets"),
+    ("toInt(", "integer-semantics"),
+    ("toLong(", "integer-semantics"),
+    ("getClass", "reflection"),
+    ("javaClass", "reflection"),
+    ("forName", "reflection"),
+    ("getDeclaredMethod", "reflection"),
+    ("newInstance", "reflection"),
+    ("::class", "reflection"),
+    ("synchronized(", "concurrency"),
+)
+
+
+def _kt_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    for node in _walk(root):
+        kind = node.type
+        if kind == "import" and node.is_named:
+            spec = trim(_trim_start_matches(_text(node), "import"))
+            if not spec.isascii():
+                # resolve trims the alias off with Rust's whitespace tables.
+                raise Decline("an import outside ASCII")
+            if spec.startswith("kotlinx.coroutines"):
+                add("concurrency", node)
+            elif spec.startswith("kotlin.reflect"):
+                add("reflection", node)
+            elif spec.startswith("java.util.regex") or spec.startswith("kotlin.text.Regex"):
+                add("regex-syntax", node)
+            elif "HashMap" in spec or "HashSet" in spec:
+                add("unordered-iteration", node)
+            imports.append(spec)
+        elif kind == "nullable_type":
+            add("null-references", node)
+        elif kind in ("throw_expression", "try_expression"):
+            add("exceptions", node)
+        elif kind in ("is_expression", "type_test", "as_expression"):
+            add("dynamic-typing", node)
+        elif kind == "lambda_parameters":
+            add("callbacks", node)
+        elif kind == "delegation_specifiers":
+            add("class-inheritance", node)
+        elif kind == "annotation":
+            a = _text(node)
+            if "Synchronized" in a or "Volatile" in a:
+                add("concurrency", node)
+        elif kind == "binary_expression":
+            o = node.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            if op in ("/", "%"):
+                add("division-semantics", node)
+            elif op in ("<<", ">>", ">>>", "*"):
+                add("integer-semantics", node)
+        elif kind in ("for_statement", "while_statement", "do_while_statement"):
+            loops += 1
+        elif kind == "call_expression":
+            callee = _text(node)
+            for needle, risk in _KT_CALL_RISKS:
+                if needle in callee:
+                    add(risk, node)
+            if "Regex(" in callee:
+                if regex_needs_fancy(callee.split("Regex(")[1], ""):
+                    add("regex-syntax", node)
+    return imports, list(risks.items()), loops
+
+
+def kotlin_to_ts(t):
+    """kotlin.rs `kotlin_to_ts`; raises _NotBridgeable where it returns Err."""
+    t = trim(t)
+    if t.endswith("?"):
+        return kotlin_to_ts(t[:-1]) + " | undefined"
+    if t.endswith("[]"):
+        return kotlin_to_ts(t[:-2]) + "[]"
+    i = t.find("<")
+    if i >= 0 and t.endswith(">"):
+        head, args = t[:i], _split_top(t[i + 1 : -1])
+    else:
+        head, args = t, []
+    head = trim(head).split(".")[-1]
+
+    def arg(k):
+        if k >= len(args):
+            raise _NotBridgeable("raw")
+        return kotlin_to_ts(args[k])
+
+    if head in ("String", "CharSequence"):
+        return "string"
+    if head in ("Int", "Long", "Short", "Byte"):
+        return "int"
+    if head in ("Float", "Double"):
+        return "number"
+    if head == "Boolean":
+        return "boolean"
+    if head in ("Unit", "Nothing"):
+        return "void"
+    arrays = {"IntArray": "int", "LongArray": "int", "DoubleArray": "number", "BooleanArray": "boolean"}
+    if head in ("List", "MutableList", "Collection", "Iterable", "Array") or head in arrays:
+        inner = arrays[head] if head in arrays else arg(0)
+        return "(" + inner + ")[]" if " " in inner else inner + "[]"
+    if head in ("Map", "MutableMap", "LinkedHashMap"):
+        if arg(0) != "string":
+            raise _NotBridgeable("keys")
+        return "Record<string, " + arg(1) + ">"
+    raise _NotBridgeable(head)
+
+
+_KT_BOXED = {
+    "int": "Integer",
+    "long": "Long",
+    "short": "Short",
+    "byte": "Byte",
+    "float": "Float",
+    "double": "Double",
+    "boolean": "Boolean",
+    "char": "Character",
+}
+
+_KT_JAVA = {
+    "String": "String",
+    "CharSequence": "String",
+    "Int": "int",
+    "Long": "long",
+    "Short": "short",
+    "Byte": "byte",
+    "Float": "float",
+    "Double": "double",
+    "Boolean": "boolean",
+    "Unit": "void",
+    "Nothing": "void",
+    "IntArray": "int[]",
+    "LongArray": "long[]",
+    "ShortArray": "short[]",
+    "ByteArray": "byte[]",
+    "FloatArray": "float[]",
+    "DoubleArray": "double[]",
+    "BooleanArray": "boolean[]",
+}
+
+
+def kotlin_to_java(t):
+    """kotlin.rs `kotlin_to_java` (None where it returns None)."""
+    t = trim(t)
+
+    def boxed(s):
+        return _KT_BOXED.get(s, s)
+
+    if t.endswith("?"):
+        inner = kotlin_to_java(t[:-1])
+        return None if inner is None else boxed(inner)
+    if t.endswith("[]"):
+        inner = kotlin_to_java(t[:-2])
+        return None if inner is None else boxed(inner) + "[]"
+    i = t.find("<")
+    if i >= 0 and t.endswith(">"):
+        head, args = t[:i], _split_top(t[i + 1 : -1])
+    else:
+        head, args = t, []
+    head = trim(head).split(".")[-1]
+
+    def arg(k):
+        if k >= len(args):
+            return None
+        a = kotlin_to_java(args[k])
+        return None if a is None else boxed(a)
+
+    if head in _KT_JAVA:
+        return _KT_JAVA[head]
+    if head in ("List", "MutableList", "Collection", "Iterable"):
+        a = arg(0)
+        return None if a is None else "List<" + a + ">"
+    if head in ("Map", "MutableMap", "LinkedHashMap"):
+        a = arg(1)
+        return None if a is None else "Map<String, " + a + ">"
+    if head == "Array":
+        a = arg(0)
+        return None if a is None else a + "[]"
+    return None
+
+
+_KT_MODIFIER_KINDS = (
+    "modifiers",
+    "annotation",
+    "function_modifier",
+    "member_modifier",
+    "visibility_modifier",
+    "class_modifier",
+    "parameter_modifier",
+)
+
+_KT_TYPE_KINDS = (
+    "type",
+    "user_type",
+    "nullable_type",
+    "non_nullable_type",
+    "parenthesized_type",
+    "function_type",
+)
+
+
+def _kt_modifiers(node):
+    return " ".join(_text(c) for c in _named(node) if c.type in _KT_MODIFIER_KINDS)
+
+
+def _kt_modifier_words(mods):
+    """kotlin.rs `modifier_words`: words outside parentheses."""
+    out, cur, depth = [], "", 0
+    for c in mods:
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth = max(0, depth - 1)
+        if c in _WS or c == "(" or c == ")" or depth > 0:
+            if cur:
+                out.append(cur)
+            cur = ""
+        else:
+            cur += c
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _kt_type_text(node):
+    return _text(node).replace(" ", "")
+
+
+def _kt_collect(container, data, owner, default_static, out):
+    """kotlin.rs `collect`: [name, blocked, types, owner] of each export."""
+    if container.type == "function_declaration":
+        candidates = [container]
+    else:
+        candidates = [
+            m
+            for n in _named(container)
+            if n.type == "class_body"
+            for m in _named(n)
+            if m.type == "function_declaration"
+        ]
+    for function in candidates:
+        mods = _kt_modifiers(function)
+        words = _kt_modifier_words(mods)
+        if "private" in words or "protected" in words or "internal" in words:
+            continue
+        if not default_static and "@JvmStatic" not in words:
+            continue
+        name_node = function.child_by_field_name("name")
+        if name_node is None:
+            continue
+        name = _text(name_node)
+        head = data[function.start_byte : name_node.start_byte].decode("utf-8")
+        blocked = trim(head).endswith(".")
+        split = _split_ws(mods)
+        if "suspend" in split or "inline" in split or "JvmName" in mods:
+            blocked = True
+        if any(n.type == "type_parameters" for n in _named(function)):
+            blocked = True
+        types = []
+        for child in _named(function):
+            if child.type != "function_value_parameters":
+                continue
+            for p in _named(child):
+                if p.type != "parameter":
+                    continue
+                pmods = _kt_modifiers(p)
+                if "vararg" in pmods or "noinline" in pmods:
+                    blocked = True
+                found = [n for n in _named(p) if n.type in _KT_TYPE_KINDS]
+                ptype = _kt_type_text(found[0]) if found else "Any"
+                try:
+                    types.append(kotlin_to_ts(ptype))
+                except _NotBridgeable:
+                    blocked = True
+                    types.append("unknown")
+                if kotlin_to_java(ptype) is None:
+                    blocked = True
+        found = [
+            n
+            for n in _named(function)
+            if n.start_byte > name_node.end_byte and n.type in _KT_TYPE_KINDS
+        ]
+        if found:
+            ret = _kt_type_text(found[0])
+        else:
+            rest = data[name_node.end_byte : function.end_byte].decode("utf-8")
+            if trim(rest).startswith("="):
+                blocked = True
+            ret = "Unit"
+        try:
+            types.append(kotlin_to_ts(ret))
+        except _NotBridgeable:
+            blocked = True
+            types.append("unknown")
+        if kotlin_to_java(ret) is None:
+            blocked = True
+        out.append([name, blocked, types, owner])
+
+
+def _kt_java_identifier(name):
+    if not name:
+        return False
+    first = name[0]
+    if not (first.isascii() and (first.isalpha() or first in "_$")):
+        return False
+    return all(c.isascii() and (c.isalnum() or c in "_$") for c in name[1:])
+
+
+def _kt_exports(root, data, path):
+    package = None
+    for n in _named(root):
+        if n.type == "package_header":
+            for q in _named(n):
+                if q.type == "qualified_identifier":
+                    package = _text(q).replace(" ", "")
+                    break
+            break
+    stem = _trim_end_matches(path.split("/")[-1], ".kt")
+    top = None
+    for n in _named(root):
+        if n.type != "file_annotation":
+            continue
+        t = _text(n)
+        at = t.find("JvmName")
+        if at < 0:
+            continue
+        rest = t[at:]
+        start = rest.find('"')
+        if start < 0:
+            continue
+        end = rest.find('"', start + 1)
+        if end < 0:
+            continue
+        top = rest[start + 1 : end]
+        break
+    if top is None:
+        if stem and not stem[0].isascii():
+            raise Decline("a file name outside ASCII")
+        top = stem[:1].upper() + stem[1:] + "Kt"
+
+    def owner(cls):
+        return package + "." + cls if package is not None else cls
+
+    out = []
+    for child in _named(root):
+        if child.type == "function_declaration":
+            _kt_collect(child, data, owner(top), True, out)
+        elif child.type == "object_declaration":
+            n = child.child_by_field_name("name")
+            if n is not None:
+                _kt_collect(child, data, owner(_text(n)), False, out)
+        elif child.type == "class_declaration":
+            n = child.child_by_field_name("name")
+            if n is None:
+                continue
+            class_owner = owner(_text(n))
+            for member in _named(child):
+                if member.type != "class_body":
+                    continue
+                for decl in _named(member):
+                    if decl.type == "object_declaration":
+                        nested = decl.child_by_field_name("name")
+                        if nested is not None:
+                            _kt_collect(decl, data, class_owner + "$" + _text(nested), False, out)
+                    elif decl.type == "companion_object":
+                        _kt_collect(decl, data, class_owner, False, out)
+    names = [f[0] for f in out]
+    for f in out:
+        if names.count(f[0]) > 1:
+            f[1] = True
+        # java.rs `receiver`: the class before the last `.` of the prototype's head.
+        head = (f[3] + "." + f[0]).split("(")[0]
+        cls = head.rsplit(".", 1)[0] if "." in head else ""
+        if not _kt_java_identifier(cls.split(".")[-1]):
+            f[1] = True
+    return [(f[1], f[2]) for f in out]
+
+
 # ---- the entry point ---------------------------------------------------------------------
 
 
@@ -1284,6 +1705,9 @@ def read_file(lang, path):
         elif lang == "csharp":
             imports, risks, loops = _cs_scan(root)
             exports = _cs_exports(root) if path.endswith(".cs") else []
+        elif lang == "kotlin":
+            imports, risks, loops = _kt_scan(root)
+            exports = _kt_exports(root, data, path) if path.endswith(".kt") else []
         else:
             raise Decline("no reader for " + lang)
         for _, types in exports:

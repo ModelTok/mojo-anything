@@ -157,7 +157,10 @@ def test_detects_the_language_as_the_phase1_tool() raises:
         ),
         ("build.gradle.kts=x\n", "java"),
         ("pom.xml=x\n|src/main/kotlin/A.kt=x\n", "java"),
-        ("build/A.kt=x\n|build.gradle=x\n", "java"),
+        # Lang::detect keeps a build/ folder with no src component and
+        # prunes one with it (checked against the Phase 1 binary).
+        ("build/A.kt=x\n|build.gradle=x\n", "kotlin"),
+        ("src/build/A.kt=x\n|build.gradle=x\n", "java"),
         ("x.sln=x\n|package.json={}\n", "csharp"),
         ("Directory.Build.props=x\n", "csharp"),
         ("setup.cfg=x\n|Gemfile=x\n", "python"),

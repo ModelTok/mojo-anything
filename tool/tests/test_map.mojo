@@ -252,6 +252,22 @@ def _csharp_repo() -> List[String]:
     return spec^
 
 
+def _kotlin_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append('build.gradle.kts=plugins {\n    kotlin("jvm")\n}\n')
+    for i in range(6):
+        var body = String(
+            "package p", i, "\nfun f", i, "(s: String): String {\n"
+        )
+        body += "    var t = s\n"
+        for _ in range(i * 2):
+            body += "    t = t.substring(1) + t.lowercase()\n"
+        body += "    return t\n}\n"
+        spec.append(String("src/main/kotlin/p", i, "/F", i, ".kt=") + body)
+    spec.append("src/test/kotlin/p1/F1Test.kt=package p1\nclass F1Test {}\n")
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
@@ -261,6 +277,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     repos.append(("go", _go_repo()))
     repos.append(("ruby", _ruby_repo()))
     repos.append(("csharp", _csharp_repo()))
+    repos.append(("kotlin", _kotlin_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -273,6 +290,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     bad.append(("java-bad", "pom.xml=x\n|A.java=class A { int f( }\n"))
     bad.append(("ruby-bad", "Gemfile=x\n|a.rb=def f(\n"))
     bad.append(("csharp-bad", "Kit.csproj=x\n|A.cs=class A { int F( }\n"))
+    bad.append(("kotlin-bad", "build.gradle.kts=\n|A.kt=fun f( {\n"))
     bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()

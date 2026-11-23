@@ -284,7 +284,7 @@ struct Crates(Movable):
         """analyze::crate_for: the language's lookup (Java keys a Maven
         coordinate by its group)."""
         var key = name
-        if lang == "java":
+        if lang == "java" or lang == "kotlin":
             var colon = name.find(":")
             if colon >= 0:
                 key = String(name[byte=0:colon])
@@ -356,6 +356,86 @@ def java_resolve(
         if best >= 0:
             return Resolution(FILE, best, "")
     var external = crates.longest_prefix("java", spec)
+    if external.byte_length() == 0:
+        external = first
+        if len(parts) > 1:
+            external += "." + String(parts[1])
+    return Resolution(EXTERNAL, -1, external)
+
+
+def _trim_ascii(s: String) -> String:
+    """str::trim for ASCII text (the readers decline other import specs)."""
+    var bytes = s.as_bytes()
+    var a = 0
+    var b = len(bytes)
+    while a < b and (bytes[a] == 32 or (bytes[a] >= 9 and bytes[a] <= 13)):
+        a += 1
+    while b > a and (
+        bytes[b - 1] == 32 or (bytes[b - 1] >= 9 and bytes[b - 1] <= 13)
+    ):
+        b -= 1
+    return String(s[byte=a:b])
+
+
+def _kotlin_find(
+    p: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    packages: List[Package],
+) raises -> Int:
+    """kotlin.rs `resolve`'s `find`: `<p>.kt` under a package's source root,
+    else the first file of the folder `p` names there (-1 for none)."""
+    for pkg in packages:
+        var file = join_dir(pkg.src_root, p + ".kt")
+        if file in index:
+            return index[file]
+        var dir = join_dir(pkg.src_root, p)
+        var best = -1
+        for i in range(len(paths)):
+            var slash = paths[i].rfind("/")
+            if slash < 0 or String(paths[i][byte=0:slash]) != dir:
+                continue
+            if best < 0 or paths[i] < paths[best]:
+                best = i
+        if best >= 0:
+            return best
+    return -1
+
+
+def kotlin_resolve(
+    given: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    packages: List[Package],
+    crates: Crates,
+) raises -> Resolution:
+    """kotlin.rs `resolve`: an alias dropped; the platform's packages, a file
+    or folder of a source root (for a class import, also its parent
+    package's), else the crate table's longest prefix or the first two
+    segments."""
+    var spec = _trim_ascii(String(given.split(" as ")[0]))
+    var wildcard = spec.endswith(".*")
+    var parts = spec.split(".")
+    var first = String(parts[0])
+    if (
+        first == "kotlin"
+        or first == "java"
+        or first == "javax"
+        or first == "jdk"
+        or first == "sun"
+        or spec.startswith("com.sun.")
+    ):
+        return Resolution(STDLIB, -1, "")
+    var path = trim_end_matches(spec, ".*").replace(".", "/")
+    var at = _kotlin_find(path, index, paths, packages)
+    if at >= 0:
+        return Resolution(FILE, at, "")
+    var slash = path.rfind("/")
+    if not wildcard and slash >= 0:
+        at = _kotlin_find(String(path[byte=0:slash]), index, paths, packages)
+        if at >= 0:
+            return Resolution(FILE, at, "")
+    var external = crates.longest_prefix("kotlin", spec)
     if external.byte_length() == 0:
         external = first
         if len(parts) > 1:
@@ -436,6 +516,8 @@ def _target(
         return ruby_resolve(from_path, spec, index, packages)
     if lang == "csharp":
         return csharp_resolve(spec, paths, packages)
+    if lang == "kotlin":
+        return kotlin_resolve(spec, index, paths, packages, crates)
     return resolve(from_path, spec, index, paths, roots)
 
 

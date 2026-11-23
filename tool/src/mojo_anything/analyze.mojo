@@ -455,9 +455,10 @@ def _pruned(lang: String, root: String, dirs: List[String]) -> Bool:
     for d in dirs:
         var name = _name_of(d)
         if lang == "kotlin":
-            # `src/main/kotlin/build/` can be a real package (e.path(), the
-            # root included).
-            if name in skip and not _src_component(root + "/" + d):
+            # kotlin.rs keeps a skipped folder whose path (e.path(), the root
+            # included) has no `src` component and prunes one that has: the
+            # reverse of its comment, but what its walk does.
+            if name in skip and _src_component(root + "/" + d):
                 return True
         elif lang == "go":
             if name in skip or name.startswith("_"):
@@ -599,8 +600,10 @@ def detect_lang(root: String) -> String:
                 var rel = _rel(root, path)
                 var pruned = False
                 for d in _ancestors(rel):
-                    # `src/main/java/com/acme/build/` is a package.
-                    if _name_of(d) in skip and not _src_component(d):
+                    # Lang::detect keeps a skipped folder with no `src`
+                    # component below the root and prunes one with it (the
+                    # reverse of its comment, but what its walk does).
+                    if _name_of(d) in skip and _src_component(d):
                         pruned = True
                 if pruned:
                     continue
@@ -1228,6 +1231,90 @@ def csharp_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def kotlin_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """kotlin.rs `discover`: a package per pom.xml, build.gradle or
+    build.gradle.kts (named by its folder, the root's by the root's name),
+    and the `.kt` files the walk keeps; declined as java_workspace is."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("kotlin"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("kotlin", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if (
+            name == "pom.xml"
+            or name == "build.gradle"
+            or name == "build.gradle.kts"
+        ):
+            manifests.append(rel)
+        elif name.endswith(".kt"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    var dirs = List[String]()
+    for rel in manifests:
+        var dir = _dir_of(rel)
+        if dir in dirs:
+            ws.declined = True
+            return ws^
+        dirs.append(dir)
+        var m = th["kotlin_manifest"](PythonObject(root + "/" + rel))
+        var name = dir
+        if dir.byte_length() == 0:
+            name = _root_name(root)
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(m))):
+            deps.append(String(py=m[i]))
+        var src_root = dir
+        if isdir(root + "/" + join_dir(dir, "src/main/kotlin")):
+            src_root = join_dir(dir, "src/main/kotlin")
+        elif isdir(root + "/" + join_dir(dir, "src/main/java")):
+            src_root = join_dir(dir, "src/main/java")
+        ws.packages.append(Package(name, dir, src_root, deps^))
+    if len(ws.packages) == 0:
+        var src_root = String("")
+        if isdir(root + "/src/main/kotlin"):
+            src_root = "src/main/kotlin"
+        elif isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var name = _name_of(rel)
+        var test = (
+            "src/test/" in rel
+            or "src/androidTest/" in rel
+            or name.endswith("Test.kt")
+        )
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(rel, best, test))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1327,7 +1414,13 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         elif len(ws.files) > 0:
             out.report = python_plan(root, ws, pyh, out.declined)
             out.planned = not out.declined
-    elif lang == "java" or lang == "go" or lang == "ruby" or lang == "csharp":
+    elif (
+        lang == "java"
+        or lang == "go"
+        or lang == "ruby"
+        or lang == "csharp"
+        or lang == "kotlin"
+    ):
         var ws: Workspace
         if lang == "java":
             ws = java_workspace(root, py)
@@ -1335,6 +1428,8 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
             ws = go_workspace(root, py)
         elif lang == "ruby":
             ws = ruby_workspace(root, py)
+        elif lang == "kotlin":
+            ws = kotlin_workspace(root, py)
         else:
             ws = csharp_workspace(root, py)
         if ws.declined:
