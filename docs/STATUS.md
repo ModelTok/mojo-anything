@@ -39,6 +39,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, float files, a float tolerance, `key-order` and effects in `app record` and `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-5.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, servers in `app record` and `app replay`, a library's `app replay` | 524 | 524 | 71.0% (372/524), [log](measurements/2026-11-23-phase2-replay-6.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of workspaces with no source file, `map` of repositories with no port and no unit | 524 | 524 | 57.4% (301/524), [log](measurements/2026-11-23-phase2-replay-7.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Python workspaces with source files (read through CPython's `ast`), `map` of Python repositories with no port | 524 | 524 | 53.6% (281/524), [log](measurements/2026-11-23-phase2-replay-8.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -108,6 +109,24 @@ otherwise, `--whole-app`, any port (`mojo-anything.json`), front-door glue and `
 the Phase 1 binary before anything is written. Parsing source needs tree-sitter's grammars,
 which the pixi environment does not have yet, so every other `analyze` and `map` case, and the
 commands that build on `analyze`'s exports, still fall back.
+
+Since the eighth row, `analyze` also answers a Python workspace with source files, and `map` a
+Python repository with no port. What the Rust tool reads from tree-sitter-python's tree (imports,
+risks and their lines, loops, the exported functions and classes) is read through CPython's
+`ast` (`tool/src/mojo_anything/analyze_py.py`, embedded into the binary with the crate table by
+`tool/embedded.py`); discovery, import resolution, the units, waves, cycles, readiness and
+priority, the exports `bridge` could take, `start_here`, the package order, the PyPI table and
+the report in Markdown and JSON are Mojo. A file `ast` may read otherwise than tree-sitter goes
+to the Phase 1 binary before anything is written: a syntax error, grammar newer than
+tree-sitter-python 0.25 (`match`, type parameters, `except*`, PEP 701 f-strings), a comment
+inside brackets or on a decorator line, parentheses tree-sitter keeps as nodes (in `__all__`
+too), an operator in an annotation, a character that ends lines differently, a name outside
+ASCII, a `pyproject.toml` tomllib refuses, and any file under an interpreter other than CPython
+3.12 or 3.13. `--whole-app` still falls back. `analyze` now falls back in 94 of its 147 cases
+and `map` in 90 of 137 ([log](measurements/2026-11-23-phase2-replay-8.md));
+`tool/tests/test_analyze_python.mojo` and `test_map.mojo` run both binaries on copies of the
+same projects (`pixi run check-tool`: 19 test files, 133 tests). The other languages still
+need tree-sitter's grammars, which the pixi environment does not have.
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
