@@ -20,3 +20,5 @@ mojo/app-cases/replay-report.md
 tool/src/mojo_anything/json.mojo
 # written from skills/mojo-anything/ by tool/skill_files.py
 tool/src/mojo_anything/skill_files.mojo
+# written from tool/src/mojo_anything/analyze_py.py and src/replacements.toml by tool/embedded.py
+tool/src/mojo_anything/embedded.mojo

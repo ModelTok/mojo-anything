@@ -21,6 +21,16 @@ from std.python import Python, PythonObject
 
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback
+from mojo_anything.plan import (
+    Package,
+    Report,
+    SourceFile,
+    build,
+    join_dir,
+    markdown,
+    to_json,
+)
+from mojo_anything.python_lang import Facts, py_helpers, read_facts
 from mojo_anything.walk import canonical, walk
 
 comptime SCHEMA = "mojo-anything/analyze@1"
@@ -747,6 +757,154 @@ def empty_workspace(
     return discover_packages(lang, root, py)
 
 
+def _is_test_py(rel: String, name: String) -> Bool:
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return True
+    for part in rel.split("/"):
+        if part == "tests" or part == "test" or part == "testing":
+            return True
+    return False
+
+
+def _root_name(root: String) -> String:
+    """`root.file_name()`, else "root"."""
+    var name = _file_name(root)
+    if name.byte_length() == 0:
+        return "root"
+    return name
+
+
+struct Workspace(Movable):
+    var packages: List[Package]
+    var files: List[SourceFile]
+    var declined: Bool
+
+    def __init__(out self):
+        self.packages = List[Package]()
+        self.files = List[SourceFile]()
+        self.declined = False
+
+
+def python_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """python.rs `discover`: a package per folder with a pyproject.toml,
+    setup.py or setup.cfg (plus the root's), and the `.py` files the walk
+    keeps; declined for a name outside ASCII or holding a backslash, and for
+    a pyproject.toml or requirements.txt tomllib or Rust's character tables
+    may read otherwise. With no source file, no package is read and the
+    workspace is left empty."""
+    var ws = Workspace()
+    var manifests = List[String]()
+    var found = List[String]()
+    var tests = List[Bool]()
+    var odd = False
+    for rel in _files("python", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if (
+            name == "pyproject.toml"
+            or name == "setup.py"
+            or name == "setup.cfg"
+        ):
+            var dir = _dir_of(rel)
+            if not dir in manifests:
+                manifests.append(dir)
+        elif name.endswith(".py") and name != "conftest.py":
+            found.append(rel)
+            tests.append(_is_test_py(rel, name))
+    if len(found) == 0:
+        # No source file: the empty plan's path (empty_workspace) answers.
+        return ws^
+    if odd:
+        ws.declined = True
+        return ws^
+    var has_root = False
+    for dir in manifests:
+        var r = py["read_package"](
+            PythonObject(root + "/" + join_dir(dir, "pyproject.toml")),
+            PythonObject(root + "/" + join_dir(dir, "requirements.txt")),
+        )
+        if Int(py=r[0]) != 1:
+            ws.declined = True
+            return ws^
+        var name: String
+        if Int(py=r[1]) == 1:
+            name = String(py=r[2])
+        elif dir.byte_length() == 0:
+            name = _root_name(root)
+        else:
+            name = dir
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(r[3]))):
+            deps.append(String(py=r[3][i]))
+        var src = join_dir(dir, "src")
+        var src_root = dir
+        if isdir(root + "/" + src):
+            src_root = src
+        if dir.byte_length() == 0:
+            has_root = True
+        ws.packages.append(Package(name, dir, src_root, deps^))
+    if not has_root:
+        var src_root = String("")
+        if isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    # Sorted by folder (stable; folders are distinct).
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for i in range(len(found)):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or found[i].startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(found[i], best, tests[i]))
+    return ws^
+
+
+def python_plan(
+    root: String, ws: Workspace, py: PythonObject, mut declined: Bool
+) raises -> Report:
+    """The plan of a Python workspace with source files, as analyze_lang
+    builds it; `declined` when a file may read otherwise than the Rust tool
+    reads it."""
+    var facts = List[Facts]()
+    for f in ws.files:
+        facts.append(read_facts(py, root + "/" + f.path, f.path, declined))
+        if declined:
+            return Report("python")
+    return build("python", "PyPI", ws.packages, ws.files, facts, py)
+
+
+comptime PY_BRIDGE = "Mojo (Python extension)"
+
+
+def _emit(
+    p: Parsed, py: PythonObject, text: String, argv: List[String]
+) raises -> Int:
+    """The plan on stdout, or in `--out`."""
+    var out = p.value("out")
+    if out:
+        if (
+            Int(py=py["write"](PythonObject(out.value()), PythonObject(text)))
+            != 1
+        ):
+            return fallback(argv)
+        return 0
+    print(text, end="")
+    return 0
+
+
 def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
     if p.flag("whole-app"):
         return fallback(argv)
@@ -813,6 +971,24 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
         var own = _file_name(root)
         if not _ascii(own) or _extension(own).lower() in _compiled():
             return fallback(argv)
+        if lang == "python":
+            var pyh = py_helpers()
+            var ws = python_workspace(root, pyh)
+            if ws.declined:
+                return fallback(argv)
+            if len(ws.files) > 0:
+                var declined = False
+                var report = python_plan(root, ws, pyh, declined)
+                if declined:
+                    return fallback(argv)
+                if p.flag("json"):
+                    return _emit(p, py, to_json(report, "mojo-py"), argv)
+                return _emit(
+                    p,
+                    py,
+                    markdown(report, _title(root), "Python", "PyPI", PY_BRIDGE),
+                    argv,
+                )
         var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)
