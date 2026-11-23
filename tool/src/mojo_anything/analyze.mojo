@@ -989,6 +989,64 @@ def java_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def go_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """go.rs `discover`: a package per go.mod (named by its module path,
+    else its folder), and the `.go` files the walk keeps (`_test.go` ones
+    are tests); declined as java_workspace is."""
+    var ws = Workspace()
+    var own = _file_name(root)
+    if own in _skip_dirs("go") or own.startswith("_"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("go", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if name == "go.mod":
+            manifests.append(rel)
+        elif name.endswith(".go"):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var th = tree_helpers()
+    for rel in manifests:
+        var dir = _dir_of(rel)
+        var m = th["go_manifest"](PythonObject(root + "/" + rel))
+        var name = dir
+        if Int(py=m[0]) == 1:
+            name = String(py=m[1])
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(m[2]))):
+            deps.append(String(py=m[2][i]))
+        ws.packages.append(Package(name, dir, dir, deps^))
+    if len(ws.packages) == 0:
+        ws.packages.append(Package(_root_name(root), "", "", List[String]()))
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for rel in _sorted(found):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(rel, best, rel.endswith("_test.go")))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1088,8 +1146,12 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         elif len(ws.files) > 0:
             out.report = python_plan(root, ws, pyh, out.declined)
             out.planned = not out.declined
-    elif lang == "java":
-        var ws = java_workspace(root, py)
+    elif lang == "java" or lang == "go":
+        var ws: Workspace
+        if lang == "java":
+            ws = java_workspace(root, py)
+        else:
+            ws = go_workspace(root, py)
         if ws.declined:
             out.declined = True
         elif len(ws.files) > 0:

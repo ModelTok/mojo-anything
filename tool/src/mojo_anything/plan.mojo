@@ -363,6 +363,60 @@ def java_resolve(
     return Resolution(EXTERNAL, -1, external)
 
 
+def go_resolve(
+    spec: String,
+    index: Dict[String, Int],
+    paths: List[String],
+    packages: List[Package],
+) raises -> Resolution:
+    """go.rs `resolve`: the module with the longest path that prefixes the
+    import (the first non-test `.go` file of its folder), else the standard
+    library (no dot in the first element), else an external module."""
+    var best = -1
+    for k in range(len(packages)):
+        ref name = packages[k].name
+        if spec == name or spec.startswith(name + "/"):
+            if (
+                best < 0
+                or name.byte_length() >= packages[best].name.byte_length()
+            ):
+                best = k
+    if best >= 0:
+        ref module = packages[best]
+        var sub = String(spec[byte = module.name.byte_length() :])
+        while sub.startswith("/"):
+            var rest = String(sub[byte=1:])
+            sub = rest^
+        var dir: String
+        if module.dir.byte_length() == 0:
+            dir = sub
+        elif sub.byte_length() == 0:
+            dir = module.dir
+        else:
+            dir = module.dir + "/" + sub
+        var file = -1
+        for i in range(len(paths)):
+            ref path = paths[i]
+            var slash = path.rfind("/")
+            var parent = String("")
+            if slash >= 0:
+                parent = String(path[byte=0:slash])
+            if (
+                parent == dir
+                and path.endswith(".go")
+                and not path.endswith("_test.go")
+                and (file < 0 or path < paths[file])
+            ):
+                file = i
+        if file >= 0:
+            return Resolution(FILE, file, "")
+        return Resolution(UNRESOLVED, -1, "")
+    var first = String(spec.split("/")[0])
+    if not "." in first:
+        return Resolution(STDLIB, -1, "")
+    return Resolution(EXTERNAL, -1, spec)
+
+
 def _target(
     lang: String,
     from_path: String,
@@ -376,6 +430,8 @@ def _target(
     """crate::lang::resolve for the language."""
     if lang == "java":
         return java_resolve(spec, index, paths, packages, crates)
+    if lang == "go":
+        return go_resolve(spec, index, paths, packages)
     return resolve(from_path, spec, index, paths, roots)
 
 

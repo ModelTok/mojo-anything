@@ -210,12 +210,28 @@ def _java_repo() -> List[String]:
     return spec^
 
 
+def _go_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append("go.mod=module example.com/kit\n")
+    for i in range(6):
+        var body = String("package p", i, "\nfunc F(s string) string {\n")
+        for _ in range(i * 2):
+            body += "\ts = s[1:] + s\n"
+        body += "\treturn s\n}\n"
+        spec.append(String("p", i, "/f.go=") + body)
+    spec.append(
+        'p1/f_test.go=package p1\nimport "example.com/kit/p1"\nfunc T() {}\n'
+    )
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
     var t = _py()
     var repos = List[Tuple[String, List[String]]]()
     repos.append(("java", _java_repo()))
+    repos.append(("go", _go_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -226,6 +242,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
             _owned(t, r[0], r[1], f)
     var bad = List[Tuple[String, String]]()
     bad.append(("java-bad", "pom.xml=x\n|A.java=class A { int f( }\n"))
+    bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()
         for part in c[1].split("|"):
@@ -248,7 +265,7 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     var t = _py()
     var cases = List[Tuple[String, String]]()
     cases.append(("crate", "go.mod=x\n|port/mojo-anything.json={}\n"))
-    cases.append(("source", "go.mod=x\n|a.go=package a\n"))
+    cases.append(("source", "Gemfile=x\n|a.rb=x = 1\n"))
     cases.append(("glue", "go.mod=x\n|mojo/app/glue/a.mojo=x\n"))
     cases.append(("bad-json", "package.json={\n"))
     for c in cases:
