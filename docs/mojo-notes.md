@@ -366,3 +366,12 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
 - `x = String(x[byte=a:b])` is refused ("aliasing values passed immutably ... constructed as a
   result"); slice through a helper (`x = _cut(x, a, b)`).
 - `ref p = list[i]` borrows an element; `for m in list` iterates by reference.
+- Float literal arithmetic is exact at compile time: `0.1 + 0.2` in source is `0.3`; a test of
+  the run-time sum passes the operands through a function (`tool/tests/test_cases.mojo`).
+- serde_json 1.0.154 (the Rust tool's) writes floats as `1e+21`, `1e+16`, `1000000000000000.0`,
+  `0.00001`, `1e-6`, `-0.0`, and `\u007f` raw (probe against the locked crate, 2026-11-23);
+  `json_text.mojo` follows it. Python's `repr` gives the same shortest digits.
+- A struct whose field is a `List` is not implicitly copyable: `opt.value().copy()`.
+- `Dict.get(key, default)`, `list.swap_elements(i, j)`, `Tuple` literals `(a, b)` returned as
+  `Tuple[String, Int]` and read as `t[0]`; EmberJson's `obj[key]` raises, so a lookup sits in
+  `try`.

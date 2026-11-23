@@ -16,3 +16,5 @@ tool/fallback/
 tool/build/
 tool/record/chunks/
 mojo/app-cases/replay-report.md
+# copied from src/mojo/json.mojo by tool/build.sh
+tool/src/mojo_anything/json.mojo
