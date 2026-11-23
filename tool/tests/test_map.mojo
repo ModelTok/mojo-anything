@@ -163,6 +163,40 @@ def test_maps_without_ports_match_the_phase1_binary() raises:
     _owned(t, "sub-write", ["inner/go.mod=x\n"], ["map", "inner/", "--write"])
 
 
+def test_python_maps_without_ports_match_the_phase1_binary() raises:
+    """A Python repository with units and no port: every unit is not ported
+    yet, in the order `analyze` suggests (start_here, priority, id)."""
+    var t = _py()
+    var spec = List[String]()
+    spec.append("pyproject.toml=[project]\nname = 'kit'\n")
+    for i in range(14):
+        var body = String("def f", i, "(s: str) -> str:\n")
+        for _ in range(i * 2):
+            body += "    s = s[1:] + s.lower()\n"
+        if i % 4 == 0:
+            body += "    eval(s)\n"
+        body += "    return s\n"
+        spec.append(String("src/kit/m", i, "/a.py=") + body)
+    spec.append("tests/test_m1.py=from kit.m1.a import f1\n")
+    var flags = List[List[String]]()
+    flags.append(["map", "."])
+    flags.append(["map", ".", "--json"])
+    flags.append(["map", ".", "--write"])
+    flags.append(["map", ".", "--check"])
+    for f in flags:
+        _owned(t, "python", spec, f)
+    _owned(
+        t,
+        "python-one",
+        ["flip.py=def invert(data, keep=False):\n    return data\n"],
+        ["map", "."],
+    )
+    var log = _both(
+        t, "python-bad", ["a.py=match x:\n    case 1: pass\n"], ["map", "."]
+    )
+    assert_equal(log, "map .\n", "fallback of python-bad")
+
+
 def test_a_missing_repository_is_an_error_as_in_rust() raises:
     var t = _py()
     var empty = List[String]()
@@ -194,7 +228,8 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
 
 def main() raises:
     test_maps_without_ports_match_the_phase1_binary()
+    test_python_maps_without_ports_match_the_phase1_binary()
     test_a_missing_repository_is_an_error_as_in_rust()
     test_what_is_not_ported_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_map: 3 passed")
+    print("test_map: 4 passed")
