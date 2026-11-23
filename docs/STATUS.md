@@ -20,8 +20,7 @@ warnings` clean; `cargo test` 550 passed, 0 failed over all 46 test targets, run
 and `tests/app.rs` and `tests/loop.rs` test by test, because the WSL distro restarted every few
 minutes on 2026-11-23 whatever was running.
 
-The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `<v0.1.0 commit hash, filled in
-after tagging>`.
+The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `a301865a839c9a588e6c3ec81475ace3f191caa3`.
 
 ## Porting units
 
