@@ -1,9 +1,12 @@
 # mojo-anything, the Mojo tool. Phase 2 moves the Rust tool's subcommands here
 # one at a time; a subcommand in `owned()` runs in Mojo, every other one runs
 # the Phase 1 binary (tool/fallback/mojo-anything) in this process's place.
+# `--version`, `-h` and the `--help` that matches it are answered in Mojo for
+# every subcommand (`cli.mojo`).
 
 from std.sys import argv, exit
 
+from mojo_anything.cli import decide
 from mojo_anything.fallback import fallback, report_owned
 
 
@@ -17,6 +20,14 @@ def main():
     var args = List[String]()
     for i in range(len(raw)):
         args.append(String(raw[i]))
+    var rest = List[String]()
+    for i in range(1, len(args)):
+        rest.append(args[i])
+    var reply = decide(rest)
+    if reply.owned:
+        report_owned()
+        print(reply.stdout, end="")
+        exit(reply.code)
     var command = String("")
     if len(args) > 1:
         command = args[1]
