@@ -686,6 +686,30 @@ def empty_json(lang: String, packages: Int) -> String:
     return out^
 
 
+def helpers() raises -> PythonObject:
+    return _helpers()
+
+
+def empty_workspace(
+    lang: String, root: String, py: PythonObject
+) raises -> Discovery:
+    """For an existing folder: its package count when `analyze` finds no
+    source file of `lang` there and writes no warning (the empty plan), else
+    declined."""
+    var exts = Python.list()
+    for e in extensions(lang):
+        exts.append(PythonObject(e))
+    if lang == "cpp":
+        exts.append(PythonObject("h"))
+    for e in _compiled():
+        exts.append(PythonObject(e))
+    if Int(py=py["scan"](PythonObject(root), exts)) != 0:
+        return Discovery(0, True)
+    if lang == "ts" and Int(py=py["ignore_files"](PythonObject(root))) != 0:
+        return Discovery(0, True)
+    return discover_packages(lang, root, py)
+
+
 def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
     if p.flag("whole-app"):
         return fallback(argv)
@@ -745,21 +769,9 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
                     ": No such file or directory (os error 2)",
                 )
             )
-    else:
-        var exts = Python.list()
-        for e in extensions(lang):
-            exts.append(PythonObject(e))
-        if lang == "cpp":
-            exts.append(PythonObject("h"))
-        for e in _compiled():
-            exts.append(PythonObject(e))
-        if Int(py=py["scan"](PythonObject(root), exts)) != 0:
-            return fallback(argv)
-        if lang == "ts" and Int(py=py["ignore_files"](PythonObject(root))) != 0:
-            return fallback(argv)
     var packages = 1
     if state == "dir":
-        var d = discover_packages(lang, root, py)
+        var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)
         packages = d.packages

@@ -12,6 +12,7 @@ from mojo_anything.cli_parse import PARSED, USAGE_ERROR, Parsed, parse
 from mojo_anything.fallback import fallback, report_owned
 from mojo_anything.analyze import run_analyze
 from mojo_anything.doctor import run_doctor
+from mojo_anything.map import run_map
 from mojo_anything.setup import run_setup
 from mojo_anything.app.commands import run_app_record, run_app_replay
 
@@ -20,6 +21,7 @@ def owned() -> List[String]:
     """The subcommands answered in Mojo. Later tasks add to it."""
     var out = List[String]()
     out.append("analyze")
+    out.append("map")
     out.append("setup")
     out.append("doctor")
     out.append("app record")
@@ -33,6 +35,8 @@ def run(p: Parsed, args: List[String]) raises -> Int:
     before it has written anything."""
     if p.path() == "analyze":
         return run_analyze(p, args)
+    if p.path() == "map":
+        return run_map(p, args)
     if p.path() == "setup":
         return run_setup(p, args)
     if p.path() == "doctor":
