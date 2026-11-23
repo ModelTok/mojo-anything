@@ -357,3 +357,12 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
   (`item.key`, `item.value`); a `List` field is returned with `^`.
 - `String(from_utf8_lossy=Span(list))` maps bad bytes to U+FFFD, as Rust's
   `String::from_utf8_lossy` does for a lone `\xff`.
+- Walks (`tool/src/mojo_anything/walk.mojo`): `from std.os import listdir, makedirs` and
+  `from std.os.path import exists, isdir, isfile, islink` build; `listdir` raises on an
+  unreadable folder. `realpath` and `getcwd` through `external_call`, returning
+  `Optional[Pointer[UInt8, MutAnyOrigin]]` (`None` for NULL).
+- A function value parameter is typed `def(String) thin -> Bool` (a plain `def(String) ->
+  Bool` refuses a top-level `def`).
+- `x = String(x[byte=a:b])` is refused ("aliasing values passed immutably ... constructed as a
+  result"); slice through a helper (`x = _cut(x, a, b)`).
+- `ref p = list[i]` borrows an element; `for m in list` iterates by reference.

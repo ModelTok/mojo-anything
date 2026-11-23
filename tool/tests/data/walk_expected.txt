@@ -1,0 +1,98 @@
+## root
+a.py
+c.ab
+deep/q/x/y/z.py
+deep/x/w.py
+doc/a b.md
+doc/x/keep.md
+gen/keep.py
+important.log
+lib/inner/anchored.py
+lib/keep.tmp
+lib/ok.py
+mojo/other/kept.mojo
+node_modules/dep/index.js
+sub/top-only.txt
+## root without require_git
+a.py
+c.ab
+deep/q/x/y/z.py
+deep/x/w.py
+doc/a b.md
+doc/x/keep.md
+gen/keep.py
+important.log
+lib/inner/anchored.py
+lib/keep.tmp
+lib/ok.py
+mojo/other/kept.mojo
+node_modules/dep/index.js
+sub/top-only.txt
+## lib
+inner/anchored.py
+keep.tmp
+ok.py
+## lib without require_git
+inner/anchored.py
+keep.tmp
+ok.py
+## doc
+a b.md
+x/keep.md
+## ignored py log tmp txt md mojo
+18
+## no git
+#hash.txt
+a.py
+b.o
+build/out.py
+c.a
+c.ab
+cache/c.py
+cache/keep.py
+debug.log
+deep/q/x/y/z.py
+deep/x/w.py
+deep/x/y/z.py
+doc/a b.md
+doc/tmp.md
+doc/x/keep.md
+doc/x/y/tmp.md
+excluded.txt
+gen/deeper/keep.py
+gen/drop.py
+gen/keep.py
+important.log
+lib/a.tmp
+lib/anchored.py
+lib/inner/anchored.py
+lib/keep.tmp
+lib/nested/n.py
+lib/ok.py
+mojo/other/kept.mojo
+node_modules/dep/index.js
+sub/build/x.py
+sub/debug.log
+sub/excluded.txt
+sub/top-only.txt
+top-only.txt
+trailing.txt
+## no git without require_git
+a.py
+c.ab
+deep/q/x/y/z.py
+deep/x/w.py
+doc/a b.md
+doc/x/keep.md
+excluded.txt
+gen/keep.py
+important.log
+lib/inner/anchored.py
+lib/keep.tmp
+lib/ok.py
+mojo/other/kept.mojo
+node_modules/dep/index.js
+sub/excluded.txt
+sub/top-only.txt
+## no git ignored py log tmp txt md mojo
+16
