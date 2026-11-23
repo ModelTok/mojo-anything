@@ -375,3 +375,13 @@ Confirmed by building `tool/src/main.mojo` with `mojo build --Werror` and by
 - `Dict.get(key, default)`, `list.swap_elements(i, j)`, `Tuple` literals `(a, b)` returned as
   `Tuple[String, Int]` and read as `t[0]`; EmberJson's `obj[key]` raises, so a lookup sits in
   `try`.
+
+### CLI (Task 6)
+
+- clap 4's short help pads each section to its longest entry plus two spaces, pads an entry
+  with no help text too (trailing spaces), and does not wrap; when a section's help does not
+  fit beside its longest entry (diff, record), every entry's help goes on the next line,
+  indented ten spaces, and an empty help is a line of ten spaces.
+- `len()` of a Mojo `String` is refused (UTF-8 ambiguity); column widths use
+  `len(s.codepoints())`.
+- A generated Mojo function cannot reuse `var c` for each command; the generator numbers them.

@@ -1,6 +1,6 @@
 # Status
 
-What works, and how each part was last checked. Updated 2026-11-22.
+What works, and how each part was last checked. Updated 2026-11-23.
 
 **Verified**: run end to end (bridge, record, port, diff, gate) on real code someone else wrote,
 named below. **Tested**: covered by this repository's tests on fixtures written for them, not yet
@@ -21,6 +21,26 @@ and `tests/app.rs` and `tests/loop.rs` test by test, because the WSL distro rest
 minutes on 2026-11-23 whatever was running.
 
 The binary Phase 2 records is `refs/tags/v0.1.0`, at commit `e0d14c2c02823c24b5a1c6b3ee11481ac7adb631`.
+
+## Phase 2
+
+Phase 2 moves the tool itself from Rust to Mojo (`tool/`). The Mojo binary
+(`tool/build/mojo-anything`, built by `pixi run build-tool`) answers what it owns and runs the
+Phase 1 binary (`tool/fallback/mojo-anything`, built from `v0.1.0` by
+`scripts/build-fallback.sh`) for everything else. The specification is the recording of the
+Phase 1 binary in `mojo/app-cases/` (519 cases, `tool/record/`).
+
+| Checked | Owned in Mojo | Cases | Passed | Fallback rate |
+| --- | --- | --- | --- | --- |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `-h`, `--help` and `help <command>` for every command; no subcommand yet | 519 | 519 | 87.3% (453/519) |
+
+Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`; all 66
+help and version cases run without a fallback. Mojo modules with tests (`pixi run check-tool`:
+format, build with warnings as errors, 36 tests): `fallback`, `process`, `walk`, `js_number`,
+`json_text`, `tolerance`, `recording`, `cli`. Not yet in Mojo: usage errors (the 103 exit-2
+cases), and every subcommand; `doctor`, `map`, `setup`, `app record` and `app replay` are the
+next ones in the plan (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`, Tasks 7
+and 8).
 
 ## Porting units
 
