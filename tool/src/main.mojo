@@ -12,6 +12,7 @@ from mojo_anything.cli_parse import PARSED, USAGE_ERROR, Parsed, parse
 from mojo_anything.fallback import fallback, report_owned
 from mojo_anything.doctor import run_doctor
 from mojo_anything.setup import run_setup
+from mojo_anything.app.replay import run_app_replay
 
 
 def owned() -> List[String]:
@@ -19,6 +20,7 @@ def owned() -> List[String]:
     var out = List[String]()
     out.append("setup")
     out.append("doctor")
+    out.append("app replay")
     return out^
 
 
@@ -30,6 +32,8 @@ def run(p: Parsed, args: List[String]) raises -> Int:
         return run_setup(p, args)
     if p.path() == "doctor":
         return run_doctor(p, args)
+    if p.path() == "app replay":
+        return run_app_replay(p, args)
     raise Error("not owned: " + p.path())
 
 
