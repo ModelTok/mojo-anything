@@ -12,7 +12,8 @@
 # not), a compiled or packaged file (the plan would carry a warning), an
 # unreadable folder or a name that is not ASCII, a `package.json` serde_json
 # might read otherwise than Python's json, an ignore file in a TS workspace
-# (the ignore crate stops a TS walk at a bad pattern), and `--whole-app`.
+# with a pattern globset might refuse (the ignore crate's error stops a TS
+# walk), and `--whole-app`.
 
 from std.os import listdir
 from std.os.path import exists, isdir, isfile, islink
@@ -54,10 +55,22 @@ def scan(root, exts):
     return 1 if bad else 0
 
 def ignore_files(root):
+    # 1 when an ignore file under root may hold a pattern globset refuses
+    # (a class, alternates or a trailing escape), or cannot be read as UTF-8.
     for base, dirs, files in os.walk(root):
-        for name in files:
-            if name in (".gitignore", ".ignore") or (name == "exclude" and base.endswith("/.git/info")):
+        for name in dirs + files:
+            if not (name in (".gitignore", ".ignore") or (name == "exclude" and base.endswith("/.git/info"))):
+                continue
+            try:
+                with open(os.path.join(base, name), "rb") as f:
+                    text = f.read().decode("utf-8")
+            except (OSError, UnicodeError):
                 return 1
+            for line in text.split("\\n"):
+                if line.startswith("#"):
+                    continue
+                if any(c in line for c in "[]{}") or line.rstrip("\\r").endswith("\\\\"):
+                    return 1
     return 0
 
 def _depth(text):

@@ -343,11 +343,35 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     assert_equal(w, "analyze .\n", "fallback of --whole-app")
 
 
+def test_ts_ignore_files_with_plain_patterns_are_read() raises:
+    """A TS walk stops at an ignore file the ignore crate cannot parse; plain
+    patterns (no class, no alternates, no trailing escape) parse, and the
+    walk reads them as the other languages' walks do."""
+    var t = _py()
+    var dot: List[String] = ["analyze", "."]
+    _both_ways(
+        t,
+        "ts-ignores",
+        [
+            ".gitignore=dist/\n*.log\n# a comment\n\n!keep.log\n",
+            ".ignore=skipped/\n",
+            "skipped/package.json={}\n",
+            "kept/package.json={}\n",
+            "port/mojo-anything.json={}\n",
+            "port/.gitignore=.mojo-anything/\n.pixi/\ncases.jsonl\n",
+        ],
+        dot,
+    )
+    var log = _both(t, "ts-bad-ignore", [".gitignore=a[\n"], dot)
+    assert_equal(log, "analyze .\n", "fallback of a class in .gitignore")
+
+
 def main() raises:
     test_detects_the_language_as_the_phase1_tool()
     test_empty_plans_match_the_phase1_binary()
     test_root_errors_match_the_phase1_binary()
     test_out_writes_the_plan()
     test_what_is_not_ported_goes_to_the_phase1_binary()
+    test_ts_ignore_files_with_plain_patterns_are_read()
     _ = _py()["gone"]()
-    print("test_analyze: 5 passed")
+    print("test_analyze: 6 passed")
