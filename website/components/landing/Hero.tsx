@@ -80,6 +80,22 @@ const LANGS: Lang[] = [
     proof: "ffmpeg's rational.c",
   },
   {
+    name: 'C++',
+    file: 'words.cpp',
+    color: '#00599c',
+    code: [
+      'int word_count(const std::string &s) {',
+      '  std::istringstream in(s);',
+      '  std::string w;',
+      '  int n = 0;',
+      '  while (in >> w) n++;',
+      '  return n;',
+      '}',
+    ],
+    bridge: 'c-abi (extern "C" shim)',
+    proof: 'EnergyPlus psychrometrics',
+  },
+  {
     name: 'PHP',
     file: 'words.php',
     color: '#777bb4',

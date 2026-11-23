@@ -56,6 +56,30 @@ replaced class must keep every public member a caller can link to: `java api` co
 them (fields, constructors and public nested classes too), and a test runs a caller compiled
 against the original on the wrappers.
 
+**The C++ wrapper dropped what was not bridged.** `cpp/wrapper.cpp` defines only the bridged
+functions, and the bridge note said to link it in place of the unit, so a caller of a refused
+function in the same file (`helper_kept(int*)`) got `undefined reference`, while `gate` passed.
+`cpp api` now names every strong external definition of the unit the wrapper lacks; keep those
+in a file of their own.
+
+**A derived exception reached callers as `std::runtime_error`.** The wrapper rebuilt the nine
+`<stdexcept>` types by exact name only, so `struct bad_input : std::invalid_argument` escaped a
+caller's `catch (const std::invalid_argument &)` and terminated it, and its `what()` gained a
+`type: ` prefix. The shim now records `<type> (<base>): <what()>` with the nearest standard base
+(a `dynamic_cast` chain), and the wrapper throws that base with the original `what()`.
+
+**A string that was not UTF-8 reached Mojo unchecked.** The generated `_str` built the port's
+`String` with `unsafe_from_utf8`, and the driver turned a `{"$bytes": [255]}` input into the
+text `{'$bytes': [255]}`, so such a case could neither be recorded nor reach the port safely.
+`_str` now checks with `String(from_utf8=...)` and raises `std::invalid_argument` into the error
+slot, and the driver passes `$bytes` as the bytes. Treat bytes from C as unchecked until a
+checked constructor has seen them.
+
+**Two C spellings made one Mojo helper twice.** `std::vector<long>` and
+`std::vector<std::int64_t>` are both `List[Int64]`, and `exports.mojo` defined `_list_int64` once
+per spelling, so `build` failed. Name and de-duplicate generated helpers by the same key
+(`helper_tag`), and bridge a unit with two spellings of one type after changing codegen.
+
 **A bridge found no functions in a module that exports a list.** `export { a, b as c }` was not
 read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that way.
 
@@ -115,6 +139,16 @@ first fix: test floats in and out, and check a rewrite's bits by compiling it wi
 **`0.1 + 0.2` in a Mojo port is 0.3.** Float literals are exact until they become `Float64`, so
 the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as `Float64` values
 (`var a: Float64 = 0.1`) when the original adds literals.
+
+**A Mojo port fused what C++ rounded twice.** The EnergyPlus psychrometrics port, written as
+the C++ statements read, missed 1,391 of 9,658 cases by one to 730 units in the last place:
+`mojo build` contracts `1.00484e3 * TDB + w * (...)` into multiply-adds by default
+(`--fp-mode contract=fast`), and g++ 13.3 at `-O1` for x86-64 does not. The first fix routed
+products through a hand-placed `@no_inline` multiply; the compilers' own flags do it everywhere:
+C ABI units now build with `--fp-mode contract=off` and `record` compiles the original with
+`-ffp-contract=off`. A recording is only as representative as its flags: g++ fuses too at
+`-O2 -march=native` or with `-mfma`, so record with the flags the real build uses, and look for
+`vfmadd` in both libraries' disassembly when floats differ in the last place.
 
 **`String(Float64)` hung on wasm32 and picks other digits than V8.** On mojo-wasm's wasm32 route
 the call never returned; on native it gave other digits than V8 in 154 of 473 probe floats and

@@ -6,7 +6,7 @@ Generated from the MCP server's tool list by `tests/tools.rs`; do not edit by ha
 
 Tool `analyze` · CLI `mojo-anything analyze`
 
-Map a repository (TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin; PHP and C# for whole apps) for a port to Mojo: units, port order (waves), risks with file:line, the Mojo bridge per unit, what replaces each dependency in Mojo (a stdlib module, a pixi package or a Python module through CPython interop) with its fit, and `start_here`: the best first ports.
+Map a repository (TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin; PHP and C# for whole apps) for a port to Mojo: units, port order (waves), risks with file:line, the Mojo bridge per unit, what replaces each dependency in Mojo (a stdlib module, a pixi package or a Python module through CPython interop) with its fit, and `start_here`: the best first ports.
 
 Read-only.
 

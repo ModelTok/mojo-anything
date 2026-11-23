@@ -1,6 +1,6 @@
 ---
 name: mojo-anything
-description: Port TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin to Mojo with the mojo-anything CLI or MCP tools, from one hot function up to a whole app rewritten as a pure Mojo app - profile, plan, bridge one unit at a time, record the original's behaviour, port it in port.mojo, diff, bench, shadow and gate. Use when asked to rewrite, port or migrate code or an app to Mojo, to plan such a migration, or to make slow code faster with Mojo.
+description: Port TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin to Mojo with the mojo-anything CLI or MCP tools, from one hot function up to a whole app rewritten as a pure Mojo app - profile, plan, bridge one unit at a time, record the original's behaviour, port it in port.mojo, diff, bench, shadow and gate. Use when asked to rewrite, port or migrate code or an app to Mojo, to plan such a migration, or to make slow code faster with Mojo.
 ---
 
 # Migration to Mojo with mojo-anything
@@ -14,7 +14,7 @@ the decisions, researches the dependencies, records the whole app, puts a Mojo f
 (`mojo/app`) in front of the original, runs the steps below for every unit, then lifts the app to
 a standalone Mojo binary (or, for a library, one Mojo package). CLIs, HTTP servers and libraries.
 
-Languages: TypeScript/JavaScript, Python, C, Go, Ruby, Java, Kotlin. The language is detected;
+Languages: TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java, Kotlin. The language is detected;
 `--lang` overrides it. The steps are the same everywhere; only the bridge differs, and the
 original's callers keep their API:
 
@@ -23,6 +23,7 @@ original's callers keep their API:
 | TS/JS | `mojo-node` (default), `mojo-wasm` (`--kind wasm`) | `index.cjs` over a Node-API addon, or over a wasm64 module (Node 24+) |
 | Python | `mojo-py` | a wrapper package over a Mojo extension module |
 | C | `c-abi` | a shared library exporting the original names, with the original header |
+| C++ | `c-abi` (`language: cpp`) | `cpp/wrapper.cpp`, the original functions over the `extern "C"` symbols the Mojo library exports |
 | Go, Ruby | `ffi` | a cgo or Fiddle wrapper over the Mojo library's JSON dispatcher |
 | Java, Kotlin | `mojo-jvm` | Java classes with the original signatures, calling Mojo through the Foreign Function & Memory API (Java 22+) |
 
@@ -189,7 +190,7 @@ whose result is at least `min`, best first, ties in item order. Errors are the o
   work. Against a JIT the port itself must be fast: handle ASCII without Unicode tables, build each
   result in one pre-sized `String`, avoid intermediate copies. Keep `diff` passing.
 - Items and other arguments: numbers, booleans and strings; results: numbers, booleans or
-  strings. Go, Ruby, Java and Kotlin units answer "not yet"; Python and C units have no batches.
+  strings. Go, Ruby, Java and Kotlin units answer "not yet"; Python, C and C++ units have no batches.
 
 ## 3. Prove it
 

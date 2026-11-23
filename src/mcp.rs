@@ -420,7 +420,7 @@ fn tool_schemas() -> Value {
     json!([
         {
             "name": "analyze",
-            "description": "Map a repository (TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin; PHP and C# for whole apps) for a port to Mojo: units, port order (waves), risks with file:line, the Mojo bridge per unit, what replaces each dependency in Mojo (a stdlib module, a pixi package or a Python module through CPython interop) with its fit, and `start_here`: the best first ports.",
+            "description": "Map a repository (TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin; PHP and C# for whole apps) for a port to Mojo: units, port order (waves), risks with file:line, the Mojo bridge per unit, what replaces each dependency in Mojo (a stdlib module, a pixi package or a Python module through CPython interop) with its fit, and `start_here`: the best first ports.",
             "inputSchema": { "type": "object", "properties": {
                 "root": { "type": "string", "description": "Repository root." },
                 "lang": { "type": "string", "enum": ["ts", "python", "c", "go", "ruby", "java", "kotlin", "php", "csharp"], "description": "Source language; detected from the repository when omitted." },

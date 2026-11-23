@@ -72,6 +72,10 @@ jobs:
   # so it first runs when the repository is published.
   macos:
     runs-on: macos-latest
+    # Phase 1 is checked on Linux only (decided 2026-11-22: "Linux now, macOS later").
+    # The macOS front doors are a known gap in docs/STATUS.md; this job reports but
+    # does not block until macOS is run and the gap is closed.
+    continue-on-error: true
     env:
       MOJO_ANYTHING_REQUIRE: node,python3,go,ruby,java,cc,mojo
     steps:

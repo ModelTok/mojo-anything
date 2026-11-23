@@ -158,6 +158,7 @@ export const en = {
       typescript: '`mojo-node` (Node-API addon) or `mojo-wasm` (Node 24+)',
       python: '`mojo-py`: a Python extension module built by Mojo',
       c: '`c-abi`: the original names and signatures, and a header',
+      cpp: '`c-abi` behind an `extern "C"` shim, and a C++ wrapper with the original signatures',
       go: '`ffi`: cgo calls into a JSON dispatcher',
       ruby: '`ffi`: Fiddle calls into a JSON dispatcher',
       java: '`mojo-jvm`: Foreign Function & Memory API, Java 22+',

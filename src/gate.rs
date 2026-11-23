@@ -337,6 +337,22 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     if manifest.kind == crate::bridge::Kind::MojoJvm {
         checks.push(java_api_check(crate_dir, &manifest));
     }
+    if manifest.language == crate::lang::Lang::Cpp {
+        checks.push(cpp_api_check(crate_dir, &manifest));
+        let rebuilt = crate::harness_c::cpp_rebuilt_exceptions(crate_dir);
+        if !rebuilt.is_empty() {
+            // A warning: the base and `what()` reach callers, the derived type does not.
+            checks.push(Check {
+                name: "cpp exceptions",
+                passed: true,
+                detail: format!(
+                    "warning: {}; a `catch` of the derived type itself no longer matches",
+                    rebuilt.join("; ")
+                ),
+                fix: None,
+            });
+        }
+    }
 
     if let Some(why) = crate::recording::stale(crate_dir, &manifest) {
         checks.push(Check {
@@ -795,7 +811,17 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
         cmd.args(["-D", "--defined-only"]);
     }
     cmd.arg(lib);
-    let names: Vec<String> = manifest.exports.iter().map(|f| f.name.clone()).collect();
+    let names: Vec<String> = manifest
+        .exports
+        .iter()
+        .map(|f| {
+            if manifest.language == crate::lang::Lang::Cpp {
+                crate::lang::cpp::symbol(&f.name)
+            } else {
+                f.name.clone()
+            }
+        })
+        .collect();
     match crate::process::output(&mut cmd, crate::process::QUICK) {
         Ok(out) if out.success() => {
             let missing = missing_exports(&out.stdout_text(), &names);
@@ -821,6 +847,61 @@ fn c_exports_check(lib: &Path, manifest: &Manifest) -> Check {
             name: "exports",
             passed: false,
             detail: format!("could not run nm: {e:#}"),
+            fix: None,
+        },
+    }
+}
+
+/// A C++ unit's wrapper against the original: a C++ caller links against the mangled names the
+/// original defines, so `cpp/wrapper.cpp` must define the same ones, and the wrapper replaces
+/// the unit's file, so that file must define nothing else a program needs.
+fn cpp_api_check(unit_dir: &Path, manifest: &Manifest) -> Check {
+    match crate::harness_c::cpp_api(unit_dir, manifest) {
+        Ok(api) if api.different.is_empty() && api.dropped.is_empty() => Check {
+            name: "cpp api",
+            passed: true,
+            detail: format!(
+                "{} defines the original's symbols: {}",
+                crate::codegen_cpp::WRAPPER,
+                api.same.join(", ")
+            ),
+            fix: None,
+        },
+        Ok(api) => {
+            let wrapper = crate::codegen_cpp::WRAPPER;
+            let mut detail = api.different.clone();
+            let mut fixes = Vec::new();
+            if !api.different.is_empty() {
+                fixes.push(format!(
+                    "`mojo-anything refresh {}` rewrites {wrapper} from the manifest; if the \
+                     original's signature changed, bridge again",
+                    unit_dir.display()
+                ));
+            }
+            if !api.dropped.is_empty() {
+                detail.push(format!(
+                    "{} also defines what {wrapper} does not, so a program linking the wrapper \
+                     in its place has no `{}`",
+                    manifest.unit,
+                    api.dropped.join("`, `")
+                ));
+                fixes.push(format!(
+                    "move the definitions that are not ported out of {} into a file of their \
+                     own, which stays in the build beside {wrapper}, or bridge and port them too",
+                    manifest.unit
+                ));
+            }
+            Check {
+                name: "cpp api",
+                passed: false,
+                detail: detail.join("\n"),
+                fix: Some(fixes.join("; ")),
+            }
+        }
+        Err(e) => Check {
+            name: "cpp api",
+            passed: false,
+            detail: last_lines(&format!("{e:#}"), 15),
             fix: None,
         },
     }

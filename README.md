@@ -32,21 +32,23 @@ and every piece is checked against that recording before it moves on. It doesn't
 </table>
 
 **Rewrite your app in Mojo, one piece at a time.** mojo-anything records what your Node.js
-(TypeScript/JavaScript), Python, C, Go, Ruby, Java or Kotlin code does today, then checks every
-piece of the Mojo rewrite against that recording before it moves on. CLIs, HTTP servers and
+(TypeScript/JavaScript), Python, C, C++, Go, Ruby, Java or Kotlin code does today, then checks
+every piece of the Mojo rewrite against that recording before it moves on. CLIs, HTTP servers and
 libraries; your coding agent (or you) writes the Mojo. Each port is called from the original
 language through a bridge mojo-anything generates (a Node-API addon or a wasm module, a Python
-extension, a C ABI library, a JSON dispatcher for Go and Ruby, Java's Foreign Function & Memory
-API); mojo-anything decides what to move and proves it matches. It can only catch what the
-recording covers: see [What it can't catch](docs/how-it-works.md#what-it-cant-catch).
+extension, a C ABI library, for C++ behind a generated `extern "C"` shim, a JSON dispatcher for
+Go and Ruby, Java's Foreign Function & Memory API); mojo-anything decides what to move and
+proves it matches. It can only catch what the recording covers: see
+[What it can't catch](docs/how-it-works.md#what-it-cant-catch).
 
 It runs on Linux and macOS (on Windows, inside WSL). Every test and every run below was on
 x86-64 Linux; macOS has not been run yet ([Status](docs/STATUS.md#known-gaps)).
 
 ### Real code, ported to Mojo
 
-Each unit below was ported to Mojo 1.2.0 and checked again on 2026-11-22 by `build`, `diff`
-and `gate` on a copy of its demo folder; each row links the log of that run.
+Each unit below was ported to Mojo 1.2.0 and checked again on 2026-11-22 (the C++ unit on
+2026-11-23) by `build`, `diff` and `gate` on a copy of its demo folder; each row links the
+log of that run.
 
 | Real code | Bridge | Recorded cases matched | `gate` | Log |
 | --- | --- | ---: | --- | --- |
@@ -60,6 +62,7 @@ and `gate` on a copy of its demo folder; each row links the log of that run.
 | OpenJDK 25 behind a facade | Foreign Function & Memory API | 4,782/4,782 | passes | [log](docs/measurements/2026-11-22-jdk-facade.md) |
 | ffmpeg n7.1's `rational.c` | C ABI, ffmpeg's own signatures | 46,764/46,764 | passes | [log](docs/measurements/2026-11-22-ffmpeg-rational.md) |
 | glibc behind a facade | C ABI | 2,488/2,488 | passes (`size` not compared: the C calls glibc) | [log](docs/measurements/2026-11-22-glibc-facade.md) |
+| EnergyPlus 27.1.0's [psychrometrics](docs/real-world-languages.md), behind a C++ facade | C ABI through an `extern "C"` shim, with a C++ wrapper | 9,658/9,658, bit for bit | passes (`cpp api` included) | [log](docs/measurements/2026-11-23-psychrometrics.md) |
 
 How fast the Mojo ports are against their originals is not published yet: the timings wait for
 a run on a quiet machine, and no speed figure carries over from rust-anything, whose Rust ports
@@ -162,6 +165,7 @@ when a port is done.
 | TypeScript/JavaScript | folder or file | `mojo-node`: a Node-API addon over the Mojo port (the default); `mojo-wasm`: the port compiled to a wasm64 module, Node 24+ | Node, running the `.ts` sources |
 | Python | package or module | `mojo-py`: a Python extension module built by Mojo, typed exceptions | Python, importing the original |
 | C | `.c` file | `c-abi`: functions with the original names and signatures, and a header | the original compiled to a shared library, called through ctypes, one fork per case |
+| C++ | `.cpp`/`.cc`/`.cxx` file of free functions (namespaced or not) over numbers, `bool`, `std::string` and `std::vector` of numbers; classes, templates, overloads and state objects stay in C++ with the reason | `c-abi` with `language: cpp`: `extern "C"` symbols the Mojo port exports, and a generated `cpp/wrapper.cpp` that defines the original functions over them | the original and a generated `extern "C"` shim compiled with `c++` to a shared library, called through ctypes, one fork per case; exceptions are recorded as `<type>: <what()>`, or `<type> (<base>): <what()>` for a type derived from a standard one |
 | Go | package | `ffi`: cgo calls into a JSON dispatcher, in a package with the original API | a generated Go driver, built as its own module |
 | Ruby | file or folder of module functions | `ffi`: Fiddle calls into a JSON dispatcher, under the original modules | a generated Ruby driver |
 | Java | package of `public static` methods | `mojo-jvm`: wrapper classes with the original methods, calling the port's JSON dispatcher through the Foreign Function & Memory API (Java 22+) | a generated reflection driver |

@@ -77,6 +77,7 @@ const LANGS = [
   { key: 'typescript', name: 'TypeScript/JavaScript' },
   { key: 'python', name: 'Python' },
   { key: 'c', name: 'C' },
+  { key: 'cpp', name: 'C++' },
   { key: 'go', name: 'Go' },
   { key: 'ruby', name: 'Ruby' },
   { key: 'java', name: 'Java' },

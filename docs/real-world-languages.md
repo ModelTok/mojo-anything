@@ -4,12 +4,12 @@ mojo-anything was run end to end (analyze, bridge, record, port, build, diff, ga
 in each language it ports to Mojo. The code had to be already on this machine: code downloaded
 from the internet was not executed. So the targets are standard-library modules shipped with the
 installed toolchains, ffmpeg's `rational.c`, and, for Java and C, the JDK and glibc themselves as
-the oracle behind a thin facade.
+the oracle behind a thin facade. The C++ run is three EnergyPlus routines copied into a facade.
 
 The ports, recorded cases and extra inputs are in [`demo/real-world`](../demo/real-world/README.md).
-Every row below was checked again on 2026-11-22 with Mojo 1.2.0 on x86-64 Linux (WSL2, Ubuntu
-24.04, Ryzen 9 3900X): `build`, `diff` and `gate` on a copy of the demo folder next to the
-original, logged under [`docs/measurements`](measurements/).
+Every row below was checked again on 2026-11-22 (the C++ row on 2026-11-23) with Mojo 1.2.0 on
+x86-64 Linux (WSL2, Ubuntu 24.04, Ryzen 9 3900X): `build`, `diff` and `gate` on a copy of the
+demo folder next to the original, logged under [`docs/measurements`](measurements/).
 
 | Language | Code | Functions | Recorded cases | Result |
 | --- | --- | ---: | ---: | --- |
@@ -20,6 +20,7 @@ original, logged under [`docs/measurements`](measurements/).
 | Java | OpenJDK 25 behind a facade (`Integer`, `Long`, `Math`, `Double.toString`, `URLEncoder`, `Base64`, `toUpperCase`) ([`java-jdk-mojo`](../demo/real-world/java-jdk-mojo/README.md)) | 11 | 4,782 on Java 25 (and the 4,492 of the JDK 21 recording the Rust port passed) | 4,782/4,782 and 4,492/4,492, exceptions compared by class and message; gate passes ([log](measurements/2026-11-22-jdk-facade.md)) |
 | C | glibc behind a facade (`strtol`, `atoi`, `strtod`, `strspn`, `strcmp`, ctype) ([`c-libc-mojo`](../demo/real-world/c-libc-mojo/README.md)) | 9 | 2,488 | 2,488/2,488; gate passes; `size` does not compare the 236 lines of Mojo with the facade's 15 lines of C, which call glibc ([log](measurements/2026-11-22-glibc-facade.md)) |
 | C | ffmpeg libavutil n7.1's `rational.c` ([`ffmpeg-mojo`](../demo/real-world/ffmpeg-mojo/README.md)) | 8 (+2 kept) | 46,764 (recorded again) | 46,764/46,764; gate passes ([log](measurements/2026-11-22-ffmpeg-rational.md)) |
+| C++ | EnergyPlus version 27.1.0 (development, commit `7ab256b`): `PsyRhoAirFnPbTdbW`, `PsyHFnTdbW` and `PsyTdbFnHW` from `Psychrometrics.hh`, behind a free-function facade (they are `constexpr` and `inline` there) ([`psychrometrics-mojo`](../demo/real-world/psychrometrics-mojo/README.md)) | 3 | 9,658 (g++ 13.3) | 9,658/9,658 bit for bit; gate passes, `cpp api` included. The first port matched fewer: Mojo fused `a * b + c` into multiply-adds, so C ABI units now build with `--fp-mode contract=off` and record with `-ffp-contract=off`, and the port is the plain C++ statements ([log](measurements/2026-11-23-psychrometrics.md); [below](#behaviour-a-port-has-to-match)) |
 
 The two `size` failures are ports that reimplement what the original borrows: `shellescape`
 takes any Ruby value, so the port carries Ruby's `to_s` and `inspect` for numbers, nil, arrays
@@ -115,6 +116,9 @@ port and confirmed by them. They are facts about the originals, so they hold for
 - glibc `strtod("-")` converts nothing and returns `+0.0`, not `-0.0`; `toupper(-128)` is `128`
   (its tables accept signed `char` values); `strtol` with base 0 reads `077` as octal and `0x`
   without a hex digit as `0`.
+- g++ 13.3 at `-O1` for x86-64 rounds `a * b + c` twice, where `mojo build` fuses it into one
+  multiply-add unless built with `--fp-mode contract=off`; EnergyPlus's `max(dw, 1.0e-5)` is
+  `a < b ? b : a`, so a NaN humidity ratio stays NaN.
 
 Limits these runs show:
 
@@ -135,3 +139,4 @@ Limits these runs show:
 | Java | reflection driver compiled with the original sources | the same driver compiled with the wrapper classes | the Mojo dispatcher, called through the Foreign Function & Memory API (Java 22+) from wrapper classes with the original static methods | `<Class>Shadow` classes |
 | Python | in-process driver imports the original | the same driver imports the Mojo extension module | a Python extension module built by Mojo | module with the original API |
 | C | `cc -shared` of the original, called through ctypes, one fork per case | ctypes over the Mojo shared library | Mojo exports with the original names and signatures, and a header | a second library with renamed exports (`exports_shadow.mojo`) |
+| C++ | `c++ -shared` of the original and a generated `extern "C"` shim (`cpp/shim.cpp`: one `cpp__<namespace>__<name>` symbol per function, exceptions caught into an error slot), called through the C driver's ctypes, one fork per case | the same driver over the Mojo library, which exports the shim's symbols | `cpp/wrapper.cpp`: the original functions with their original signatures over the Mojo symbols, rethrowing errors as the same standard exceptions (a derived type as its standard base, with the same `what()`) | not yet |

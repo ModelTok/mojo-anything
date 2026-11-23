@@ -9,14 +9,21 @@ WSL).
 
 - Every bridge writes a Mojo port (`port.mojo`) behind bindings the original language loads:
   `mojo-node` (a Node-API addon) and `mojo-wasm` (a wasm64 module, Node 24) for TS/JS, `mojo-py`
-  (a Python extension module) for Python, `c-abi` for C, `ffi` (a JSON dispatcher over cgo or
-  Fiddle) for Go and Ruby, and `mojo-jvm` (Java's Foreign Function & Memory API, Java 22+) for
+  (a Python extension module) for Python, `c-abi` for C and C++ (C++ behind a generated
+  `extern "C"` shim, with `cpp/wrapper.cpp` keeping the original functions for C++ callers),
+  `ffi` (a JSON dispatcher over cgo or Fiddle) for Go and Ruby, and `mojo-jvm` (Java's Foreign Function & Memory API, Java 22+) for
   Java and Kotlin. Every unit pins Mojo 1.2.0 through pixi. The napi-rs, PyO3, magnus, JNI and
   wasm-bindgen bridges, the binary wire and Android are gone.
 - `gate` checks Mojo ports: `mojo format`, the unit's `test_*.mojo`, nothing unported, every
   `abort`, pointer and `external_call` explained, error cases, size, build, API and behaviour
-  (plus `java api` for Java and Kotlin units). `size` does not compare a C unit that calls
+  (plus `java api` for Java and Kotlin units, and `cpp api` for C++ units, which compares the
+  wrapper's mangled symbols with the original's). `size` does not compare a C unit that calls
   functions from outside the repository (a facade over glibc), since a port reimplements them.
+- C++ units: free functions over numbers, `bool`, `std::string` and `std::vector` of numbers;
+  exceptions are recorded as `<type>: <what()>` and rethrown by the wrapper as the same
+  standard type (a derived type as its standard base). C ABI units, C and C++, build with
+  `--fp-mode contract=off` and record with `-ffp-contract=off`, so neither side fuses
+  `a * b + c`.
 - `mojo-wasm` reads the float spellings Mojo 1.2's LLVM writes and clang 22 does not: NaNs with a
   payload (`+nan(0x…)`, `-snan(0x…)`) and constants as untyped operands; vercel/ms builds and
   matches 1,128/1,128 on it ([log](docs/measurements/2026-11-22-vercel-ms-wasm.md)).
@@ -30,7 +37,8 @@ WSL).
   library path. `doctor` checks pixi and Mojo; the npm package is a launcher that downloads the
   release binary.
 - Real code ported to Mojo and checked: vercel/ms, CPython's `colorsys` and `quopri`, Go's `path`,
-  Ruby's `shellwords`, ffmpeg's `rational.c`, and JDK and glibc behaviour behind facades
+  Ruby's `shellwords`, ffmpeg's `rational.c`, three EnergyPlus psychrometric routines (C++),
+  and JDK and glibc behaviour behind facades
   ([Real code in six languages](docs/real-world-languages.md)). Timings are not published yet.
 - Docs: every number with a unit names its measurement log under `docs/measurements/`
   (`scripts/check-doc-numbers.py`, run by `cargo test`); rust-anything's results stay only as

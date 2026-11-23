@@ -24,7 +24,7 @@ use mojo_anything::{analyze, app, bridge, front_door, gate, harness, lift, mcp, 
 #[command(
     name = "mojo-anything",
     version,
-    about = "Rewrite TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin apps in Mojo, one verified piece at a time",
+    about = "Rewrite TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin apps in Mojo, one verified piece at a time",
     after_help = "Loop per unit: analyze -> bridge -> record -> port port.mojo -> build -> diff -> shadow -> gate"
 )]
 struct Cli {

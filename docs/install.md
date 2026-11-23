@@ -33,8 +33,9 @@ stops and names WSL. Or take the archive for your platform from the
   installed by hand. The first build downloads it.
 - The runtime of the language you port, for `record`, `diff` and `gate`, which run the original:
   Node 22.6+ for TS/JS (it runs `.ts` sources directly; the `mojo-wasm` bridge and `profile`
-  need Node 24), Python 3.9+ for Python, and for C (ctypes), Go 1.21+, Ruby 3+, Java 22+ (`javac`
-  and `java`) for Java and Kotlin (`kotlinc` too). C needs a C compiler.
+  need Node 24), Python 3.9+ for Python, and for C and C++ (ctypes), Go 1.21+, Ruby 3+, Java 22+
+  (`javac` and `java`) for Java and Kotlin (`kotlinc` too). C needs a C compiler, C++ a C++
+  compiler (`c++`).
 - The `mojo-wasm` bridge also needs a checkout of [mojo-wasm](https://github.com/lee101/mojo-wasm)
   (`MOJOWASM_HOME`, else `~/github/mojo-wasm`) for its clang and wasm-ld.
 

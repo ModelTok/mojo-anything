@@ -188,9 +188,10 @@ pub fn profile(root: &Path, command: &[String], lang: Option<Lang>) -> Result<Re
              and port the hot loops it shows"
         ),
         Lang::Ruby => ruby(&root, command, &work)?,
-        Lang::C => bail!(
-            "`profile` runs TS/JS, Python, Go, Java and Ruby workloads; for C, use `perf record -g` \
-             and port the hot loops it shows"
+        Lang::C | Lang::Cpp => bail!(
+            "`profile` runs TS/JS, Python, Go, Java and Ruby workloads; for {}, use `perf record \
+             -g` and port the hot loops it shows",
+            lang.name()
         ),
         Lang::Php => bail!(
             "`profile` does not run PHP workloads yet; use SPX or Xdebug's profiler and port the \

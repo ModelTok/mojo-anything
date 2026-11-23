@@ -68,9 +68,25 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   `external_call["free", NoneType](p)`. The dispatcher hands answers to C this way, so the
   caller's `free` and the library's agree (`tests/mojo_dispatcher.rs`, 2026-11-22).
 - C bytes to a string: `String(unsafe_from_utf8=Span[UInt8, ImmutAnyOrigin](unsafe_ptr=p,
-  length=n))` copies the bytes without checking them.
+  length=n))` copies the bytes without checking them; `String(from_utf8=span)` checks them and
+  raises `Cannot construct a String from invalid UTF-8 data` (byte 255, 2026-11-22). C++ units'
+  `_str` uses the checked one.
 - `--Werror` rejects a value assigned and then overwritten before use (`var s = String()`
   followed by assignments on every path): declare it as `var s: String`.
+- Contraction: `mojo build` contracts `a * b + c` on `Float64` into one multiply-add (`vfmadd`
+  on x86-64) by default, `--fp-mode contract=fast`; `--fp-mode contract=off` turns it off
+  (`mojo build --help`). Seen in the EnergyPlus psychrometrics port (2026-11-22): at the default,
+  1,391 of 9,658 cases one or more units in the last place off against g++ 13.3 `-O1` for x86-64,
+  five `vfmadd` in the library's code; built with `contract=off`, the statements as the C++
+  writes them match all 9,658 with no `vfmadd`. C ABI units (C and C++) are built with
+  `--fp-mode contract=off`, and `record` compiles the original with `-ffp-contract=off`, so both
+  sides round each product and each sum. A recording is only as representative as its flags:
+  g++ fuses at `-O2 -march=native` or with `-mfma` unless told not to, so a unit whose real build
+  uses such flags is recorded with them only if they reach `CFLAGS`/`CXXFLAGS`, after ours.
+- C++ through a C ABI: Mojo has no C++ ABI, so a C++ port exports `extern "C"` symbols and a
+  generated C++ file (`cpp/wrapper.cpp`) gives C++ callers the original signatures. Strings
+  and vectors cross as a pointer and a length; results the port `malloc`s are freed by the
+  wrapper with `free` (`tests/cpp_mojo.rs`, 2026-11-22).
 
 ## JSON
 

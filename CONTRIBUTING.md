@@ -25,6 +25,7 @@ install the ones you touch:
 | TypeScript/JavaScript | Node 24 (22.6+ works except for `profile`) |
 | Python | Python 3.9+ |
 | C | a C compiler (`cc`) |
+| C++ | a C++ compiler (`c++`: g++ or clang++) |
 | Go | Go 1.22+ |
 | Ruby | Ruby 3.x |
 | Java, Kotlin | a JDK (22+), and `kotlinc` for Kotlin |
