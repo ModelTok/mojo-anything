@@ -13,7 +13,7 @@ from std.python import Python, PythonObject
 
 from emberjson import Value
 from mojo_anything.cli_parse import Parsed
-from mojo_anything.fallback import fallback, own_binary
+from mojo_anything.fallback import fallback, fallback_path, own_binary
 from mojo_anything.json import parse_json
 from mojo_anything.json_text import write_string
 from mojo_anything.process import Command, QUICK, output
@@ -745,9 +745,12 @@ def install_status(i: Int) -> String:
     return FOREIGN
 
 
-def entry_state(entry: Optional[Entry], exe: String) -> Int:
-    """Ours and current when it runs `<exe> mcp`; outdated when it runs
-    `mcp` on another binary."""
+def entry_state(
+    entry: Optional[Entry], exe: String, phase1: String = ""
+) -> Int:
+    """Ours and current when it runs `<exe> mcp`, or `mcp` on the Phase 1
+    binary this one falls back to (`phase1`, what a `setup` handed over to
+    it registers); outdated when it runs `mcp` on another binary."""
     if not entry:
         return INSTALL_MISSING
     ref e = entry.value()
@@ -759,6 +762,10 @@ def entry_state(entry: Optional[Entry], exe: String) -> Int:
         return INSTALL_OUTDATED
     var command = e.command.value()
     if command == exe or (exists(command) and canonical(command) == exe):
+        return INSTALL_CURRENT
+    if phase1 != "" and (
+        command == phase1 or (exists(command) and canonical(command) == phase1)
+    ):
         return INSTALL_CURRENT
     return INSTALL_OUTDATED
 
@@ -891,6 +898,12 @@ def _fix_for(
 
 def agents(exe: String) -> List[Check]:
     var out = List[Check]()
+    # A `setup` this binary hands over registers the Phase 1 binary (its
+    # current_exe); that entry runs this tool's MCP server all the same.
+    var phase1 = String("")
+    var fb = fallback_path()
+    if exists(fb):
+        phase1 = canonical(fb)
     var h: String
     try:
         h = home()
@@ -932,7 +945,7 @@ def agents(exe: String) -> List[Check]:
         var detail: String
         try:
             var entry = read_entry(id, config)
-            state = entry_state(entry, exe)
+            state = entry_state(entry, exe, phase1)
             if state == INSTALL_MISSING:
                 detail = "no `" + NAME + "` server in " + config
             elif entry.value().disabled:

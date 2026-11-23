@@ -94,10 +94,10 @@ fn all_cases_pass_with_help_in_mojo() {
         .expect("a passed/total line");
     assert_eq!(passed, total, "{stdout}");
     assert!(total.parse::<usize>().unwrap_or(0) > 500, "{stdout}");
-    // Help and version (71 cases), clap's usage errors (46) and setup (21 more)
+    // Help and version, clap's usage errors, setup, app record and app replay
     // are answered in Mojo, and doctor in Mojo but for its `mcp` self-test; the
-    // other cases' commands still fall back, so the rate is reported and below
-    // 100%.
+    // other cases' commands still fall back (372 of 524 measured), so the rate
+    // is reported and below 100%.
     let rate = stdout
         .lines()
         .find_map(|l| l.strip_prefix("Fallback rate: "))
@@ -109,7 +109,7 @@ fn all_cases_pass_with_help_in_mojo() {
     assert_eq!(of, total, "{stdout}");
     let fell_back: usize = fell_back.parse().unwrap_or(usize::MAX);
     let total: usize = total.parse().unwrap_or(0);
-    assert!(fell_back <= 386 && fell_back < total, "{stdout}");
+    assert!(fell_back <= 372 && fell_back < total, "{stdout}");
 }
 
 #[test]
@@ -265,4 +265,70 @@ fn setup_registers_the_mojo_binary() {
     );
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(report["command"], want.to_string_lossy().as_ref());
+}
+
+/// A `setup` the Mojo tool hands over (a settings file it cannot rewrite byte for byte)
+/// registers the Phase 1 binary; the Mojo `doctor` reads that entry as current, so the fix it
+/// would print cannot loop.
+#[test]
+fn a_handed_over_setup_reads_as_current_in_doctor() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    let home = std::env::temp_dir().join(format!("mojo-front-door-doctor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".cursor")).unwrap();
+    // `-0` is a number serde_json reads otherwise than Python: setup goes to the Phase 1 binary.
+    std::fs::write(home.join(".cursor/mcp.json"), "{\"x\": -0}\n").unwrap();
+    let log = home.join("fallback.log");
+    let vars = [
+        ("HOME", home.to_string_lossy().into_owned()),
+        (
+            "MOJO_ANYTHING_FALLBACK_LOG",
+            log.to_string_lossy().into_owned(),
+        ),
+    ];
+    let env: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let out = run(tool, &["setup", "--agent", "cursor", "--no-backup"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let handed = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_file(&log);
+    let text = std::fs::read_to_string(home.join(".cursor/mcp.json")).unwrap_or_default();
+    let out = run(tool, &["doctor", "--json"], &env);
+    let doctor_log = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(
+        handed.starts_with("setup"),
+        "setup was not handed over: {handed:?}"
+    );
+    let config: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let phase1 = std::fs::canonicalize(fallback_binary()).unwrap();
+    assert_eq!(
+        config["mcpServers"]["mojo-anything"]["command"],
+        phase1.to_string_lossy().as_ref(),
+        "{text}"
+    );
+    assert!(
+        !doctor_log.lines().any(|l| l.starts_with("doctor")),
+        "doctor itself fell back: {doctor_log:?}"
+    );
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let row = report["checks"]
+        .as_array()
+        .and_then(|c| {
+            c.iter().find(|c| {
+                c["detail"]
+                    .as_str()
+                    .is_some_and(|d| d.contains(".cursor/mcp.json"))
+                    && c["name"].as_str().is_some_and(|n| n.ends_with(" mcp"))
+            })
+        })
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(row["status"], "ok", "{row}");
 }

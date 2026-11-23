@@ -211,6 +211,16 @@ def test_mcp_entries_are_ours_only_when_they_run_this_binary() raises:
     var disabled = _entry("/opt/bin/mojo-anything", "mcp", False)
     disabled.disabled = True
     assert_equal(entry_state(disabled^, exe), INSTALL_OUTDATED)
+    # The Phase 1 binary this one hands over to is current too.
+    var phase1 = "/opt/fallback/mojo-anything"
+    assert_equal(
+        entry_state(_entry(phase1, "mcp", False), exe, phase1),
+        INSTALL_CURRENT,
+    )
+    assert_equal(
+        entry_state(_entry("/old/mojo-anything", "mcp", False), exe, phase1),
+        INSTALL_OUTDATED,
+    )
 
 
 def _put(path: String, body: String) raises:
