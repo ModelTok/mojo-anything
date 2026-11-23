@@ -1,7 +1,7 @@
 {
   "name": "mojo-anything",
   "version": "0.1.0",
-  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step. TypeScript/JavaScript, Python, C, Go, Ruby, Java and Kotlin. Linux (x64, arm64) and macOS (arm64).",
+  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step. TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java and Kotlin. Linux (x64, arm64) and macOS (arm64).",
   "keywords": ["mojo", "performance", "migration", "ffi", "mcp", "claude-code", "codex"],
   "license": "MIT",
   "mcpName": "io.github.ModelTok/mojo-anything",

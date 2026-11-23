@@ -1,7 +1,7 @@
 {
   "name": "mojo-anything",
   "version": "0.1.0",
-  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step: profile, bridge, record, diff, bench, shadow and gate, for TypeScript/JavaScript, Python, C, Go, Ruby, Java and Kotlin, with whole-app record and replay for PHP and C#. Runs on Linux (x64, arm64) and macOS (arm64).",
+  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step: profile, bridge, record, diff, bench, shadow and gate, for TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java and Kotlin, with whole-app record and replay for PHP and C#. Runs on Linux (x64, arm64) and macOS (arm64).",
   "author": {
     "name": "ModelTok",
     "url": "https://github.com/ModelTok"

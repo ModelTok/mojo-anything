@@ -26,8 +26,10 @@ fn json(path: &str) -> Value {
     serde_json::from_str(&read(path)).unwrap()
 }
 
-/// The files that name the tool to the outside: plugin manifests, npm package, registry entry.
+/// The files that name the tool to the outside: the marketplace, plugin manifests, npm package,
+/// registry entry.
 const MANIFESTS: &[&str] = &[
+    ".claude-plugin/marketplace.json",
     "plugin/.claude-plugin/plugin.json",
     "plugin/.codex-plugin/plugin.json",
     "directory/.claude-plugin/plugin.json",
