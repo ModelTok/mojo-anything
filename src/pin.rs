@@ -79,7 +79,7 @@ pub fn set(crate_dir: &Path, on: bool) -> Result<Option<PathBuf>> {
     let manifest = Manifest::load(crate_dir)?;
     if !supported(&manifest) {
         bail!(
-            "`--pin-clock` covers TS/JS units with the node bridge and Python units; this crate is \
+            "`--pin-clock` covers TS/JS units with the node bridge and Python units; this unit is \
              {:?} with the {:?} bridge",
             manifest.language,
             manifest.kind

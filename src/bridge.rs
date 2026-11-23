@@ -936,16 +936,16 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     if unit.bridge == Bridge::PhpFfi {
         bail!(
-            "bridging PHP units into Rust comes next (PHP FFI over a C ABI); for now a PHP app can \
-             be analyzed, recorded and replayed (`app record`, `app replay`) and get a Rust front \
-             door (`app front-door`) that hands everything to the original"
+            "bridge does not take PHP units yet; for now a PHP app can be analyzed, recorded and \
+             replayed (`app record`, `app replay`) and get a Mojo front door (`app front-door`) \
+             that hands everything to the original"
         );
     }
     if unit.bridge == Bridge::DotnetFfi {
         bail!(
-            "bridging C# units into Rust comes next (P/Invoke over a C ABI); for now a C# app can \
-             be analyzed, recorded and replayed (`app record`, `app replay`) and get a Rust front \
-             door (`app front-door`) that hands everything to the original"
+            "bridge does not take C# units yet; for now a C# app can be analyzed, recorded and \
+             replayed (`app record`, `app replay`) and get a Mojo front door (`app front-door`) \
+             that hands everything to the original"
         );
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {

@@ -261,7 +261,7 @@ const FAILURES: &[FailureKind] = &[
     FailureKind {
         code: "stale_build",
         retryable: false,
-        matches: |t| t.contains("is older than the crate's sources"),
+        matches: |t| t.contains("is older than the port's sources"),
         next: Some("mojo-anything build {path}"),
     },
     FailureKind {
@@ -304,7 +304,7 @@ fn failure(text: &str, args: &Value) -> Value {
     let path = ["crate", "repo", "root"]
         .iter()
         .find_map(|key| args[key].as_str())
-        .unwrap_or("<crate>");
+        .unwrap_or("<port>");
     json!({
         "code": kind.map_or("failed", |k| k.code),
         "message": text,

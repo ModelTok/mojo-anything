@@ -57,7 +57,8 @@ fn canonical(name: &str) -> String {
     let name = name.to_lowercase().replace('-', "_");
     let name = name.strip_prefix("no_").unwrap_or(&name).to_string();
     match name.as_str() {
-        "crate_dir" => "crate".into(),
+        // The MCP parameter keeps its 0.1.0 name, `crate`; the CLI calls the same folder PORT_DIR.
+        "crate_dir" | "port_dir" => "crate".into(),
         "node_arg" | "node_args" => "node_args".into(),
         "from_tests" => "test_command".into(),
         "command" | "commands" => "commands".into(),

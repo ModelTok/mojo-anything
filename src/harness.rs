@@ -1,4 +1,4 @@
-//! Steps 3 and 5's runtime half: record what the original code does, build the Rust module, and
+//! Steps 3 and 5's runtime half: record what the original code does, build the Mojo port, and
 //! replay the recorded cases against it.
 //!
 //! Both sides run in Node through small generated scripts, so the comparison sees exactly
@@ -87,7 +87,7 @@ pub struct DiffOutcome {
     pub total: usize,
     pub passed: usize,
     pub failed: usize,
-    /// Exports the Rust module does not provide.
+    /// Exports the Mojo port does not provide.
     pub missing: Vec<String>,
     /// The first mismatches: `{ fn, args, expected, actual }`.
     pub mismatches: Vec<Value>,
@@ -444,7 +444,7 @@ pub(crate) fn install(built: &Path, dest: &Path) -> Result<()> {
     std::fs::rename(&tmp, dest).with_context(|| format!("installing {}", dest.display()))
 }
 
-/// The library `diff` loads, when it is older than the crate's sources: a forgotten `build`
+/// The library `diff` loads, when it is older than the port's sources: a forgotten `build`
 /// would otherwise test the previous port.
 fn stale_build(crate_dir: &Path, manifest: &Manifest) -> Option<PathBuf> {
     let built = match manifest.kind {
@@ -482,7 +482,7 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Per-function timing of the original against the Rust module.
+/// Per-function timing of the original against the Mojo port.
 /// What `bench` concludes: the geometric-mean speedup and what to do.
 #[derive(Debug, Serialize)]
 pub struct Verdict {
@@ -512,18 +512,18 @@ pub fn verdict(rows: &[BenchRow], lang: crate::lang::Lang) -> Verdict {
     let advice = if rows.is_empty() {
         "Nothing to compare: record cases that do not throw first.".to_string()
     } else if slower.is_empty() && faster.len() == rows.len() {
-        "Ship it: every function is faster in Rust, call included.".to_string()
+        "Ship it: every function is faster in Mojo, call included.".to_string()
     } else if slower.is_empty() {
-        "Ship it: no function is slower in Rust; some only tie.".to_string()
+        "Ship it: no function is slower in Mojo; some only tie.".to_string()
     } else if lang == crate::lang::Lang::C {
         // C links the port directly: there is no crossing to blame.
         format!(
-            "No call overhead in C: these are slower as Rust code. Profile and optimize them, or keep them in C: {}.",
+            "No call overhead in C: these are slower as Mojo code. Profile and optimize them, or keep them in C: {}.",
             slower.join(", ")
         )
     } else if speedup >= 1.1 {
         format!(
-            "Ship the faster functions. Keep the slower ones in the original (`bridge --keep`) or move their callers to Rust too: {}.",
+            "Ship the faster functions. Keep the slower ones in the original (`bridge --keep`) or move their callers to Mojo too: {}.",
             slower.join(", ")
         )
     } else {
@@ -569,7 +569,8 @@ pub struct BenchRow {
     /// Nanoseconds per call.
     pub original_ns: f64,
     pub rust_ns: f64,
-    /// `original_ns / rust_ns`: above 1 means Rust is faster, bridge included.
+    /// `original_ns / rust_ns` (the field keeps its rust-anything name): above 1 means the Mojo port
+    /// is faster, bridge included.
     pub speedup: f64,
 }
 
@@ -581,7 +582,7 @@ pub struct BenchOptions<'a> {
     pub node_args: &'a [String],
 }
 
-/// Times the recorded cases against the original and the built Rust module, bridge included.
+/// Times the recorded cases against the original and the built Mojo port, bridge included.
 pub fn bench(opts: &BenchOptions) -> Result<Vec<BenchRow>> {
     let crate_dir = std::path::absolute(opts.crate_dir)?;
     let opts = &BenchOptions {
@@ -683,7 +684,7 @@ pub fn bench(opts: &BenchOptions) -> Result<Vec<BenchRow>> {
 
 pub struct DiffOptions<'a> {
     pub crate_dir: &'a Path,
-    /// The module to test; defaults to the crate's `index.cjs`.
+    /// The module to test; defaults to the port's `index.cjs`.
     pub module: Option<&'a Path>,
     /// Compare objects regardless of key order.
     pub ignore_key_order: bool,
@@ -750,7 +751,7 @@ pub(crate) fn diff_exact(opts: &DiffOptions) -> Result<DiffOutcome> {
         && let Some(built) = stale_build(opts.crate_dir, &manifest)
     {
         bail!(
-            "{} is older than the crate's sources, so diff would test the previous port; run \
+            "{} is older than the port's sources, so diff would test the previous port; run \
              `mojo-anything build {}` first",
             built.display(),
             opts.crate_dir.display()
