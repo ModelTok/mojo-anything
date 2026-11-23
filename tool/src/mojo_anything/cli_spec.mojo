@@ -922,6 +922,365 @@ def spec() -> List[CommandSpec]:
     c17.options.append(Entry("    --json", "", False))
     c17.options.append(Entry("-h, --help", "Print help", False))
     all.append(c17^)
+    var c18 = CommandSpec(
+        path="app record",
+        about=(
+            "Run the original CLI on cases (its own examples, `--inputs`,"
+            " semantic traps), twice each, and store them as trycmd files in"
+            " `<repo>/mojo/app-cases/`. `mojo-anything app record . -- python3"
+            " cli.py`"
+        ),
+        usage="mojo-anything app record [OPTIONS] [REPO] [-- <RUN>...]",
+        after_help="",
+        long_same=True,
+    )
+    c18.arguments.append(Entry("[REPO]", "Repository root [default: .]", False))
+    c18.arguments.append(
+        Entry(
+            "[RUN]...",
+            (
+                "The command that runs the original, after `--`; paths are"
+                " relative to the repository. Taken from the saved cases when"
+                " omitted"
+            ),
+            False,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --inputs <INPUTS>",
+            (
+                'Extra cases: JSONL of `{"name", "args": [...], "stdin", "env":'
+                ' {...}, "files": {path: text}}`'
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --normalize <NORMALIZE>",
+            (
+                "Normalizer: `timestamps`, `uuids`, `key-order`, or"
+                " `name=regex` for your own. Repeatable; saved with the cases"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --name <NAME>",
+            (
+                "The name the app is invoked by in its docs (found from the"
+                " command and manifests when omitted)"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry("    --no-traps", "Leave out the semantic-trap inputs", True)
+    )
+    c18.options.append(
+        Entry(
+            "    --timeout <TIMEOUT>",
+            "Seconds before a run is killed (default 30)",
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --http",
+            (
+                "The app is a server: the command starts it, taking its port"
+                " from PORT or `{port}`; cases are requests (curl lines in its"
+                " docs, `--inputs`, traps), kept in `http/`"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --port <PORT>",
+            "A port the server always listens on (implies --http)",
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --arg <ARG>",
+            (
+                "An argument every server start gets after its command, the"
+                " original's and every build's (`{port}` is the port each one"
+                " is given: the front door's public port, and its original's"
+                " own), so a build is started as the original is (`--arg"
+                " db.json`). Repeatable; implies --http; saved with the cases"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --fresh <FRESH>",
+            (
+                "A file or folder of the repository the app reads or writes (a"
+                " project tree, a database file, a public folder): snapshotted"
+                " into `files/` (`http/files/` for a server) and copied into a"
+                " fresh working directory before every case (CLIs) or start"
+                " (servers). A CLI's written files are what differs from it"
+                " afterwards, and the files it removed are compared too."
+                " Repeatable; saved with the cases"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --pace <MS>",
+            (
+                "Milliseconds to wait after each response before the next"
+                " request, for work a server does after answering (a file"
+                " watcher reloading what it just wrote). Implies --http; saved"
+                " with the cases and used by replay; 0 removes it"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --float-tolerance <FLOAT_TOLERANCE>",
+            (
+                "Numbers in the output match when they differ by at most this"
+                " times the larger magnitude (absolute below 1), e.g. 1e-9 for"
+                " numeric code. Saved with the cases; 0 removes it"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --float-file <PATH=FORMAT>",
+            (
+                "A written file of raw floats, compared value by value within"
+                " --float-tolerance instead of byte for byte: `PATH=f32le` or"
+                " `PATH=f64le`. Repeatable; saved with the cases"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --effects <KINDS>",
+            (
+                "Record what leaves the process too: `http` runs a local sink"
+                " that answers every request (set as HTTP_PROXY, http_proxy and"
+                " MOJO_ANYTHING_HTTP_SINK), `smtp` a local mail server"
+                " (SMTP_HOST, SMTP_PORT). Each case stores what reached them,"
+                " in order, and replay compares it. Comma-separated or"
+                " repeated. Saved with the cases"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --effect-env <VAR=KIND>",
+            (
+                "Point one of the app's own settings at a sink: VAR=http-url,"
+                " VAR=smtp-host, VAR=smtp-port or VAR=smtp-url (e.g."
+                " WEBHOOK_URL=http-url). Implies that effect"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --db-reset <COMMAND>",
+            (
+                "A shell command run before each case (CLIs) or each start"
+                " (servers) that resets the database to a known state. Cases"
+                " then run one at a time"
+            ),
+            True,
+        )
+    )
+    c18.options.append(
+        Entry(
+            "    --db-dump <COMMAND>",
+            (
+                "A shell command that prints the database's state (e.g."
+                " `sqlite3 app.db .dump`), run after each case or request; its"
+                " output is recorded with the effects"
+            ),
+            True,
+        )
+    )
+    c18.options.append(Entry("    --json", "", True))
+    c18.options.append(Entry("-h, --help", "Print help", True))
+    all.append(c18^)
+    var c19 = CommandSpec(
+        path="app replay",
+        about=(
+            "Run a build against `<repo>/mojo/app-cases/`, print passed/total,"
+            " write a report with a diff per failing case; exits non-zero on"
+            " any mismatch"
+        ),
+        usage="mojo-anything app replay [OPTIONS] [REPO]",
+        after_help="",
+        long_same=True,
+    )
+    c19.arguments.append(Entry("[REPO]", "Repository root [default: .]", False))
+    c19.options.append(
+        Entry(
+            "    --build <BUILD>",
+            (
+                "Command line of the build to test (the original, the front"
+                " door, the final binary); the original when omitted"
+            ),
+            False,
+        )
+    )
+    c19.options.append(
+        Entry(
+            "    --timeout <TIMEOUT>", "Seconds before a run is killed", False
+        )
+    )
+    c19.options.append(
+        Entry(
+            "    --port <PORT>",
+            (
+                "Servers: the port the build always listens on; otherwise it"
+                " gets a free one through PORT and `{port}`"
+            ),
+            False,
+        )
+    )
+    c19.options.append(
+        Entry(
+            "    --case <CASE>",
+            (
+                "Replay only this case, by the name the report gives it (a"
+                " library: only this unit). The fast, repeatable loop for"
+                " fixing one mismatch"
+            ),
+            False,
+        )
+    )
+    c19.options.append(Entry("    --json", "", False))
+    c19.options.append(Entry("-h, --help", "Print help", False))
+    all.append(c19^)
+    var c20 = CommandSpec(
+        path="app front-door",
+        about=(
+            "Scaffold `<repo>/mojo/app`, the Mojo binary that owns the CLI's"
+            " entry point: it routes the recorded commands and options, every"
+            " command running the original until a unit is wired. Builds it and"
+            " replays the cases (every case passes, every case falling back)"
+        ),
+        usage="mojo-anything app front-door [OPTIONS] [REPO]",
+        after_help="",
+        long_same=True,
+    )
+    c20.arguments.append(Entry("[REPO]", "Repository root [default: .]", False))
+    c20.options.append(
+        Entry(
+            "    --no-check",
+            "Only write the files; skip the build and replay",
+            False,
+        )
+    )
+    c20.options.append(
+        Entry(
+            "    --library",
+            (
+                "Treat the repository as a library even if it has a `main`: the"
+                " front door is a Mojo package with the public API (found by"
+                " default when there is no main and no server)"
+            ),
+            False,
+        )
+    )
+    c20.options.append(Entry("    --json", "", False))
+    c20.options.append(Entry("-h, --help", "Print help", False))
+    all.append(c20^)
+    var c21 = CommandSpec(
+        path="app wire",
+        about=(
+            "Hand commands to a unit's port (after it passes gate): adds the"
+            " unit to `mojo/app`, a glue file to write once (a CLI), the"
+            " routing and a kill switch (`MOJO_ANYTHING_UNIT_<NAME>=original`),"
+            " then builds and replays. A CLI or a library takes a Mojo unit"
+            " (`mojo/<name>` with `port.mojo`); a server takes one for each"
+            " route"
+        ),
+        usage="mojo-anything app wire [OPTIONS] <REPO> <UNIT>",
+        after_help="",
+        long_same=True,
+    )
+    c21.arguments.append(Entry("<REPO>", "Repository root", False))
+    c21.arguments.append(
+        Entry(
+            "<UNIT>",
+            (
+                "The unit: its folder, its name under `mojo/`, or the unit id"
+                " it was bridged from"
+            ),
+            False,
+        )
+    )
+    c21.options.append(
+        Entry(
+            "    --command <COMMANDS>",
+            (
+                "A command the unit answers. Repeatable; kept from the last"
+                " wire when omitted"
+            ),
+            False,
+        )
+    )
+    c21.options.append(
+        Entry(
+            "    --route <ROUTES>",
+            (
+                "Servers: a route the unit answers (`GET /users/{id}`,"
+                " `/files/{*rest}`, `/path` for any method, `*` for everything"
+                " else). Repeatable; kept from the last wire when omitted"
+            ),
+            False,
+        )
+    )
+    c21.options.append(
+        Entry(
+            "    --skip-gate",
+            "Do not run gate on the unit first (it just passed)",
+            False,
+        )
+    )
+    c21.options.append(
+        Entry(
+            "    --no-check",
+            "Only write the files; skip the build and replay",
+            False,
+        )
+    )
+    c21.options.append(Entry("    --json", "", False))
+    c21.options.append(Entry("-h, --help", "Print help", False))
+    all.append(c21^)
+    var c22 = CommandSpec(
+        path="app lift",
+        about=(
+            "Make `mojo/app` a pure app (a Mojo binary for a CLI), once replay"
+            " passes with fallback rate 0 and every unit passes gate: removes"
+            " the fallback and the kill switches, strips the units' bridges,"
+            " runs the lift checklist and replays the pure binary. Checked on a"
+            " copy first; the original stays in place"
+        ),
+        usage="mojo-anything app lift [OPTIONS] [REPO]",
+        after_help="",
+        long_same=True,
+    )
+    c22.arguments.append(Entry("[REPO]", "Repository root [default: .]", False))
+    c22.options.append(Entry("    --json", "", False))
+    c22.options.append(Entry("-h, --help", "Print help", False))
+    all.append(c22^)
     return all^
 
 

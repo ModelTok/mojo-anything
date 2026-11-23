@@ -147,6 +147,7 @@ def help_and_usage():
     case("app-unknown-subcommand", ["app", "nope"])
     for sub in APP_SUBCOMMANDS:
         case(f"app-{sub}-help", ["app", sub, "--help"])
+        case(f"app-{sub}-help-short", ["app", sub, "-h"])
         case(f"help-app-{sub}", ["help", "app", sub])
         case(f"app-{sub}-unknown-flag", ["app", sub, "--nope"])
 

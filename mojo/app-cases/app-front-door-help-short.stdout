@@ -1,0 +1,12 @@
+Scaffold `<repo>/mojo/app`, the Mojo binary that owns the CLI's entry point: it routes the recorded commands and options, every command running the original until a unit is wired. Builds it and replays the cases (every case passes, every case falling back)
+
+Usage: mojo-anything app front-door [OPTIONS] [REPO]
+
+Arguments:
+  [REPO]  Repository root [default: .]
+
+Options:
+      --no-check  Only write the files; skip the build and replay
+      --library   Treat the repository as a library even if it has a `main`: the front door is a Mojo package with the public API (found by default when there is no main and no server)
+      --json      
+  -h, --help      Print help

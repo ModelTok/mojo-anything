@@ -1,0 +1,45 @@
+Run the original CLI on cases (its own examples, `--inputs`, semantic traps), twice each, and store them as trycmd files in `<repo>/mojo/app-cases/`. `mojo-anything app record . -- python3 cli.py`
+
+Usage: mojo-anything app record [OPTIONS] [REPO] [-- <RUN>...]
+
+Arguments:
+  [REPO]    Repository root [default: .]
+  [RUN]...  The command that runs the original, after `--`; paths are relative to the repository. Taken from the saved cases when omitted
+
+Options:
+      --inputs <INPUTS>
+          Extra cases: JSONL of `{"name", "args": [...], "stdin", "env": {...}, "files": {path: text}}`
+      --normalize <NORMALIZE>
+          Normalizer: `timestamps`, `uuids`, `key-order`, or `name=regex` for your own. Repeatable; saved with the cases
+      --name <NAME>
+          The name the app is invoked by in its docs (found from the command and manifests when omitted)
+      --no-traps
+          Leave out the semantic-trap inputs
+      --timeout <TIMEOUT>
+          Seconds before a run is killed (default 30)
+      --http
+          The app is a server: the command starts it, taking its port from PORT or `{port}`; cases are requests (curl lines in its docs, `--inputs`, traps), kept in `http/`
+      --port <PORT>
+          A port the server always listens on (implies --http)
+      --arg <ARG>
+          An argument every server start gets after its command, the original's and every build's (`{port}` is the port each one is given: the front door's public port, and its original's own), so a build is started as the original is (`--arg db.json`). Repeatable; implies --http; saved with the cases
+      --fresh <FRESH>
+          A file or folder of the repository the app reads or writes (a project tree, a database file, a public folder): snapshotted into `files/` (`http/files/` for a server) and copied into a fresh working directory before every case (CLIs) or start (servers). A CLI's written files are what differs from it afterwards, and the files it removed are compared too. Repeatable; saved with the cases
+      --pace <MS>
+          Milliseconds to wait after each response before the next request, for work a server does after answering (a file watcher reloading what it just wrote). Implies --http; saved with the cases and used by replay; 0 removes it
+      --float-tolerance <FLOAT_TOLERANCE>
+          Numbers in the output match when they differ by at most this times the larger magnitude (absolute below 1), e.g. 1e-9 for numeric code. Saved with the cases; 0 removes it
+      --float-file <PATH=FORMAT>
+          A written file of raw floats, compared value by value within --float-tolerance instead of byte for byte: `PATH=f32le` or `PATH=f64le`. Repeatable; saved with the cases
+      --effects <KINDS>
+          Record what leaves the process too: `http` runs a local sink that answers every request (set as HTTP_PROXY, http_proxy and MOJO_ANYTHING_HTTP_SINK), `smtp` a local mail server (SMTP_HOST, SMTP_PORT). Each case stores what reached them, in order, and replay compares it. Comma-separated or repeated. Saved with the cases
+      --effect-env <VAR=KIND>
+          Point one of the app's own settings at a sink: VAR=http-url, VAR=smtp-host, VAR=smtp-port or VAR=smtp-url (e.g. WEBHOOK_URL=http-url). Implies that effect
+      --db-reset <COMMAND>
+          A shell command run before each case (CLIs) or each start (servers) that resets the database to a known state. Cases then run one at a time
+      --db-dump <COMMAND>
+          A shell command that prints the database's state (e.g. `sqlite3 app.db .dump`), run after each case or request; its output is recorded with the effects
+      --json
+          
+  -h, --help
+          Print help

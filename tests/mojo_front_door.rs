@@ -94,8 +94,9 @@ fn all_cases_pass_with_help_in_mojo() {
         .expect("a passed/total line");
     assert_eq!(passed, total, "{stdout}");
     assert!(total.parse::<usize>().unwrap_or(0) > 500, "{stdout}");
-    // Help and version are answered in Mojo (66 cases); every other case
-    // still falls back, so the rate is reported and below 100%.
+    // Help and version (71 cases) and clap's usage errors (46) are answered in
+    // Mojo; the other cases' commands still fall back, so the rate is
+    // reported and below 100%.
     let rate = stdout
         .lines()
         .find_map(|l| l.strip_prefix("Fallback rate: "))
@@ -107,7 +108,7 @@ fn all_cases_pass_with_help_in_mojo() {
     assert_eq!(of, total, "{stdout}");
     let fell_back: usize = fell_back.parse().unwrap_or(usize::MAX);
     let total: usize = total.parse().unwrap_or(0);
-    assert!(fell_back + 66 <= total, "{stdout}");
+    assert!(fell_back + 117 <= total, "{stdout}");
 }
 
 #[test]
@@ -187,11 +188,45 @@ fn fallback_is_logged_once_per_run() {
     let _ = std::fs::remove_file(&log);
     let out = run(
         tool,
-        &["analyze", "--nope"],
+        &["analyze", "/nonexistent"],
         &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
     );
     assert_eq!(out.status.code(), Some(2));
     let logged = std::fs::read_to_string(&log).unwrap_or_default();
     let _ = std::fs::remove_file(&log);
     assert_eq!(logged.lines().count(), 1, "{logged}");
+}
+
+/// clap's usage errors are answered in Mojo, byte for byte, without the fallback.
+#[test]
+fn usage_errors_do_not_fall_back() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    for args in [
+        &["analyze", "--nope"][..],
+        &["nope"],
+        &["fuzz", "--seed", "x"],
+        &["app", "wire"],
+    ] {
+        let log = std::env::temp_dir().join(format!(
+            "mojo-front-door-usage-{}-{}",
+            std::process::id(),
+            args.join("_")
+        ));
+        let _ = std::fs::remove_file(&log);
+        let mojo = run(
+            tool,
+            args,
+            &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
+        );
+        let rust = run(&fallback_binary(), args, &[]);
+        let logged = std::fs::read_to_string(&log);
+        let _ = std::fs::remove_file(&log);
+        assert_eq!(logged.ok().as_deref(), Some(""), "{args:?}");
+        assert_eq!(mojo.status.code(), Some(2), "{args:?}");
+        assert_eq!(mojo.status.code(), rust.status.code(), "{args:?}");
+        assert_eq!(mojo.stderr, rust.stderr, "{args:?}");
+    }
 }

@@ -22,10 +22,7 @@ COMMANDS = [("", "top"), ("app", "app")] + [
                      "fuzz", "profile", "shadow", "gate", "package", "mcp", "setup", "map",
                      "doctor"]
 ]
-# The app subcommands were recorded with `--help` only, so they have long help and no `-h`
-# entry: their `-h` goes to the Phase 1 binary.
-APP_SUBCOMMANDS = [(f"app {c}", f"app-{c}") for c in ["record", "replay", "front-door", "wire",
-                                                      "lift"]]
+COMMANDS += [(f"app {c}", f"app-{c}") for c in ["record", "replay", "front-door", "wire", "lift"]]
 
 
 def read(name):
@@ -108,7 +105,7 @@ def main():
     out.append("    return all^")
     out += ["", "", "def long_help(path: String) -> String:",
             '    """clap\'s `--help` for `path`, or "" for a path it does not know."""']
-    for path, case in COMMANDS + APP_SUBCOMMANDS:
+    for path, case in COMMANDS:
         out.append(f"    if path == {lit(path)}:")
         out.append(f"        return {lit(read(f'{case}-help.stdout'))}")
     out.append('    return ""')

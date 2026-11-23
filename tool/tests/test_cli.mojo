@@ -21,7 +21,7 @@ def _read(path: String) raises -> String:
 
 def test_every_short_help_matches_the_recording() raises:
     var all = spec()
-    assert_true(len(all) == 18)
+    assert_true(len(all) == 23)
     for i in range(len(all)):
         var want = _read(
             "mojo/app-cases/" + _case_name(all[i].path) + "-help-short.stdout"
@@ -94,7 +94,9 @@ def test_app_subcommand_help() raises:
     args.append("app")
     args.append("record")
     args.append("-h")
-    assert_false(decide(args).owned)
+    var s = decide(args)
+    assert_true(s.owned)
+    assert_equal(s.stdout, _read("mojo/app-cases/app-record-help-short.stdout"))
 
 
 def test_real_work_falls_back() raises:
