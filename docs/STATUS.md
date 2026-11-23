@@ -32,7 +32,7 @@ Phase 1 binary in `mojo/app-cases/` (519 cases, `tool/record/`).
 
 | Checked | Owned in Mojo | Cases | Passed | Fallback rate |
 | --- | --- | --- | --- | --- |
-| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `-h`, `--help` and `help <command>` for every command; no subcommand yet | 519 | 519 | 87.3% (453/519), [log](measurements/2026-11-23-phase2-replay.md) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `--help` and `help <command>` for every command, `-h` for all but the five `app` subcommands; no subcommand yet | 519 | 519 | 87.3% (453/519), [log](measurements/2026-11-23-phase2-replay.md) |
 
 Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`
 ([log](measurements/2026-11-23-phase2-replay.md)); all 66
@@ -42,6 +42,11 @@ format, build with warnings as errors, 36 tests): `fallback`, `process`, `walk`,
 cases), and every subcommand; `doctor`, `map`, `setup`, `app record` and `app replay` are the
 next ones in the plan (`docs/superpowers/plans/2026-11-21-m8-self-port-foundation.md`, Tasks 7
 and 8).
+
+Known gap: a subcommand that falls back runs as the Phase 1 binary, so `setup` through the Mojo
+tool registers `tool/fallback/mojo-anything` with the agents (and `doctor` tests that MCP
+server), not the Mojo tool. The recording's `binary` normaliser masks both paths, so the replay
+cannot see it; owning `setup` (Task 7) has to narrow that normaliser.
 
 ## Porting units
 

@@ -81,8 +81,33 @@ fn expected_text(tree: &Path) -> String {
     out
 }
 
+/// Set in the child that does the walk, whose home holds no git config or global ignore file.
+const ISOLATED: &str = "MOJO_ANYTHING_WALK_ISOLATED";
+
 #[test]
 fn walk_expected_matches_rust() {
+    if std::env::var_os(ISOLATED).is_none() {
+        // The `ignore` crate reads the global excludes file from HOME and XDG_CONFIG_HOME;
+        // walk again in a child whose home is empty.
+        let home = std::env::temp_dir().join(format!("walk-expected-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "walk_expected_matches_rust", "--test-threads=1"])
+            .env(ISOLATED, "1")
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
     let tree: PathBuf = std::env::temp_dir().join(format!("walk-expected-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tree);
     build_tree(&tree);
@@ -96,5 +121,30 @@ fn walk_expected_matches_rust() {
     assert_eq!(
         expected, actual,
         "the Rust walk changed: rerun with MOJO_ANYTHING_BLESS=1"
+    );
+}
+
+/// A global gitignore (`~/.config/git/ignore`, read by the `ignore` crate's `git_global`) must
+/// not reach the expected walk: the Mojo walk reads no global excludes file, and a developer's
+/// `*.log` would otherwise fail this target or bless a file the Mojo test then fails.
+#[test]
+fn a_global_gitignore_does_not_change_the_walk() {
+    let home = std::env::temp_dir().join(format!("walk-expected-hostile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".config/git")).unwrap();
+    std::fs::write(home.join(".config/git/ignore"), "*.log\n*.tmp\n*.md\n").unwrap();
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "walk_expected_matches_rust", "--test-threads=1"])
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env_remove("MOJO_ANYTHING_BLESS")
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
     );
 }
