@@ -71,7 +71,7 @@ fn run(binary: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
 }
 
 #[test]
-fn all_cases_through_fallback() {
+fn all_cases_pass_with_help_in_mojo() {
     if !common::have_mojo() {
         return;
     }
@@ -94,10 +94,52 @@ fn all_cases_through_fallback() {
         .expect("a passed/total line");
     assert_eq!(passed, total, "{stdout}");
     assert!(total.parse::<usize>().unwrap_or(0) > 500, "{stdout}");
-    assert!(
-        stdout.contains(&format!("Fallback rate: 100.0% ({total}/{total})")),
-        "every case falls back while the Mojo tool owns nothing:\n{stdout}"
-    );
+    // Help and version are answered in Mojo (66 cases); every other case
+    // still falls back, so the rate is reported and below 100%.
+    let rate = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("Fallback rate: "))
+        .unwrap_or_else(|| panic!("no fallback rate:\n{stdout}"));
+    let (fell_back, of) = rate
+        .split_once('(')
+        .and_then(|(_, r)| r.trim_end_matches(')').split_once('/'))
+        .unwrap_or_else(|| panic!("a (fallbacks/total) rate:\n{stdout}"));
+    assert_eq!(of, total, "{stdout}");
+    let fell_back: usize = fell_back.parse().unwrap_or(usize::MAX);
+    let total: usize = total.parse().unwrap_or(0);
+    assert!(fell_back + 66 <= total, "{stdout}");
+}
+
+#[test]
+fn help_and_version_do_not_fall_back() {
+    if !common::have_mojo() {
+        return;
+    }
+    let tool = mojo_tool();
+    for args in [
+        &["--version"][..],
+        &["-h"],
+        &["analyze", "--help"],
+        &["app", "record", "--help"],
+    ] {
+        let log = std::env::temp_dir().join(format!(
+            "mojo-front-door-owned-{}-{}",
+            std::process::id(),
+            args.join("_")
+        ));
+        let _ = std::fs::remove_file(&log);
+        let mojo = run(
+            tool,
+            args,
+            &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
+        );
+        let rust = run(&fallback_binary(), args, &[]);
+        let logged = std::fs::read_to_string(&log);
+        let _ = std::fs::remove_file(&log);
+        assert_eq!(logged.ok().as_deref(), Some(""), "{args:?}");
+        assert_eq!(mojo.status.code(), rust.status.code(), "{args:?}");
+        assert_eq!(mojo.stdout, rust.stdout, "{args:?}");
+    }
 }
 
 #[test]
@@ -145,10 +187,10 @@ fn fallback_is_logged_once_per_run() {
     let _ = std::fs::remove_file(&log);
     let out = run(
         tool,
-        &["--version"],
+        &["analyze", "--nope"],
         &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
     );
-    assert!(out.status.success());
+    assert_eq!(out.status.code(), Some(2));
     let logged = std::fs::read_to_string(&log).unwrap_or_default();
     let _ = std::fs::remove_file(&log);
     assert_eq!(logged.lines().count(), 1, "{logged}");

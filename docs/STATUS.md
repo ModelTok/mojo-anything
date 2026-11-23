@@ -32,9 +32,10 @@ Phase 1 binary in `mojo/app-cases/` (519 cases, `tool/record/`).
 
 | Checked | Owned in Mojo | Cases | Passed | Fallback rate |
 | --- | --- | --- | --- | --- |
-| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `-h`, `--help` and `help <command>` for every command; no subcommand yet | 519 | 519 | 87.3% (453/519) |
+| 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | `--version`/`-V`, `-h`, `--help` and `help <command>` for every command; no subcommand yet | 519 | 519 | 87.3% (453/519), [log](measurements/2026-11-23-phase2-replay.md) |
 
-Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`; all 66
+Checked with `tool/fallback/mojo-anything app replay . --build tool/build/mojo-anything`
+([log](measurements/2026-11-23-phase2-replay.md)); all 66
 help and version cases run without a fallback. Mojo modules with tests (`pixi run check-tool`:
 format, build with warnings as errors, 36 tests): `fallback`, `process`, `walk`, `js_number`,
 `json_text`, `tolerance`, `recording`, `cli`. Not yet in Mojo: usage errors (the 103 exit-2
