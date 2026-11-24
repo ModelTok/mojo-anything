@@ -471,11 +471,57 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     assert_true(log != "", "--batch did not fall back")
 
 
+def test_review_findings_go_to_the_phase1_binary() raises:
+    """Review of 8a5790e..f7e2382: names outside ASCII (Rust's snake_case
+    keeps Unicode letters) go to the Phase 1 binary, and a bare import of a
+    root package with no `src` is read as Rust reads it."""
+    var t = _py()
+    var cases = List[Tuple[String, String, String]]()
+    cases.append(
+        (
+            "unicode-name",
+            (
+                "package.json={}\n|src/u.ts=export function größe(s:"
+                " string): number { return s.length; }\n"
+            ),
+            "src/u.ts",
+        )
+    )
+    cases.append(
+        (
+            "unicode-param",
+            (
+                "package.json={}\n|src/u.ts=export function f(ä: string):"
+                " number { return 1; }\n"
+            ),
+            "src/u.ts",
+        )
+    )
+    for c in cases:
+        var spec = List[String]()
+        for part in c[1].split("|"):
+            spec.append(String(part))
+        var log = _both(t, c[0], "", spec, _args(".", c[2]))
+        assert_equal(log, "bridge . " + c[2] + "\n", "fallback of " + c[0])
+    # A bare import of a root package with no `src` finds no types: Rust
+    # looks for it at the filesystem root.
+    var root: List[String] = [
+        'package.json={"name": "proj"}\n',
+        "index.ts=export interface Hooks { run: () => void }\n",
+        (
+            'lib/use.ts=import type { Hooks } from "proj";\nexport function'
+            " count(h: Hooks): number { return 1; }\n"
+        ),
+    ]
+    _owned(t, "root-import", "", root, _args(".", "lib/use.ts"))
+
+
 def main() raises:
+    test_review_findings_go_to_the_phase1_binary()
     test_ts_fixtures_are_bridged_in_mojo()
     test_exports_cross_as_bridge_rs_reads_them()
     test_bridge_errors_match_the_phase1_binary()
     test_refresh_regenerates_ts_bindings()
     test_what_is_not_ported_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_bridge_ts: 5 passed")
+    print("test_bridge_ts: 6 passed")

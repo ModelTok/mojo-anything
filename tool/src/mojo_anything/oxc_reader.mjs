@@ -261,6 +261,9 @@ function identifierRole(parent, key, mode) {
       if (t === "TSMappedType" && key !== "key") return null;
       return "skip";
     case "TSQualifiedName":
+      // A dotted namespace name and an import type's qualifier are names in
+      // Rust's AST (binding identifiers, IdentifierNames), not references.
+      if (parent._names) return "skip";
       return key === "left" ? "ref" : "skip";
     case "TSTypeReference": case "TSTypeQuery": case "TSClassImplements": case "TSInterfaceHeritage":
     case "ExpressionStatement": case "CallExpression": case "NewExpression": case "BinaryExpression":
@@ -418,12 +421,21 @@ function scanTree(program, source) {
         break;
       }
       case "MemberExpression":
-        if (parent && (parent.type === "TSClassImplements" || (parent.type === "MemberExpression" && parent._qualified))) {
+        if (parent && (parent.type === "TSClassImplements" || parent.type === "TSInterfaceHeritage" || (parent.type === "MemberExpression" && parent._qualified))) {
           node._qualified = true; // a TSQualifiedName in Rust's AST, not a member expression
           break;
         }
         if (!node.computed && node.property.type === "Identifier" && (node.property.name === "indices" || node.property.name === "lastIndex"))
           add("string-offsets", node);
+        break;
+      case "TSModuleDeclaration":
+        if (node.id && node.id.type === "TSQualifiedName") node.id._names = true;
+        break;
+      case "TSImportType":
+        if (node.qualifier && node.qualifier.type === "TSQualifiedName") node.qualifier._names = true;
+        break;
+      case "TSQualifiedName":
+        if (node._names && node.left.type === "TSQualifiedName") node.left._names = true;
         break;
       case "Literal":
         if (node.regex) {
@@ -985,6 +997,24 @@ function collectTypes(file, text, depth, seen, types) {
       const sub = spec.slice(name.length).replace(/^\/+/, "");
       let src = isDir(pkgDir ? pkgDir + "/src" : "src") ? pkgDir + "/src" : pkgDir;
       src = src.replace(/^\/+/, "");
+      // A root package with no `src`: Rust joins `/index` (an absolute path)
+      // to the root, so it looks at the filesystem root. Nothing there is
+      // what Rust finds too; anything there declines.
+      if (src === "") {
+        let stem = "/" + (sub || "index");
+        const absBase = stem;
+        while (stem.endsWith(".js")) stem = stem.slice(0, -3);
+        const absFile = (p) => {
+          try {
+            return fs.statSync(p).isFile();
+          } catch {
+            return false;
+          }
+        };
+        if ([stem + ".ts", stem + ".mts", stem + ".d.ts", stem + "/index.ts", absBase].some(absFile))
+          decline("workspace import of a root package without src");
+        continue;
+      }
       base = sub ? src + "/" + sub : src + "/index";
     }
     let stem = base;
@@ -1326,6 +1356,14 @@ function bridgeMain() {
       substituteConstraints(f, types);
       substituteJson(f, req.as_json);
       f.reason = jsOnlyReason(f, types);
+    }
+    // bridge.rs `snake_case` keeps Unicode letters, codegen_mojo.mojo's
+    // works on ASCII: any name or type outside ASCII declines.
+    const ascii = (s) => !/[^\x00-\x7f]/.test(s);
+    for (const c of classes) if (!ascii(c.name)) decline("class name outside ASCII");
+    for (const f of functions) {
+      if (!ascii(f.name) || !ascii(f.returns) || f.params.some((p) => !ascii(p.name) || !ascii(p.tsType)))
+        decline("export outside ASCII");
     }
     files.push({ classes, functions });
   }

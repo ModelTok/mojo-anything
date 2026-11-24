@@ -548,11 +548,53 @@ def test_an_older_node_leaves_it_to_the_phase1_binary() raises:
     assert_equal(log, "analyze .\n", "fallback with an older node")
 
 
+def test_review_findings_match_the_phase1_binary() raises:
+    """Review of 8a5790e..f7e2382: names in a dotted namespace and an
+    import type's qualifier are not references, an interface's heritage is
+    a type name, and a bare import of a root package with no `src` finds
+    no types (Rust looks for it at the filesystem root)."""
+    var t = _py()
+    var dot: List[String] = ["analyze", "."]
+    _both_ways(
+        t,
+        "names",
+        [
+            'package.json={"name": "proj"}\n',
+            (
+                "src/a.ts=export namespace process.tools { export const v = 1"
+                " }\nexport function add(a: number, b: number): number {"
+                " return a + b; }\n"
+            ),
+            (
+                'src/b.ts=export function f(x: import("./c").window.Opts):'
+                " number { return 1; }\n"
+            ),
+            "src/c.ts=export namespace window { export interface Opts {} }\n",
+            "src/d.ts=export interface M extends ns.lastIndex {}\n",
+        ],
+        dot,
+    )
+    _both_ways(
+        t,
+        "root-import",
+        [
+            'package.json={"name": "proj"}\n',
+            "index.ts=export interface Hooks { run: () => void }\n",
+            (
+                'lib/use.ts=import type { Hooks } from "proj";\nexport function'
+                " count(h: Hooks): number { return 1; }\n"
+            ),
+        ],
+        dot,
+    )
+
+
 def main() raises:
+    test_review_findings_match_the_phase1_binary()
     test_ts_plans_match_the_phase1_binary()
     test_out_writes_a_ts_plan()
     test_ts_maps_match_the_phase1_binary()
     test_what_the_reader_cannot_vouch_for_goes_to_the_phase1_binary()
     test_an_older_node_leaves_it_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_analyze_ts: 5 passed")
+    print("test_analyze_ts: 6 passed")
