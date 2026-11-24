@@ -12,6 +12,7 @@ from mojo_anything.cli_parse import PARSED, USAGE_ERROR, Parsed, parse
 from mojo_anything.fallback import fallback, report_owned
 from mojo_anything.analyze import run_analyze
 from mojo_anything.bridge import run_bridge
+from mojo_anything.refresh import run_record, run_refresh
 from mojo_anything.doctor import run_doctor
 from mojo_anything.map import run_map
 from mojo_anything.setup import run_setup
@@ -24,6 +25,8 @@ def owned() -> List[String]:
     out.append("analyze")
     out.append("map")
     out.append("bridge")
+    out.append("refresh")
+    out.append("record")
     out.append("setup")
     out.append("doctor")
     out.append("app record")
@@ -37,6 +40,10 @@ def run(p: Parsed, args: List[String]) raises -> Int:
     before it has written anything."""
     if p.path() == "analyze":
         return run_analyze(p, args)
+    if p.path() == "refresh":
+        return run_refresh(p, args)
+    if p.path() == "record":
+        return run_record(p, args)
     if p.path() == "bridge":
         return run_bridge(p, args)
     if p.path() == "map":

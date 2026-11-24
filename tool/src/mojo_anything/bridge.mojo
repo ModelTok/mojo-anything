@@ -50,7 +50,7 @@ from mojo_anything.plan import BLOCKED, KEEP, UnitReport
 from mojo_anything.tree_lang import tree_helpers
 
 comptime _PY = """
-import os
+import json, os
 
 def canonical(path):
     # ("ok", real path) as fs::canonicalize gives it; ("missing", "") on
@@ -104,6 +104,241 @@ def write_files(base, paths, texts):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w", encoding="utf-8", newline="") as f:
             f.write(text)
+
+def absolute(arg):
+    # std::path::absolute on Unix: `.` components dropped, `..` kept, a
+    # trailing slash kept; None for an empty path (clap refuses it).
+    if arg == "":
+        return None
+    parts = [p for p in arg.split("/") if p not in ("", ".")]
+    if arg.startswith("/"):
+        base = "//" if arg.startswith("//") and not arg.startswith("///") else "/"
+    else:
+        base = os.getcwd()
+    out = base
+    for p in parts:
+        out = out + p if out.endswith("/") else out + "/" + p
+    if arg.endswith("/") and not out.endswith("/"):
+        out += "/"
+    return out
+
+_LANGS = ("ts", "python", "c", "go", "ruby", "java", "kotlin", "php", "csharp", "cpp")
+_KINDS = ("c-abi", "ffi", "mojo-py", "mojo-node", "mojo-wasm", "mojo-jvm")
+
+class _Bad(Exception):
+    pass
+
+def _pairs(pairs):
+    out = {}
+    for k, v in pairs:
+        if k in out:
+            raise _Bad("duplicate field")
+        out[k] = v
+    return out
+
+def _const(name):
+    raise _Bad(name)
+
+def _is(v, t):
+    return type(v) is t
+
+def _str(d, k, required=True):
+    if k not in d:
+        if required:
+            raise _Bad(k)
+        return None
+    if not _is(d[k], str):
+        raise _Bad(k)
+    return d[k]
+
+def _opt_str(d, k):
+    v = d.get(k)
+    if v is not None and not _is(v, str):
+        raise _Bad(k)
+    return v
+
+def _flag(d, k, required):
+    if k not in d:
+        if required:
+            raise _Bad(k)
+        return False
+    if not _is(d[k], bool):
+        raise _Bad(k)
+    return d[k]
+
+def _u32(d, k):
+    v = d.get(k)
+    if not _is(v, int) or v < 0 or v > 4294967295:
+        raise _Bad(k)
+    return v
+
+def _list(d, k, required):
+    if k not in d:
+        if required:
+            raise _Bad(k)
+        return []
+    if not _is(d[k], list):
+        raise _Bad(k)
+    return d[k]
+
+def _obj(v):
+    if not _is(v, dict):
+        raise _Bad("not an object")
+    return v
+
+def _param(p):
+    p = _obj(p)
+    return {
+        "name": _str(p, "name"),
+        "ts_type": _str(p, "ts_type"),
+        "optional": _flag(p, "optional", True),
+        "rest": _flag(p, "rest", True),
+        "default": _opt_str(p, "default"),
+        "keyword_only": _flag(p, "keyword_only", False),
+        "native_type": _opt_str(p, "native_type"),
+    }
+
+def _function(f):
+    f = _obj(f)
+    tps = _list(f, "type_params", False)
+    if not all(_is(t, str) for t in tps):
+        raise _Bad("type_params")
+    if f.get("jvm_holder") is not None:
+        raise _Bad("jvm_holder")
+    return {
+        "name": _str(f, "name"),
+        "file": _str(f, "file"),
+        "line": _u32(f, "line"),
+        "params": [_param(p) for p in _list(f, "params", True)],
+        "returns": _str(f, "returns"),
+        "is_async": _flag(f, "is_async", True),
+        "is_generator": _flag(f, "is_generator", False),
+        "type_params": tps,
+        "uses_instanceof": _flag(f, "uses_instanceof", False),
+        "blocker": _opt_str(f, "blocker"),
+        "native_return": _opt_str(f, "native_return"),
+        "prototype": _opt_str(f, "prototype"),
+        "jvm_constructor": _flag(f, "jvm_constructor", False),
+    }
+
+def _class(c):
+    c = _obj(c)
+    return {
+        "name": _str(c, "name"),
+        "file": _str(c, "file"),
+        "line": _u32(c, "line"),
+        "constructor": [_param(p) for p in _list(c, "constructor", True)],
+        "methods": [_function(m) for m in _list(c, "methods", True)],
+        "blocker": _opt_str(c, "blocker"),
+    }
+
+def _js_only(j):
+    j = _obj(j)
+    return {"name": _str(j, "name"), "file": _str(j, "file"), "line": _u32(j, "line"), "reason": _str(j, "reason")}
+
+def _ascii_all(v):
+    if isinstance(v, str):
+        return v.isascii()
+    if isinstance(v, dict):
+        return all(_ascii_all(x) for x in v.values())
+    if isinstance(v, list):
+        return all(_ascii_all(x) for x in v)
+    return True
+
+def load_manifest(crate_dir):
+    # bridge::Manifest::load: ("ok", manifest dict, path), ("error", message)
+    # for the errors it gives that the Mojo tool reproduces, ("decline",)
+    # for the rest (a file serde_json may read otherwise than json, text
+    # outside ASCII, an io error other than ENOENT, batches).
+    path = os.path.join(crate_dir, "mojo-anything.json")
+    old = os.path.join(crate_dir, "rust-anything.json")
+    if not os.path.exists(path) and os.path.exists(old):
+        path = old
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except FileNotFoundError:
+        return ("error", "reading %s (run `mojo-anything bridge` first): No such file or directory (os error 2)" % path)
+    except OSError:
+        return ("decline",)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError:
+        return ("decline",)
+    if not text.isascii() or "\\\\u" in text or len(text) > 50000000:
+        return ("decline",)
+    depth = 0
+    for c in text:
+        if c in "[{":
+            depth += 1
+            if depth > 100:
+                return ("decline",)
+        elif c in "]}":
+            depth -= 1
+    try:
+        top = json.loads(text, object_pairs_hook=_pairs, parse_constant=_const)
+    except (ValueError, _Bad, RecursionError):
+        return ("decline",)
+    if not _is(top, dict):
+        return ("decline",)
+    kind = top.get("kind")
+    olds = {"pyo3": "PyO3", "napi": "napi-rs", "wasm": "wasm-bindgen"}
+    if _is(kind, str) and kind in olds:
+        return ("error", "%s was bridged with %s, which mojo-anything no longer generates: run bridge again to port the unit to Mojo" % (path, olds[kind]))
+    try:
+        language = _str(top, "language", False) or "ts"
+        if "language" in top and top["language"] not in _LANGS:
+            raise _Bad("language")
+        if kind not in _KINDS:
+            raise _Bad("kind")
+        m = {
+            "schema": _str(top, "schema"),
+            "root": _str(top, "root"),
+            "unit": _str(top, "unit"),
+            "language": language,
+            "kind": kind,
+            "crate_name": _str(top, "crate_name"),
+            "exports": [_function(f) for f in _list(top, "exports", True)],
+            "classes": [_class(c) for c in _list(top, "classes", False)],
+            "js_only": [_js_only(j) for j in _list(top, "js_only", False)],
+        }
+        if _list(top, "batches", False):
+            raise _Bad("batches")
+        ft = top.get("float_tolerance")
+        if ft is not None and not (_is(ft, float) or _is(ft, int)):
+            raise _Bad("float_tolerance")
+    except _Bad:
+        return ("decline",)
+    if not _ascii_all(m):
+        return ("decline",)
+    if kind == "ffi" and language in ("java", "kotlin"):
+        return ("error", "%s is a Rust JNI crate, which mojo-anything no longer generates: run bridge again to port the unit to Mojo (Java's Foreign Function & Memory API, Java 22+)" % crate_dir)
+    if kind == "c-abi" and os.path.exists(os.path.join(crate_dir, "Cargo.toml")):
+        return ("error", "%s is a Rust C ABI crate, which mojo-anything no longer generates: run bridge again to port the unit to Mojo" % crate_dir)
+    root = m["root"]
+    if not root.startswith("/"):
+        resolved = os.path.join(crate_dir, root)
+        try:
+            os.stat(resolved)
+            resolved = os.path.realpath(resolved)
+        except OSError:
+            pass
+        m["root"] = resolved
+    return ("ok", m, path)
+
+def read_port(crate_dir):
+    # ("ok", text), ("missing",) on ENOENT, ("decline",) otherwise (an io
+    # error, not UTF-8, text outside ASCII).
+    try:
+        with open(os.path.join(crate_dir, "port.mojo"), "rb") as f:
+            data = f.read()
+    except FileNotFoundError:
+        return ("missing",)
+    except OSError:
+        return ("decline",)
+    if not data.isascii():
+        return ("decline",)
+    return ("ok", data.decode("ascii"))
 """
 
 
