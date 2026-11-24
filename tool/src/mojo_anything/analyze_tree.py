@@ -28,6 +28,9 @@ _GRAMMARS = {
     "php": ("tree_sitter_php", "language_php"),
     "c": ("tree_sitter_c", "language"),
     "cpp": ("tree_sitter_cpp", "language"),
+    # `bridge` reads a Python unit's exports as python.rs `exports` does (analyze reads
+    # Python through `ast`, analyze_py.py).
+    "python": ("tree_sitter_python", "language"),
 }
 
 
@@ -3038,3 +3041,427 @@ def read_file(lang, path):
     except Exception as e:  # noqa: BLE001 - any failure of the bindings sends the case back
         return ("decline", "the bindings failed: " + type(e).__name__)
     return ("ok", loc(text), imports, risks, loops, exports)
+
+
+# ---- Python exports for `bridge` (python.rs `exports`) -------------------------------------
+
+_PY_SAFE_DECORATORS = ("cache", "lru_cache", "functools.cache", "functools.lru_cache", "staticmethod")
+
+
+def _field(node, name):
+    return node.child_by_field_name(name)
+
+
+def _trim_matches(s, chars):
+    i, j = 0, len(s)
+    while i < j and s[i] in chars:
+        i += 1
+    while j > i and s[j - 1] in chars:
+        j -= 1
+    return s[i:j]
+
+
+def _py_split_top(text, sep):
+    """python.rs `split_top`."""
+    out = []
+    depth = 0
+    current = ""
+    for c in text:
+        if c in "[(":
+            depth += 1
+        elif c in "])":
+            depth -= 1
+        if c == sep and depth == 0:
+            out.append(trim(current))
+            current = ""
+        else:
+            current += c
+    if trim(current):
+        out.append(trim(current))
+    return out
+
+
+def py_to_ts_type(hint):
+    """python.rs `to_ts_type`."""
+    hint = _trim_matches(trim(hint), "\"'")
+    if hint.startswith("typing."):
+        hint = hint[len("typing.") :]
+    top = _py_split_top(hint, "|")
+    if len(top) > 1:
+        return " | ".join(py_to_ts_type(p) for p in top)
+    i = hint.find("[")
+    if i >= 0 and hint.endswith("]"):
+        head, args = hint[:i], _py_split_top(hint[i + 1 : -1], ",")
+    else:
+        head, args = hint, []
+    head = trim(head)
+    if head.startswith("typing."):
+        head = head[len("typing.") :]
+
+    def arg(k):
+        return py_to_ts_type(args[k]) if k < len(args) else "unknown"
+
+    if head == "str":
+        return "string"
+    if head == "int":
+        return "int"
+    if head == "float":
+        return "number"
+    if head == "bool":
+        return "boolean"
+    if head in ("None", "NoneType"):
+        return "undefined"
+    if head in ("list", "List", "Sequence", "Iterable", "MutableSequence", "Collection"):
+        a = arg(0)
+        return ("(%s)" % a if "|" in a else a) + "[]"
+    if head == "Optional":
+        return arg(0) + " | undefined"
+    if head == "Union":
+        return " | ".join(py_to_ts_type(a) for a in args)
+    if head in ("dict", "Dict", "Mapping", "MutableMapping") and arg(0) == "string":
+        return "Record<string, %s>" % arg(1)
+    if head == "Literal":
+        return " | ".join(trim(a).replace('"', "'") for a in args)
+    if head == "Callable":
+        return "(...args: unknown[]) => unknown"
+    if head in ("Any", "object"):
+        return "unknown"
+    return head
+
+
+def _py_unwrap_decorated(node):
+    if node.type != "decorated_definition":
+        return [], node
+    decorators = []
+    for d in _named(node):
+        if d.type != "decorator":
+            continue
+        t = trim(_trim_start_matches(_text(d), "@"))
+        decorators.append(t.split("(")[0])
+    return decorators, (_field(node, "definition") or node)
+
+
+def _py_entry_calls(root, main_module):
+    out = []
+
+    def collect(node):
+        for n in _walk(node):
+            if n.type == "call":
+                f = _field(n, "function")
+                if f is not None and f.type == "identifier":
+                    out.append(_text(f))
+
+    for statement in _named(root):
+        guard = False
+        if statement.type == "if_statement":
+            c = _field(statement, "condition")
+            if c is not None:
+                c = _text(c).replace(" ", "").replace("'", '"')
+                guard = c == '__name__=="__main__"' or c == '"__main__"==__name__'
+        if guard:
+            body = _field(statement, "consequence")
+            if body is not None:
+                collect(body)
+        elif main_module and statement.type == "expression_statement":
+            collect(statement)
+    return out
+
+
+def _py_dunder_all(root):
+    """python.rs `dunder_all`: a top-level statement with no assignment in it ends the search
+    (its `?`)."""
+    for statement in _named(root):
+        assignment = next((n for n in _named(statement) if n.type == "assignment"), None)
+        if assignment is None:
+            return None
+        left = _field(assignment, "left")
+        if left is not None and _text(left) == "__all__":
+            right = _field(assignment, "right")
+            if right is None:
+                return None
+            return [_trim_matches(_text(n), "\"'") for n in _named(right) if n.type == "string"]
+    return None
+
+
+def _py_infer_numbers(params, body):
+    unknown = [p["name"] for p in params if p["ts_type"] == "unknown" and p["default"] is None]
+    if not unknown:
+        return
+    numeric = []
+
+    def is_number(n):
+        return n.type in ("integer", "float")
+
+    for n in _walk(body):
+        if n.type == "binary_operator":
+            o = _field(n, "operator")
+            op = _text(o) if o is not None else ""
+            l, r = _field(n, "left"), _field(n, "right")
+            if l is None or r is None:
+                continue
+            if op in ("-", "*", "/", "//", "**"):
+                operands = [l, r]
+            elif op in ("+", "%") and (is_number(l) or is_number(r)):
+                operands = [l, r]
+            else:
+                continue
+        elif n.type == "comparison_operator":
+            parts = _named(n)
+            if not any(is_number(p) for p in parts):
+                continue
+            operands = parts
+        elif n.type == "call":
+            f = _field(n, "function")
+            f = _text(f) if f is not None else ""
+            if f not in ("min", "max", "abs", "round", "float", "int", "divmod") and not f.startswith("math."):
+                continue
+            a = _field(n, "arguments")
+            operands = _named(a) if a is not None else []
+        else:
+            continue
+        for o in operands:
+            if o.type == "identifier":
+                name = _text(o)
+                if name in unknown and name not in numeric:
+                    numeric.append(name)
+    for p in params:
+        if p["name"] in numeric:
+            p["ts_type"] = "number"
+
+
+def _py_param(name, ts_type, optional=False, default=None):
+    return {"name": name, "ts_type": ts_type, "optional": optional, "default": default, "keyword_only": False}
+
+
+_PY_LITERAL_TYPES = {"integer": "int", "float": "number", "string": "string", "true": "boolean", "false": "boolean"}
+
+
+def _py_parameters(node, method):
+    params = []
+    blocker = None
+    keyword_only = False
+    for i, p in enumerate(_named(node)):
+        if p.type == "identifier":
+            param = _py_param(_text(p), "unknown")
+        elif p.type == "typed_parameter":
+            kids = _named(p)
+            inner = kids[0] if kids else None
+            t = _field(p, "type")
+            ty = py_to_ts_type(_text(t)) if t is not None else "unknown"
+            kind = inner.type if inner is not None else None
+            if kind == "list_splat_pattern":
+                blocker = "takes `*args`"
+                continue
+            if kind == "dictionary_splat_pattern":
+                blocker = "takes `**kwargs`"
+                continue
+            param = _py_param(_text(inner) if inner is not None else "", ty)
+        elif p.type in ("default_parameter", "typed_default_parameter"):
+            value = _field(p, "value")
+            default = _text(value) if value is not None else None
+            t = _field(p, "type")
+            if t is not None:
+                ty = py_to_ts_type(_text(t))
+            else:
+                ty = _PY_LITERAL_TYPES.get(value.type if value is not None else None, "unknown")
+            n = _field(p, "name")
+            param = _py_param(_text(n) if n is not None else "", ty, True, default)
+        elif p.type == "list_splat_pattern":
+            blocker = "takes `*args`"
+            continue
+        elif p.type == "dictionary_splat_pattern":
+            blocker = "takes `**kwargs`"
+            continue
+        elif p.type == "keyword_separator":
+            keyword_only = True
+            continue
+        else:
+            continue
+        if method and i == 0 and param["name"] in ("self", "cls"):
+            continue
+        param["keyword_only"] = keyword_only
+        params.append(param)
+    return params, blocker
+
+
+def _py_function(path, node, decorators, method):
+    name = _field(node, "name")
+    parameters = _field(node, "parameters")
+    if name is None or parameters is None:
+        return None
+    params, blocker = _py_parameters(parameters, method)
+    body = _field(node, "body")
+    if body is not None:
+        _py_infer_numbers(params, body)
+    generator = False
+    if body is not None:
+        for n in _walk(body):
+            if n.type == "yield":
+                generator = True
+    if body is not None:
+        names = [p["name"] for p in params]
+        for n in _walk(body):
+            if n.type == "call":
+                f = _field(n, "function")
+                if f is not None and f.type == "identifier" and _text(f) in names and blocker is None:
+                    blocker = "calls its parameter `%s`: a callable" % _text(f)
+    for d in decorators:
+        if d not in _PY_SAFE_DECORATORS:
+            if blocker is None:
+                blocker = "decorated with `@%s`" % d
+            break
+    r = _field(node, "return_type")
+    return {
+        "name": _text(name),
+        "file": path,
+        "line": _line(node),
+        "params": params,
+        "returns": py_to_ts_type(_text(r)) if r is not None else "unknown",
+        "is_async": _text(node).startswith("async"),
+        "is_generator": generator,
+        "blocker": blocker,
+    }
+
+
+def _py_words(text):
+    """Splits at characters other than alphanumerics and `_` (ASCII text only)."""
+    out = []
+    word = ""
+    for c in text:
+        if c.isalnum() or c == "_":
+            word += c
+        else:
+            out.append(word)
+            word = ""
+    out.append(word)
+    return out
+
+
+def _py_class(path, node, decorators):
+    name = _field(node, "name")
+    body = _field(node, "body")
+    if name is None or body is None:
+        return None
+    name = _text(name)
+    blockers = []
+    bases = _field(node, "superclasses")
+    if bases is not None:
+        names = [_text(b) for b in _named(bases) if _text(b) != "object"]
+        if names:
+            blockers.append("inherits from " + ", ".join(names))
+    if decorators:
+        blockers.append("decorated with `@%s`" % decorators[0])
+    constructor = []
+    methods = []
+    for item in _named(body):
+        decs, definition = _py_unwrap_decorated(item)
+        if definition.type == "function_definition":
+            m = _field(definition, "name")
+            method_name = _text(m) if m is not None else ""
+            if method_name == "__init__":
+                parameters = _field(definition, "parameters")
+                if parameters is None:
+                    return None
+                params, blocker = _py_parameters(parameters, True)
+                constructor = params
+                if blocker is not None:
+                    blockers.append(blocker)
+                init_body = _field(definition, "body")
+                if init_body is not None:
+                    for n in _walk(init_body):
+                        if n.type == "assignment":
+                            left = _field(n, "left")
+                            if left is not None and _text(left).startswith("self."):
+                                attr = _text(left)[len("self.") :]
+                                if not attr.startswith("_") and "." not in attr:
+                                    blockers.append("public attribute `%s`" % attr)
+            elif method_name.startswith("__") and method_name.endswith("__"):
+                blockers.append("special method `%s`" % method_name)
+            elif method_name.startswith("_"):
+                pass
+            elif decs:
+                blockers.append("`@%s` method `%s`" % (decs[0], method_name))
+            else:
+                f = _py_function(path, definition, [], True)
+                if f is not None:
+                    if f["is_async"] or f["is_generator"]:
+                        blockers.append("async or generator method `%s`" % f["name"])
+                    if any(w == name or w == "Self" for w in _py_words(f["returns"])):
+                        blockers.append("method `%s` returns an instance" % f["name"])
+                    methods.append(f)
+        elif definition.type == "expression_statement":
+            assignment = next((n for n in _named(definition) if n.type == "assignment"), None)
+            left = _field(assignment, "left") if assignment is not None else None
+            if left is not None and not _text(left).startswith("_"):
+                blockers.append("public class attribute `%s`" % _text(left))
+    blockers = sorted(set(blockers), key=lambda s: s.encode("utf-8"))
+    return {
+        "name": name,
+        "file": path,
+        "line": _line(node),
+        "constructor": constructor,
+        "methods": methods,
+        "blocker": ", ".join(blockers) if blockers else None,
+    }
+
+
+def _py_ascii(value):
+    if isinstance(value, str):
+        return value.isascii()
+    if isinstance(value, dict):
+        return all(_py_ascii(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_py_ascii(v) for v in value)
+    return True
+
+
+def python_exports(path, rel):
+    """python.rs `exports` of the file at `path` (`rel` from the root): ("ok", functions,
+    classes) as dicts, ("unreadable",) when read_to_string fails, or ("decline", why) when the
+    tree has an error or a name, type or default is outside ASCII (Rust's Unicode tables)."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return ("unreadable",)
+    try:
+        root = _parse("python", data).root_node
+        if root.has_error:
+            raise Decline("a syntax error")
+        names = _py_dunder_all(root)
+        entry = _py_entry_calls(root, rel.endswith("__main__.py"))
+        functions = []
+        classes = []
+        for item in _named(root):
+            decorators, definition = _py_unwrap_decorated(item)
+            if definition.type == "function_definition":
+                f = _py_function(rel, definition, decorators, False)
+                if f is None:
+                    continue
+                r = _field(definition, "return_type")
+                parser = r is not None and _text(r).endswith("ArgumentParser")
+                if parser or f["name"] in entry:
+                    f["blocker"] = (
+                        "a command-line entry point: it stays in Python, and `app front-door` "
+                        "takes the command line over when the whole app moves"
+                    )
+                public = not f["name"].startswith("_") if names is None else f["name"] in names
+                if public:
+                    functions.append(f)
+            elif definition.type == "class_definition":
+                c = _py_class(rel, definition, decorators)
+                if c is None:
+                    continue
+                public = not c["name"].startswith("_") if names is None else c["name"] in names
+                if public:
+                    classes.append(c)
+        if not (_py_ascii(functions) and _py_ascii(classes)):
+            raise Decline("text outside ASCII")
+    except Decline as e:
+        return ("decline", str(e))
+    except RecursionError:
+        return ("decline", "too deep")
+    except Exception as e:  # noqa: BLE001 - any failure of the bindings sends the case back
+        return ("decline", "the bindings failed: " + type(e).__name__)
+    return ("ok", functions, classes)

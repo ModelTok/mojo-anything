@@ -8,6 +8,8 @@
   tree-sitter.
 - `replacements_toml()`: src/replacements.toml, the crate table, which the Rust tool embeds with
   `include_str!` (src/crates.rs).
+- `py_num_mojo()`: src/mojo/py_num.mojo, which `bridge` writes into a Python unit's port
+  (src/codegen_mojo_py.rs `PY_NUM_MOJO`, an `include_str!`).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
 formatted.
@@ -22,6 +24,7 @@ FILES = [
     ("analyze_py_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_py.py")),
     ("analyze_tree_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_tree.py")),
     ("replacements_toml", os.path.join(REPO, "src", "replacements.toml")),
+    ("py_num_mojo", os.path.join(REPO, "src", "mojo", "py_num.mojo")),
 ]
 
 
