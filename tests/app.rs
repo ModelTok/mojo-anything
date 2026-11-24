@@ -445,18 +445,6 @@ fn wire_writes_mojo_glue() {
     );
     let state = front_door::State::load(&repo).unwrap();
     assert_eq!(state.units[0].path, "../../mojo/textops-mojo");
-    // A Rust crate cannot be wired into the Mojo front door.
-    write_unit(&repo, "textops-rs", &textops_port(&CHARS));
-    let err = front_door::wire(&WireOptions {
-        repo: &repo,
-        unit: "textops-rs",
-        commands: &["len".to_string()],
-        routes: &[],
-        skip_gate: true,
-        check: false,
-    })
-    .unwrap_err();
-    assert!(format!("{err:#}").contains("Rust crate"), "{err:#}");
     std::fs::remove_dir_all(&repo).unwrap();
 }
 
@@ -1056,20 +1044,6 @@ fn the_command_exits_non_zero_on_a_mismatch() {
     std::fs::remove_dir_all(&repo).unwrap();
 }
 
-fn write_unit(repo: &Path, name: &str, port: &str) {
-    let unit = repo.join("rust").join(name);
-    std::fs::create_dir_all(unit.join("src")).unwrap();
-    std::fs::write(
-        unit.join("Cargo.toml"),
-        format!(
-            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n"
-        ),
-    )
-    .unwrap();
-    std::fs::write(unit.join("src/lib.rs"), "pub mod port;\n").unwrap();
-    std::fs::write(unit.join("src/port.rs"), port).unwrap();
-}
-
 /// How the original counts and uppercases: a faithful port matches its own language.
 struct Semantics {
     count: &'static str,
@@ -1082,55 +1056,6 @@ const CHARS: Semantics = Semantics {
     upper: "Upper::Full",
     unit: "characters",
 };
-
-fn textops_port(s: &Semantics) -> String {
-    format!(
-        "pub enum Count {{
-    Chars,
-    Bytes,
-}}
-
-pub enum Upper {{
-    Full,
-    Simple,
-    Ascii,
-}}
-
-pub const COUNT: Count = {};
-pub const UPPER: Upper = {};
-pub const UNIT: &str = {:?};
-
-pub fn upper(text: &str) -> String {{
-    match UPPER {{
-        Upper::Full => text.to_uppercase(),
-        Upper::Simple => text
-            .chars()
-            .map(|c| {{
-                let mut up = c.to_uppercase();
-                match (up.next(), up.next()) {{
-                    (Some(u), None) => u,
-                    _ => c,
-                }}
-            }})
-            .collect(),
-        Upper::Ascii => text.to_ascii_uppercase(),
-    }}
-}}
-
-pub fn count(text: &str) -> usize {{
-    match COUNT {{
-        Count::Chars => text.chars().count(),
-        Count::Bytes => text.len(),
-    }}
-}}
-
-pub fn div(a: i64, b: i64) -> Option<(i64, i64)> {{
-    (b != 0).then(|| (a / b, a % b))
-}}
-",
-        s.count, s.upper, s.unit
-    )
-}
 
 /// The same port in Mojo, as `mojo format` writes it.
 fn textops_port_mojo(s: &Semantics) -> String {

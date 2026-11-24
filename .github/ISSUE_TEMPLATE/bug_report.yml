@@ -8,7 +8,7 @@ body:
         Thanks for reporting. A security problem goes through the private report in SECURITY.md instead.
 
         **Don't paste secrets or private data.** Leave out API keys, tokens, private code, and the
-        recorded `cases.jsonl` (or `rust/app-cases/`) of a private project: recordings contain real
+        recorded `cases.jsonl` (or `mojo/app-cases/`) of a private project: recordings contain real
         inputs and outputs. A minimal repro with made-up data is enough.
   - type: textarea
     id: what

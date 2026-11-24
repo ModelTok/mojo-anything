@@ -1024,6 +1024,77 @@ pub fn exports(path: &str, source: &str) -> Vec<ExportedFn> {
     out
 }
 
+/// The name of a top-level function definition, or "".
+fn defined_name<'a>(function: Node<'_>, source: &'a str) -> &'a str {
+    if function.kind() != "function_definition" {
+        return "";
+    }
+    function
+        .child_by_field_name("declarator")
+        .map(|mut d| {
+            while d.kind() != "function_declarator" {
+                match d.child_by_field_name("declarator") {
+                    Some(inner) => d = inner,
+                    None => break,
+                }
+            }
+            d.child_by_field_name("declarator")
+                .map_or("", |n| text(n, source))
+        })
+        .unwrap_or("")
+}
+
+/// What the functions in `ported` call, by the text of the called expression.
+fn ported_callees(
+    root: Node<'_>,
+    source: &str,
+    ported: &[&str],
+) -> std::collections::BTreeSet<String> {
+    let mut callees = std::collections::BTreeSet::new();
+    for function in named_children(root) {
+        if !ported.contains(&defined_name(function, source)) {
+            continue;
+        }
+        syntax::walk(function, |node| {
+            if node.kind() == "call_expression"
+                && let Some(f) = node.child_by_field_name("function")
+            {
+                callees.insert(text(f, source).to_string());
+            }
+        });
+    }
+    callees
+}
+
+/// The functions `ported` call by name that neither the unit nor the repository files
+/// [`called_implementations`] finds define: the C library's (`strtol`, `isalpha`) or another
+/// library's. A port reimplements them, so the unit's own lines say nothing about its size. A
+/// call through a function-pointer parameter is listed too.
+pub fn library_calls(root: &Path, unit: &str, ported: &[&str]) -> Vec<String> {
+    let Ok(source) = std::fs::read_to_string(root.join(unit)) else {
+        return Vec::new();
+    };
+    let Some(tree) = syntax::parse(&language(), &source) else {
+        return Vec::new();
+    };
+    let mut defined: std::collections::HashSet<String> = named_children(tree.root_node())
+        .into_iter()
+        .map(|f| defined_name(f, &source).to_string())
+        .collect();
+    for file in called_implementations(root, unit, ported) {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        defined.extend(
+            exports(&file.to_string_lossy(), &text)
+                .into_iter()
+                .map(|f| f.name),
+        );
+    }
+    ported_callees(tree.root_node(), &source, ported)
+        .into_iter()
+        .filter(|c| c.chars().all(|ch| ch.is_alphanumeric() || ch == '_') && !defined.contains(c))
+        .collect()
+}
+
 /// The project's `.c` files (beside the headers `unit` includes with quotes) that define a
 /// function one of `ported` calls: a port replaces those too, since Rust cannot call back into
 /// them. Calls from functions kept in C do not count.
@@ -1034,33 +1105,8 @@ pub fn called_implementations(root: &Path, unit: &str, ported: &[&str]) -> Vec<s
     let Some(tree) = syntax::parse(&language(), &source) else {
         return Vec::new();
     };
-    let mut callees = std::collections::HashSet::new();
+    let callees = ported_callees(tree.root_node(), &source, ported);
     let mut headers = Vec::new();
-    for function in named_children(tree.root_node()) {
-        let name = function
-            .child_by_field_name("declarator")
-            .map(|mut d| {
-                while d.kind() != "function_declarator" {
-                    match d.child_by_field_name("declarator") {
-                        Some(inner) => d = inner,
-                        None => break,
-                    }
-                }
-                d.child_by_field_name("declarator")
-                    .map_or("", |n| text(n, &source))
-            })
-            .unwrap_or("");
-        if function.kind() != "function_definition" || !ported.contains(&name) {
-            continue;
-        }
-        syntax::walk(function, |node| {
-            if node.kind() == "call_expression"
-                && let Some(f) = node.child_by_field_name("function")
-            {
-                callees.insert(text(f, &source).to_string());
-            }
-        });
-    }
     syntax::walk(tree.root_node(), |node| {
         if node.kind() == "preproc_include"
             && let Some(path) = node.child_by_field_name("path")
@@ -1297,6 +1343,29 @@ mod tests {
         assert_eq!(found, [root.join("lib/crc.c")]);
         let both = called_implementations(&root, "lib/wrap.c", &["one", "kept"]);
         assert_eq!(both.len(), 2);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn lists_the_library_functions_ported_functions_call() {
+        let root = std::env::temp_dir().join(format!("ra-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("lib")).unwrap();
+        let write = |p: &str, t: &str| std::fs::write(root.join(p), t).unwrap();
+        write("lib/crc.h", "unsigned crc(const char *b);\n");
+        write("lib/crc.c", "unsigned crc(const char *b) { return 0; }\n");
+        write(
+            "lib/wrap.c",
+            "#include \"lib/crc.h\"\n#include <stdlib.h>\n\
+             static long twice(long x) { return 2 * x; }\n\
+             long one(const char *b) { return twice(strtol(b, NULL, 10)) + crc(b); }\n\
+             int kept(int x) { return abs(x); }\n",
+        );
+        assert_eq!(library_calls(&root, "lib/wrap.c", &["one"]), ["strtol"]);
+        assert_eq!(
+            library_calls(&root, "lib/wrap.c", &["one", "kept"]),
+            ["abs", "strtol"]
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 

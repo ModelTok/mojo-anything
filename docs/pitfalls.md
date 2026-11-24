@@ -6,31 +6,40 @@ same change whenever a mistake is worth not repeating.
 ## Generated code and bridges
 
 **A helper in `port.rs` became part of the bridged API.** Making `parse_options` `pub` exported it
-through the bridge. Keep helpers private; only the unit's exports are `pub`.
+through the bridge. Keep helpers private: in `port.mojo` a helper's name starts with `_`, and
+only the unit's exports do not.
 
-**Wiring every napi function broke crates without `serde_json`.** `required_deps` must add each
-crate the generated code uses. After changing codegen, bridge a unit with no JSON parameters and
-build it.
+**A refreshed Go unit lost its JSON support.** A Go unit whose port no longer matched the typed
+shape, or whose `port.mojo` had a public helper, lost `json.mojo` and EmberJson on `refresh`, and
+the build failed. Only exported functions are generated, and JSON support is added whenever the
+dispatcher is used (`needs_json_mojo`). After changing codegen, `refresh` and build a unit that
+uses the dispatcher and one that does not.
 
-**Generated helpers unused by a crate failed clippy.** Emit each helper only when the crate needs
-it (as `JOINED_IN_RS` and `JOINED_OUT_RS` are), and run `gate` on a crate that uses none.
+**Generated code that nothing read failed the build.** A unit exporting only classes got a
+dispatcher with `ref a = args.array()` and nothing reading it, which `mojo build --Werror`
+refuses; rust-anything's helpers unused by a crate failed clippy the same way. Emit each binding
+and helper only when something uses it, and build a unit that uses none (a dispatcher with no
+functions).
 
 **Number formatting picked the wrong digit on ties.** A hand-written shortest-digits routine gave
 `...813` where V8 gives `...812`. Take digits from `serde_json` (zmij), which rounds to the closest
 value as V8 does, and test ties.
 
 **Two front doors overwrote each other's binary.** With `CARGO_TARGET_DIR` set, every app built
-into the same `target/`, so replays ran another app's binary. The front door now builds into its
-own `rust/app/target`; run `cargo test` with the variable set after touching the build.
+into the same `target/`, so replays ran another app's binary. The Mojo front door builds into its
+own `mojo/app/.mojo-anything/build`, and a unit into its own `.mojo-anything/build`; keep every
+build's output inside the app or unit it belongs to, and run `cargo test` with the variable set
+after touching a build.
 
 **Glue could not hand a single case back.** A wired unit that covers only part of the input (a
 formatter with unported syntax) had no way to decline after reading stdin. Glue calls
-`crate::original::run_with_stdin(args, input)` to pass the case and the bytes it already read;
-`lift` refuses to finish while any glue still contains `original::`.
+`original.run_with_stdin(args, input)` to pass the case and the bytes it already read; `lift`
+refuses to finish while any glue still calls into `original.`.
 
 **Deep JSON stopped recording at 128 levels.** serde_json's recursion limit rejected Prettier's
-doc trees. Case and input lines are read with `unbounded_depth` and the limit disabled, in the
-harness and in generated `from_json`; a test reads a 200-deep line.
+doc trees. The harness reads case and input lines with `unbounded_depth` and the limit disabled,
+and `json.mojo` is checked 200 levels deep (`tests/mojo_json.rs`); EmberJson itself stops at
+1024 levels.
 
 **Characters beyond U+1FFFF reached the port on the wrong plane.** EmberJson joins an escaped
 surrogate pair with `| 0x10000` instead of `+ 0x10000`, so `"𠈀"` (U+20200) read as
@@ -46,6 +55,30 @@ exports alone and passed; constants and members the bridge left out vanished the
 replaced class must keep every public member a caller can link to: `java api` compares all of
 them (fields, constructors and public nested classes too), and a test runs a caller compiled
 against the original on the wrappers.
+
+**The C++ wrapper dropped what was not bridged.** `cpp/wrapper.cpp` defines only the bridged
+functions, and the bridge note said to link it in place of the unit, so a caller of a refused
+function in the same file (`helper_kept(int*)`) got `undefined reference`, while `gate` passed.
+`cpp api` now names every strong external definition of the unit the wrapper lacks; keep those
+in a file of their own.
+
+**A derived exception reached callers as `std::runtime_error`.** The wrapper rebuilt the nine
+`<stdexcept>` types by exact name only, so `struct bad_input : std::invalid_argument` escaped a
+caller's `catch (const std::invalid_argument &)` and terminated it, and its `what()` gained a
+`type: ` prefix. The shim now records `<type> (<base>): <what()>` with the nearest standard base
+(a `dynamic_cast` chain), and the wrapper throws that base with the original `what()`.
+
+**A string that was not UTF-8 reached Mojo unchecked.** The generated `_str` built the port's
+`String` with `unsafe_from_utf8`, and the driver turned a `{"$bytes": [255]}` input into the
+text `{'$bytes': [255]}`, so such a case could neither be recorded nor reach the port safely.
+`_str` now checks with `String(from_utf8=...)` and raises `std::invalid_argument` into the error
+slot, and the driver passes `$bytes` as the bytes. Treat bytes from C as unchecked until a
+checked constructor has seen them.
+
+**Two C spellings made one Mojo helper twice.** `std::vector<long>` and
+`std::vector<std::int64_t>` are both `List[Int64]`, and `exports.mojo` defined `_list_int64` once
+per spelling, so `build` failed. Name and de-duplicate generated helpers by the same key
+(`helper_tag`), and bridge a unit with two spellings of one type after changing codegen.
 
 **A bridge found no functions in a module that exports a list.** `export { a, b as c }` was not
 read. `ts/exports.rs` reads export lists; check `bridge` on a unit written that way.
@@ -92,14 +125,94 @@ that names `llvm.x86.`, and check a module's exports and imports, not only that 
 of JSON values lost its tags (`["a","bb"]` came back as `[97,25186]`). The wasm kind compiles
 64-bit IR to wasm64 instead; probe `List[Variant]` growth before trusting any new target.
 
-**Mojo's LLVM writes float constants clang 22 cannot read.** `double +qnan`, `double -inf` and
-`double f0x7FEFFFFFFFFFFFFF` fail with "expected value token"; `harness_mojo_wasm` rewrites them
-to the old hex form. A unit with no float parameters hid this in the spike: test floats in and
-out.
+**Mojo's LLVM writes float constants clang 22 cannot read.** `double +qnan`, `double -inf`,
+`double f0x7FEFFFFFFFFFFFFF`, and NaNs with a payload, `double +nan(0x7FFFFFFFFFFFF)` (quiet) and
+`double -snan(0x1)` (signalling), fail with "expected value token"; `harness_mojo_wasm` rewrites
+them to the old hex form. The payload is the significand without its quiet bit (a probe of
+`bitcast` constants gave `+nan(0x7FFFFFFFFFFFF)` for the bits `0x7FFFFFFFFFFFFFFF`); a `float`
+NaN's old form is the `double` with its significand moved up 29 bits. An operand after the
+instruction's type has none of its own (`fmul double %a, +inf`, `phi double [ +inf, %bb ]`), so
+the rewrite takes the type named last on the line, and leaves quoted text alone. A unit with no
+float parameters hid this in the spike, and vercel/ms only failed on a payload NaN after the
+first fix: test floats in and out, and check a rewrite's bits by compiling it with clang.
 
 **`0.1 + 0.2` in a Mojo port is 0.3.** Float literals are exact until they become `Float64`, so
 the sum of two literals folds to 0.3, where JS gives 0.30000000000000004. Add as `Float64` values
 (`var a: Float64 = 0.1`) when the original adds literals.
+
+**A Mojo port fused what C++ rounded twice.** The EnergyPlus psychrometrics port, written as
+the C++ statements read, missed 1,391 of 9,658 cases by one to 730 units in the last place:
+`mojo build` contracts `1.00484e3 * TDB + w * (...)` into multiply-adds by default
+(`--fp-mode contract=fast`), and g++ 13.3 at `-O1` for x86-64 does not. The first fix routed
+products through a hand-placed `@no_inline` multiply; the compilers' own flags do it everywhere:
+C ABI units now build with `--fp-mode contract=off` and `record` compiles the original with
+`-ffp-contract=off`. A recording is only as representative as its flags: g++ fuses too at
+`-O2 -march=native` or with `-mfma`, so record with the flags the real build uses, and look for
+`vfmadd` in both libraries' disassembly when floats differ in the last place.
+
+**`String(Float64)` hung on wasm32 and picks other digits than V8.** On mojo-wasm's wasm32 route
+the call never returned; on native it gave other digits than V8 in 154 of 473 probe floats and
+failed to round-trip 7 of 20,003. Floats that cross as JSON go through EmberJson's writer (NaN,
+the infinities and -0 as `$num` markers), never through `String(Float64)`, and the wasm kind
+builds for wasm64, where the call returns.
+
+**Plain `char` was taken as signed everywhere.** It is unsigned on Linux arm, PowerPC, RISC-V and
+s390x, so a C unit there needs `UInt8` and ctypes `c_ubyte`, not `Int8`. Map `char` by the host,
+and check any C type whose signedness the standard leaves open.
+
+**Go's JSON path replaced invalid UTF-8 without a word.** A Go string holding bytes that are not
+UTF-8 reached the port with U+FFFD in their place, and the result looked like an answer. The
+wrapper now panics naming the argument; refuse what a bridge cannot carry instead of changing it.
+
+**A typed string result was sliced past its buffer.** A Go result that outgrew the buffer a second
+time was read past the end. The wrapper retries until the result fits; test a result larger than
+two retries' worth (`tests/go_mojo.rs` has a 1 MB one).
+
+**A void result reached JS as `null`.** A Mojo function returning nothing, or an empty `Optional`,
+came back as `null` where the original gives `undefined`. Both answer with the `$undefined`
+marker; check `Object.is` on `undefined`, `null`, `-0` and `NaN` through each bridge.
+
+**A lone surrogate deep in a parameter aborted the port.** `index.cjs` checked top-level strings
+only, so a lone surrogate inside an `Optional[List[String]]` or a batch's fixed `String` reached
+Mojo, which cannot hold one, and ended as `MOJO_PANIC`. Check every string at every depth before
+the library is called, and raise the `TypeError` the codec raises elsewhere.
+
+**Mojo's case tables are not the JDK's.** `String.upper()` maps the full Unicode case but from
+tables older than Unicode 16, and sends the Greek ypogegrammeni letters to title case: 90 code
+points differ from Java 25's `toUpperCase`, and no recorded case hit them. Check case mapping, and
+any other table-driven function, on every code point against the original.
+
+**A rebuilt library could change under a running process.** Writing the new library over the old
+file changes what a running Node process has mapped. `build` writes beside it and renames it into
+place; do the same for any file a process may have loaded.
+
+**EmberJson from conda did not load.** The conda package (0.4.0) was precompiled for Mojo 1.1, and
+a `.mojoc` only loads under the compiler that wrote it. Take a Mojo dependency at the release that
+pins the same Mojo (EmberJson's git tag `0.5.0`, built by pixi-build), and check that it builds
+under the pinned Mojo before using it.
+
+**The forked child allocated.** The CLI front door's child built its error message and called
+`perror` after `fork`; neither allocation nor `perror` is safe between `fork` and `exec`.
+The child makes only async-signal-safe calls, with its failure message made before `fork`
+(`front_door_mojo::tests::the_forked_child_allocates_nothing`).
+
+**One silent client stopped the server front door.** It serves one request at a time, so a client
+that connected and sent nothing blocked every other. Accepted connections time reads out after
+5 seconds; test a second client while a first sends nothing.
+
+**The server front door did not answer `localhost` from Node.** It listened on `127.0.0.1` only,
+and Node 17+ resolves `localhost` to `::1`. It listens on both
+(`front_door_answers_on_ipv6_localhost`).
+
+**A wrong `MOJO_ANYTHING_REPO` ran another program.** Given a repository that did not hold the
+recorded command's files, the front door ran a same-named file from the working directory. It
+stops with exit 125 naming the path (`wrong_repo_variable_is_an_error`); a front door must never
+look for the original outside the repository it was told.
+
+**Rust names left in lookups hid Mojo results.** `diff` tracked changes to `src/port.rs` only, so
+a Mojo port never got a trend and `map` showed its last diff as "not run"; the MCP server
+reported a failed build as `build_failed` only for `cargo build`. When a file or command is
+renamed for Mojo, search the code for the old name, not only the generators.
 
 ## Recording
 
@@ -137,8 +250,10 @@ check that the `*.out` folders are not empty.
 
 **A front door could not find the original through a symlinked `rust/`.** The generated
 `original.rs` resolved the repository as `CARGO_MANIFEST_DIR/../..`, which is the link target's
-parent. Builds by rust-anything now set `RUST_ANYTHING_REPO`; set it yourself when you build such
-a front door with `cargo`.
+parent. A generated Mojo front door is told the repository at build time
+(`-D MOJO_ANYTHING_REPO=<repo>`), and `$MOJO_ANYTHING_REPO` wins at run time; set the variable
+yourself when you build a front door by hand with `mojo build`, since without either it finds
+itself through `/proc/self/exe`, which resolves the link.
 
 **A server's recording carried state from its previous run.** json-server rewrites its database
 on every POST, so the second recording run started from the first one's writes. Record servers
@@ -205,10 +320,11 @@ The original gets only the recorded arguments with its own private port, and the
 every request it reads (`<fallback log>.served`): a replay fails each answer the front door did
 not read. A fallback rate means nothing unless the build being measured answered the requests.
 
-**`gate` checked less than it seemed for a split port.** Its unwrap, panic and size checks read
-`port.rs` only, and `size` counts the whole import closure (node_modules included). When the port
-lives in a dependency crate, run clippy with `-D warnings` on that crate and grep it for
-`unwrap`/`panic!` yourself, and do not quote the size ratio.
+**`gate` checked less than it seemed for a split port.** In rust-anything its unwrap, panic and
+size checks read `port.rs` only, while the port lived in a dependency crate. On Mojo the `ported`
+and `unsafe` checks still read `port.mojo` only, not the helper `.mojo` files it imports. When a
+port is split over modules, search the helpers for stubs, `abort(`, pointer types and
+`external_call` without a `# SAFETY:` comment yourself.
 
 **A port followed the wrong path key.** Prettier's `path.match(...)` gives predicate *i* the node
 *i* levels up and the key under which the level below sits. Port the semantics and test a
@@ -216,13 +332,8 @@ lives in a dependency crate, run clippy with `-D warnings` on that crate and gre
 
 **A port compiled its regexes on every call.** Prettier's `printNumber` is four regex replaces;
 ported with `Regex::new` inside the function, an array of 100 numbers took 23 ms instead of 0.7.
-Compile once (`OnceLock` or a thread-local cache), and look at the slowest cases of every bench,
-not only the mean.
-
-**A port read its AST through hashed maps.** Bridge crates turn on serde_json's
-`preserve_order`, and Cargo unifies features across the binary, so every field lookup in a
-`serde_json::Value` tree hashed the key. Reading oxc's ESTree into a small vector-backed value
-type with interned keys made the printer about 1.7x faster. Profile before blaming the algorithm.
+Compile a pattern once, not on every call, or rewrite a fixed pattern by hand as `analyze`'s
+regex advice says, and look at the slowest cases of every bench, not only the mean.
 
 **A benchmark timed a stale binary.** `cargo build --example bench | tail -1 && run` took the
 pipe's status from `tail`, so a missing example went unnoticed and the old binary skipped every
@@ -240,11 +351,6 @@ of the most used rules were missing, and the rules showed "0 cases" instead of a
 only the cases that use what you cannot express, and check every unit's case count after
 harvesting.
 
-**A copy of a crate built into the same target folder replaced it.** A scratch copy of the port,
-with the same package name and version, was built with the same `CARGO_TARGET_DIR`; cargo gave
-both the same artifact name, and examples of the real crate linked the copy's library and
-reported stale numbers. Give a copy its own package name or its own target folder.
-
 **A grep hid the bug it was meant to show.** Filtering diffs with a pattern that drops comment-like
 lines removed the one line that differed (`/* name */ value`). Write the expected and actual
 output to files and diff them whole.
@@ -254,11 +360,6 @@ doc printer was checked on every doc up to size 5, read from JSON through `from_
 turns `align: ""` into a no-op as Prettier does. The YAML and Markdown printers build
 `Align::Text("")` directly, and the printer indented for it. Enumerate the values the code really
 passes (native `Doc` values), not a serialised form of them.
-
-**Mutation jobs tested each other's binaries.** With `CARGO_TARGET_DIR` set, every
-`cargo mutants -j N` job built into one target dir, so 401 of 693 logs ran a binary another job
-had built. Run cargo-mutants with `CARGO_TARGET_DIR` unset, and check that every log under
-`mutants.out/log` compiles the mutated crate.
 
 **Recorded crash messages held Prettier's install path.** Prettier prints a stack trace when it
 crashes, so cases recorded with one copy of Prettier fail when the front door falls back to
@@ -282,8 +383,9 @@ check a small fixture's S-expression before trusting `node-types.json` child lis
 
 **Kotlin's JVM owner is not the file name.** A top-level function compiles to a static method on
 `<File>Kt` (`NativeLib.kt` → `NativeLibKt`); only `@JvmStatic` members of an `object` or
-`companion object` live on the enclosing class. Emit prototypes in that Java shape, or the
-generated wrappers and the reflection driver look for a class that does not exist.
+`companion object` live on the enclosing class, and an `object` declared inside a class is
+`Outer$Inner`. Emit prototypes in that Java shape, or the generated wrappers and the reflection
+driver look for a class that does not exist.
 
 ## Repository
 
@@ -298,9 +400,10 @@ CONTRIBUTING.md).
 **Two sessions edited one checkout.** When another agent is working in the repository, work in
 a separate worktree and bring the change over when its files do not overlap.
 
-**The Ruby tests failed on a clean macOS shell.** `/usr/bin/ruby` is Ruby 2.6, which rb-sys's
-stable API does not support (`Stable API is needed but could not find a candidate`). Put a current
-Ruby first on `PATH` (Homebrew's `/opt/homebrew/opt/ruby/bin`) before `cargo test`.
+**Tests that need Mojo skipped without a word.** A suite whose toolchain was missing passed by
+running nothing. Tests that need Mojo go through `common::have_mojo()`, which prints why it
+skips and fails when `MOJO_ANYTHING_REQUIRE` names `mojo`; CI sets the variable for every
+toolchain it installs, so a language suite that stops running fails.
 
 **A test failed on Linux CI with "Text file busy".** It wrote a fake `nm` script and ran it while
 other tests were starting processes; a child forked during the write still held the file open for
@@ -312,6 +415,26 @@ file) and never rewrite one that already ran.
 Entries about code that is gone, one line each on why they no longer apply. Android support
 (`build`, `record` and `diff --profile android`) went with the Rust JNI crates in M5: Mojo does
 not target Android, and `--profile` takes only `host`.
+
+Rust ports, crates and the Rust bridges (napi-rs, wasm-bindgen, PyO3, magnus, JNI) went in
+Milestones 1 to 5: nothing mojo-anything generates is Rust.
+
+- **Wiring every napi function broke crates without `serde_json`**: no crate is generated, and
+  `required_deps` is gone; the Mojo form of the mistake is "A refreshed Go unit lost its JSON
+  support" above.
+- **Generated helpers unused by a crate failed clippy**: `JOINED_IN_RS` and `JOINED_OUT_RS` are
+  gone with the napi generator; the rule lives on in "Generated code that nothing read failed the
+  build".
+- **A port read its AST through hashed maps**: it was Cargo unifying serde_json's
+  `preserve_order` across a Rust port's binary; no port is Rust.
+- **A copy of a crate built into the same target folder replaced it**: ports are Mojo units,
+  each built into its own `.mojo-anything/build` (and see "A copied Mojo unit would not build").
+- **Mutation jobs tested each other's binaries**: cargo-mutants ran on Rust ports, and none are
+  generated.
+- **The Ruby tests failed on a clean macOS shell**: it was rb-sys's stable API under Ruby 2.6;
+  Ruby reaches Mojo through Fiddle, and magnus and rb-sys are gone.
+
+Android:
 
 - **The generated Java runtime needs API 26, not API 21**: no library is built for Android.
 - **ART is not a desktop JVM**: the driver is no longer dexed or run with `app_process`.

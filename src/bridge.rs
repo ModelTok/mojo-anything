@@ -1,9 +1,7 @@
 //! Step 2: scaffold the port of one unit, with the bindings its callers need and a manifest the
 //! later steps read.
 //!
-//! The port (`port.mojo`, or `src/port.rs` for a Java or Kotlin unit bridged with `--kind ffi`)
-//! holds the logic;
-//! the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
+//! The port (`port.mojo`) holds the logic; the generated layers around it (dispatcher, Node-API shim, Python extension, Java wrappers)
 //! are rewritten by `refresh` and never edited by hand.
 
 use crate::walk::Canonical;
@@ -20,8 +18,6 @@ use crate::ts::exports::{
 
 pub const MANIFEST: &str = "mojo-anything.json";
 pub const SCHEMA: &str = "mojo-anything/bridge@1";
-/// The manifest's name before the tool was renamed from rust-anything.
-pub const OLD_MANIFEST: &str = "rust-anything.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -60,7 +56,8 @@ impl Kind {
 pub const JVM_BATCH_NOT_YET: &str =
     "not yet: batches for Java units ported to Mojo come after correctness";
 
-/// Whether a unit of this kind and language is ported to Mojo (the rest are still Rust).
+/// Whether a unit of this kind and language is one mojo-anything builds: every kind is a Mojo
+/// port, and `ffi` is for Go and Ruby only.
 pub fn mojo_unit(kind: Kind, language: crate::lang::Lang) -> bool {
     use crate::lang::Lang;
     match kind {
@@ -88,16 +85,16 @@ pub struct Manifest {
     pub language: crate::lang::Lang,
     pub kind: Kind,
     pub crate_name: String,
-    /// Exports ported to Rust.
+    /// Exports ported to Mojo.
     pub exports: Vec<ExportedFn>,
-    /// Exported classes ported to Rust: a struct with `new` and methods.
+    /// Exported classes (TS/JS keeps them in the original for now).
     #[serde(default)]
     pub classes: Vec<ExportedClass>,
     /// Exports that cannot cross the bridge as they are; they stay in TS and the shadow module
     /// re-exports them from the original.
     #[serde(default)]
     pub js_only: Vec<JsOnly>,
-    /// Functions run over many items kept in Rust (`--batch function:param`).
+    /// Functions run over many items that cross into Mojo once (`--batch function:param`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub batches: Vec<crate::codegen_batch::Batch>,
     /// Floats match within this relative tolerance (`record --float-tolerance`).
@@ -142,7 +139,7 @@ fn has_functions(name: &str, local_types: &[LocalType], seen: &mut Vec<String>) 
         .any(|w| has_functions(w, local_types, seen))
 }
 
-/// Why an export cannot cross a JS/Rust bridge unchanged, if it cannot.
+/// Why an export cannot cross a JS/Mojo bridge unchanged, if it cannot.
 ///
 /// Functions, iterators, RegExp objects and objects with function members are JS values a
 /// Rust function can neither take nor return; porting them would change the public API.
@@ -197,45 +194,20 @@ pub fn js_only_reason(f: &ExportedFn, local_types: &[LocalType]) -> Option<Strin
 
 impl Manifest {
     pub fn load(crate_dir: &Path) -> Result<Self> {
-        let mut path = crate_dir.join(MANIFEST);
-        if !path.exists() && crate_dir.join(OLD_MANIFEST).exists() {
-            // Bridged before the rename; read as it is, written back under the new name.
-            path = crate_dir.join(OLD_MANIFEST);
-        }
+        let path = crate_dir.join(MANIFEST);
         let text = std::fs::read_to_string(&path).with_context(|| {
             format!(
                 "reading {} (run `mojo-anything bridge` first)",
                 path.display()
             )
         })?;
-        let old_kind = serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|v| v["kind"].as_str().map(str::to_string));
-        let old_bridge = match old_kind.as_deref() {
-            Some("pyo3") => Some("PyO3"),
-            Some("napi") => Some("napi-rs"),
-            Some("wasm") => Some("wasm-bindgen"),
-            _ => None,
-        };
-        if let Some(old) = old_bridge {
-            bail!(
-                "{} was bridged with {old}, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
-                path.display()
-            );
-        }
         let mut manifest: Self =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        if manifest.kind == Kind::Ffi && crate::jvm::is_jvm(manifest.language) {
+        if !mojo_unit(manifest.kind, manifest.language) {
             bail!(
-                "{} is a Rust JNI crate, which mojo-anything no longer generates: run bridge again \
-                 to port the unit to Mojo (Java's Foreign Function & Memory API, Java 22+)",
-                crate_dir.display()
-            );
-        }
-        if manifest.kind == Kind::CAbi && crate_dir.join("Cargo.toml").exists() {
-            bail!(
-                "{} is a Rust C ABI crate, which mojo-anything no longer generates: run bridge again to port the unit to Mojo",
-                crate_dir.display()
+                "{} is a `{}` unit of kind `ffi`, which mojo-anything does not build: run bridge again",
+                crate_dir.display(),
+                manifest.language.name()
             );
         }
         if manifest.root.is_relative() {
@@ -643,7 +615,7 @@ pub fn substitute_constraints(f: &mut ExportedFn, types: &[LocalType]) {
     f.type_params = remaining;
 }
 
-/// Turns the type parameters named in `names` into `unknown` (a JSON value on the Rust side).
+/// Turns the type parameters named in `names` into `unknown` (a JSON value on the Mojo side).
 pub fn substitute_json(f: &mut ExportedFn, names: &[String]) {
     let mut remaining = Vec::new();
     for tp in std::mem::take(&mut f.type_params) {
@@ -800,19 +772,11 @@ pub struct Refreshed {
     pub files: Vec<String>,
 }
 
-/// Regenerates the binding layers from the signatures in the port (`port.mojo`, or `src/port.rs`
-/// for a Rust-era Java or Kotlin crate, whose Cargo.toml also gets the dependencies it needs).
-/// Never touches the port.
+/// Regenerates the binding layers from the signatures in the port (`port.mojo`). Never touches
+/// the port.
 pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     let manifest = Manifest::load(crate_dir)?;
     if manifest.kind == Kind::MojoJvm {
-        if crate_dir.join("Cargo.toml").exists() {
-            bail!(
-                "{} is a Rust port from before mojo-anything targeted Mojo: bridge again to get a \
-                 Mojo port (port.mojo)",
-                crate_dir.display()
-            );
-        }
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
         let mut api = crate::codegen_mojo::parse_port_mojo(&port);
@@ -842,7 +806,12 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
     if manifest.kind == Kind::CAbi {
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
-        let files = c_bindings(&manifest, &crate::codegen_mojo::parse_port_mojo(&port))?;
+        let api = crate::codegen_mojo::parse_port_mojo(&port);
+        let files = if manifest.language == crate::lang::Lang::Cpp {
+            crate::codegen_cpp::bindings(&manifest, &api).map_err(anyhow::Error::msg)?
+        } else {
+            c_bindings(&manifest, &api)?
+        };
         write_files(crate_dir, &files)?;
         return Ok(Refreshed {
             functions: manifest.exports.iter().map(|f| f.name.clone()).collect(),
@@ -862,13 +831,6 @@ pub fn refresh(crate_dir: &Path) -> Result<Refreshed> {
         });
     }
     if manifest.kind == Kind::Ffi && mojo_unit(manifest.kind, manifest.language) {
-        if crate_dir.join("Cargo.toml").exists() {
-            bail!(
-                "{} is a Rust port from before mojo-anything targeted Mojo: bridge again to get a \
-                 Mojo port (port.mojo)",
-                crate_dir.display()
-            );
-        }
         let port =
             std::fs::read_to_string(crate_dir.join("port.mojo")).context("reading port.mojo")?;
         let mut api = crate::codegen_mojo::parse_port_mojo(&port);
@@ -934,16 +896,16 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     }
     if unit.bridge == Bridge::PhpFfi {
         bail!(
-            "bridging PHP units into Rust comes next (PHP FFI over a C ABI); for now a PHP app can \
-             be analyzed, recorded and replayed (`app record`, `app replay`) and get a Rust front \
-             door (`app front-door`) that hands everything to the original"
+            "bridge does not take PHP units yet; for now a PHP app can be analyzed, recorded and \
+             replayed (`app record`, `app replay`) and get a Mojo front door (`app front-door`) \
+             that hands everything to the original"
         );
     }
     if unit.bridge == Bridge::DotnetFfi {
         bail!(
-            "bridging C# units into Rust comes next (P/Invoke over a C ABI); for now a C# app can \
-             be analyzed, recorded and replayed (`app record`, `app replay`) and get a Rust front \
-             door (`app front-door`) that hands everything to the original"
+            "bridge does not take C# units yet; for now a C# app can be analyzed, recorded and \
+             replayed (`app record`, `app replay`) and get a Mojo front door (`app front-door`) \
+             that hands everything to the original"
         );
     }
     let kind = opts.kind.unwrap_or(match unit.bridge {
@@ -968,6 +930,9 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     let mut js_only = Vec::new();
     if lang == crate::lang::Lang::C {
         crate::lang::c::use_typedefs(&root);
+    }
+    if lang == crate::lang::Lang::Cpp {
+        crate::lang::cpp::use_typedefs(&root);
     }
     for file in &unit.files {
         if file.ends_with(".vue") || file.ends_with(".svelte") || file.ends_with(".astro") {
@@ -1133,17 +1098,12 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
                 }
             })
             .collect();
-        let suffix = if mojo_unit(kind, lang) { "mojo" } else { "rs" };
-        format!("{}-{suffix}", clean.trim_matches('-'))
+        format!("{}-mojo", clean.trim_matches('-'))
     });
-    let crate_dir = opts.out.clone().unwrap_or_else(|| {
-        let folder = if mojo_unit(kind, lang) {
-            "mojo"
-        } else {
-            "rust"
-        };
-        root.join(folder).join(&crate_name)
-    });
+    let crate_dir = opts
+        .out
+        .clone()
+        .unwrap_or_else(|| root.join("mojo").join(&crate_name));
     if crate_dir.exists() && std::fs::read_dir(&crate_dir)?.next().is_some() {
         bail!(
             "{} already exists and is not empty; mojo-anything never overwrites a port in progress",
@@ -1180,6 +1140,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         float_tolerance: None,
     };
     match kind {
+        Kind::CAbi if lang == crate::lang::Lang::Cpp => bridge_cpp(&manifest, &crate_dir, &js_only),
         Kind::CAbi => bridge_c(&manifest, &crate_dir, &js_only),
         Kind::Ffi if mojo_unit(kind, lang) => bridge_ffi_mojo(&manifest, &crate_dir, &js_only),
         Kind::Ffi => bail!(
@@ -1672,6 +1633,63 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
     })
 }
 
+fn bridge_cpp(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
+    let port = crate::codegen_cpp::port_mojo_cpp(manifest).map_err(anyhow::Error::msg)?;
+    let api = crate::codegen_mojo::parse_port_mojo(&port);
+    let mut files = vec![
+        ("port.mojo".to_string(), port),
+        (
+            "pixi.toml".into(),
+            crate::codegen_mojo_py::pixi_toml(manifest),
+        ),
+        (".gitignore".into(), ".mojo-anything/\n.pixi/\n".into()),
+        ("README.md".into(), readme(manifest)),
+        (
+            MANIFEST.into(),
+            serde_json::to_string_pretty(manifest)? + "\n",
+        ),
+    ];
+    files.extend(crate::codegen_cpp::bindings(manifest, &api).map_err(anyhow::Error::msg)?);
+    write_files(crate_dir, &files)?;
+    let library = crate::harness_mojo_c::library_path(Path::new(""), manifest, false)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut notes = vec![
+        format!(
+            "Port each function in port.mojo, then: mojo-anything record {0} && mojo-anything build {0} && mojo-anything diff {0}",
+            crate_dir.display()
+        ),
+        format!(
+            "C++ callers keep the original header: compile {0} and link {1}/{library} instead of \
+             {2}. The wrapper replaces only the bridged functions of {2}, so move its other \
+             definitions into a file of their own that stays in the build (`gate`'s `cpp api` \
+             names any left behind).",
+            crate::codegen_cpp::WRAPPER,
+            crate::harness_mojo_c::BUILD_DIR,
+            manifest.unit
+        ),
+        "The library is not self-contained yet: once it uses the Mojo standard library it needs \
+         libKGENCompilerRTShared (.so, or .dylib on macOS) from the unit's \
+         .pixi/envs/default/lib, and it finds it \
+         there through an absolute RUNPATH. Ship that file beside it (and set the runpath to \
+         $ORIGIN) before linking it into a program that runs elsewhere."
+            .to_string(),
+    ];
+    for j in kept {
+        // Classes carry the generic `class: ` prefix; the C++ reason already says so.
+        let reason = j.reason.strip_prefix("class: ").unwrap_or(&j.reason);
+        notes.push(format!("`{}` stays in C++: {reason}.", j.name));
+    }
+    Ok(Outcome {
+        crate_dir: crate_dir.to_path_buf(),
+        kind: Kind::CAbi,
+        files: files.into_iter().map(|(p, _)| p).collect(),
+        exports: manifest.exports.iter().map(|f| f.name.clone()).collect(),
+        notes,
+    })
+}
+
 fn readme(m: &Manifest) -> String {
     let functions: String = m
         .exports
@@ -1679,19 +1697,17 @@ fn readme(m: &Manifest) -> String {
         .map(|f| format!("- `{}` (`{}:{}`)\n", f.name, f.file, f.line))
         .collect();
     format!(
-        "# {name}\n\n{lang} port of `{unit}`, bridged with {kind}. Generated by mojo-anything.\n\n## Functions\n\n{functions}\n\
+        "# {name}\n\nMojo port of `{unit}`, bridged with {kind}. Generated by mojo-anything.\n\n## Functions\n\n{functions}\n\
          ## Loop\n\n```sh\nmojo-anything record .   # record what the original does\nmojo-anything build .    # build {kind}\n\
          mojo-anything diff .     # run the recorded cases against the port\nmojo-anything shadow .   # run both in the app, log mismatches\n\
          mojo-anything gate .     # format, lint, tests, unsafe, API, diff\n```\n",
         name = m.crate_name,
         unit = m.unit,
-        lang = if mojo_unit(m.kind, m.language) {
-            "Mojo"
-        } else {
-            "Rust"
-        },
         kind = match m.kind {
             Kind::MojoPy => "a Mojo Python extension",
+            Kind::CAbi if m.language == crate::lang::Lang::Cpp => {
+                "a C ABI shim (`cpp/shim.cpp`) and a C++ wrapper with the original signatures (`cpp/wrapper.cpp`)"
+            }
             Kind::CAbi => "the C ABI",
             Kind::Ffi => "a JSON dispatcher",
             Kind::MojoNode => "a Node-API addon over the JSON dispatcher",
@@ -1742,10 +1758,6 @@ Mojo port of `u`"
                 "{text}"
             );
         }
-        assert!(readme(&m("java", "ffi")).contains(
-            "
-Rust port of `u`"
-        ));
         // Every loop line starts at the margin, so the block reads as shell.
         let text = mojo_readme(&m("python", "mojo-py"));
         assert!(
@@ -1783,105 +1795,10 @@ Rust port of `u`"
     }
 
     #[test]
-    fn pyo3_manifest_says_rebridge() {
-        let dir = std::env::temp_dir().join(format!("mojo-anything-pyo3-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(MANIFEST),
-            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.py", "language": "python", "kind": "pyo3", "crate_name": "x-rs", "exports": []}"#,
-        )
-        .unwrap();
-        let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
-        assert!(err.contains("bridge again"), "{err}");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn napi_manifest_says_rebridge() {
-        for kind in ["napi", "wasm"] {
-            let dir = std::env::temp_dir().join(format!(
-                "mojo-anything-{kind}-rebridge-{}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(
-                dir.join(MANIFEST),
-                format!(
-                    r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "{kind}", "crate_name": "x-rs", "exports": []}}"#
-                ),
-            )
-            .unwrap();
-            let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
-            assert!(err.contains("bridge again"), "{kind}: {err}");
-            std::fs::remove_dir_all(&dir).unwrap();
-        }
-    }
-
-    #[test]
-    fn java_ffi_manifest_says_rebridge() {
-        for lang in ["java", "kotlin"] {
-            let dir = std::env::temp_dir().join(format!(
-                "mojo-anything-{lang}-ffi-rebridge-{}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(
-                dir.join(MANIFEST),
-                format!(
-                    r#"{{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/main/x/", "language": "{lang}", "kind": "ffi", "crate_name": "x-rs", "exports": []}}"#
-                ),
-            )
-            .unwrap();
-            // With or without its Cargo.toml: the JNI crate cannot be built any more.
-            let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
-            assert!(err.contains("bridge again"), "{lang}: {err}");
-            assert!(err.contains("JNI"), "{lang}: {err}");
-            std::fs::remove_dir_all(&dir).unwrap();
-        }
-    }
-
-    #[test]
-    fn rust_c_unit_says_rebridge() {
-        let dir = std::env::temp_dir().join(format!("mojo-anything-rust-c-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(MANIFEST),
-            r#"{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "x.c", "language": "c", "kind": "c-abi", "crate_name": "x-rs", "exports": []}"#,
-        )
-        .unwrap();
-        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x-rs\"\n").unwrap();
-        let err = format!("{:#}", Manifest::load(&dir).unwrap_err());
-        assert!(err.contains("bridge again"), "{err}");
-        // The same manifest without the Rust crate is a Mojo unit and loads.
-        std::fs::remove_file(dir.join("Cargo.toml")).unwrap();
-        assert!(Manifest::load(&dir).is_ok());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn loads_old_manifest_name() {
-        let dir = std::env::temp_dir().join(format!("mojo-anything-old-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(OLD_MANIFEST),
-            r#"{"schema": "rust-anything/bridge@1", "root": "/r", "unit": "src/x.ts", "kind": "mojo-node", "crate_name": "x-mojo", "exports": []}"#,
-        )
-        .unwrap();
-        let m = Manifest::load(&dir).unwrap();
-        assert_eq!(m.crate_name, "x-mojo");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
     fn a_relative_root_is_resolved_from_the_crate_and_kept_relative() {
         let base = std::env::temp_dir().join(format!("mojo-anything-root-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
-        let crate_dir = base.join("repo/rust/x-rs");
+        let crate_dir = base.join("repo/mojo/x-mojo");
         std::fs::create_dir_all(&crate_dir).unwrap();
         std::fs::write(
             crate_dir.join(MANIFEST),

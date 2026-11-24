@@ -1,6 +1,6 @@
 # The Mojo port of tests/fixtures/kotlin-owners `Text.kt` (`tests/loop.rs`
-# `kotlin_top_level_and_companion_replay`): a top-level function and a companion object's
-# `@JvmStatic` member.
+# `kotlin_top_level_and_companion_replay`): a top-level function, a companion object's
+# `@JvmStatic` member and a nested object's.
 
 
 def _decode(s: String) -> List[Int]:
@@ -70,6 +70,15 @@ def _digit(cp: Int) -> Int:
         if cp >= zero and cp <= zero + 9:
             return cp - zero
     return -1
+
+
+# Port of `Shapes.Sign.sign`.
+def sign(n: Int64) raises -> Int64:
+    if n < 0:
+        return -1
+    if n > 0:
+        return 1
+    return 0
 
 
 # Port of `slug`.

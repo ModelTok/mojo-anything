@@ -1,5 +1,6 @@
 //! Java and Kotlin units need Java 22 or newer: with an older JDK first on PATH, `bridge`,
-//! `record` and `build` stop before generating or compiling anything.
+//! `record`, `build`, `diff`, `bench`, `shadow` and `gate` stop before generating or compiling
+//! anything.
 
 #![cfg(unix)]
 
@@ -85,7 +86,8 @@ fn java_21_is_refused() {
         ),
     )
     .unwrap();
-    for step in ["build", "record"] {
+    // So do the steps after them, which compile the wrappers with javac.
+    for step in ["build", "record", "diff", "bench", "shadow", "gate"] {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_mojo-anything"));
         cmd.arg(step).arg(&unit);
         with_path(&mut cmd, &bin);
@@ -97,6 +99,7 @@ fn java_21_is_refused() {
             "{step}: {stderr}"
         );
         assert!(!unit.join(".mojo-anything").exists(), "{step} wrote files");
+        assert!(!unit.join("shadow").exists(), "{step} wrote a shadow");
     }
     let _ = std::fs::remove_dir_all(&base);
 }

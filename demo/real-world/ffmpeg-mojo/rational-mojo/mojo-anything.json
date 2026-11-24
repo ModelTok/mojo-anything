@@ -1,6 +1,6 @@
 {
   "schema": "mojo-anything/bridge@1",
-  "root": "<the ffmpeg tree ../ffmpeg-rs/scripts/prepare.sh assembles; see ../README.md>",
+  "root": "<the ffmpeg tree ../scripts/prepare.sh assembles; see ../README.md>",
   "unit": "rational.c",
   "language": "c",
   "kind": "c-abi",

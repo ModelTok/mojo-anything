@@ -79,7 +79,7 @@ pub fn set(crate_dir: &Path, on: bool) -> Result<Option<PathBuf>> {
     let manifest = Manifest::load(crate_dir)?;
     if !supported(&manifest) {
         bail!(
-            "`--pin-clock` covers TS/JS units with the node bridge and Python units; this crate is \
+            "`--pin-clock` covers TS/JS units with the node bridge and Python units; this unit is \
              {:?} with the {:?} bridge",
             manifest.language,
             manifest.kind
@@ -258,6 +258,47 @@ pub const HELPER_MOJO_SRC: &str = include_str!("mojo/pinned.mojo");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unpinned (in production) `now_ms()` reads the clock to the millisecond, as `Date.now()`
+    /// does, not to the second.
+    #[test]
+    fn real_clock_has_milliseconds() {
+        if !crate::mojo::available() {
+            return;
+        }
+        let dir = crate::app::temp_dir("pinned-clock").unwrap();
+        std::fs::write(dir.join("pinned.mojo"), HELPER_MOJO_SRC).unwrap();
+        std::fs::write(
+            dir.join("main.mojo"),
+            "from std.ffi import external_call\n\nfrom pinned import now_ms\n\n\n\
+             def main():\n    for _ in range(8):\n        print(Int(now_ms()))\n        \
+             # SAFETY: usleep takes a number of microseconds.\n        \
+             _ = external_call[\"usleep\", Int32](UInt32(7_000))\n",
+        )
+        .unwrap();
+        let mut cmd = crate::mojo::command(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        cmd.current_dir(&dir)
+            .args(["run", "main.mojo"])
+            .env_remove("MOJO_ANYTHING_NOW_MS");
+        let out = crate::process::output(&mut cmd, crate::process::BUILD).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(out.success(), "{}{}", out.stdout_text(), out.stderr_text());
+        let ms: Vec<i64> = out
+            .stdout_text()
+            .lines()
+            .map(|l| l.trim().parse().unwrap())
+            .collect();
+        assert_eq!(ms.len(), 8);
+        assert!(
+            ms.iter().any(|m| m % 1000 != 0),
+            "whole seconds only: {ms:?}"
+        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        assert!((now - ms[7]).abs() < 60_000, "{ms:?} against {now}");
+    }
 
     fn mulberry32(seed: u32, n: usize) -> Vec<u32> {
         let mut state = seed;

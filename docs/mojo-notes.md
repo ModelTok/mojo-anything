@@ -68,9 +68,25 @@ system `cc` (`tests/mojo_c_toolchain.rs`, x86-64 Linux, 2026-11-21). The stdlib 
   `external_call["free", NoneType](p)`. The dispatcher hands answers to C this way, so the
   caller's `free` and the library's agree (`tests/mojo_dispatcher.rs`, 2026-11-22).
 - C bytes to a string: `String(unsafe_from_utf8=Span[UInt8, ImmutAnyOrigin](unsafe_ptr=p,
-  length=n))` copies the bytes without checking them.
+  length=n))` copies the bytes without checking them; `String(from_utf8=span)` checks them and
+  raises `Cannot construct a String from invalid UTF-8 data` (byte 255, 2026-11-22). C++ units'
+  `_str` uses the checked one.
 - `--Werror` rejects a value assigned and then overwritten before use (`var s = String()`
   followed by assignments on every path): declare it as `var s: String`.
+- Contraction: `mojo build` contracts `a * b + c` on `Float64` into one multiply-add (`vfmadd`
+  on x86-64) by default, `--fp-mode contract=fast`; `--fp-mode contract=off` turns it off
+  (`mojo build --help`). Seen in the EnergyPlus psychrometrics port (2026-11-22): at the default,
+  1,391 of 9,658 cases one or more units in the last place off against g++ 13.3 `-O1` for x86-64,
+  five `vfmadd` in the library's code; built with `contract=off`, the statements as the C++
+  writes them match all 9,658 with no `vfmadd`. C ABI units (C and C++) are built with
+  `--fp-mode contract=off`, and `record` compiles the original with `-ffp-contract=off`, so both
+  sides round each product and each sum. A recording is only as representative as its flags:
+  g++ fuses at `-O2 -march=native` or with `-mfma` unless told not to, so a unit whose real build
+  uses such flags is recorded with them only if they reach `CFLAGS`/`CXXFLAGS`, after ours.
+- C++ through a C ABI: Mojo has no C++ ABI, so a C++ port exports `extern "C"` symbols and a
+  generated C++ file (`cpp/wrapper.cpp`) gives C++ callers the original signatures. Strings
+  and vectors cross as a pointer and a length; results the port `malloc`s are freed by the
+  wrapper with `free` (`tests/cpp_mojo.rs`, 2026-11-22).
 
 ## JSON
 
@@ -222,6 +238,10 @@ mojo-wasm (github.com/lee101/mojo-wasm at 3551aa4: clang 22.1.8, wasm-ld) and No
   (any raised `Error`), `write`, `dup`, `fdopen`, `fflush`, `fclose`, `KGEN_CompilerRT_fprintf`,
   `__multi3`, `__ashlti3`, `__lshrti3` (`src/mojo/wasm_runtime.c`). With a stub stack trace,
   `raises Error` works.
+- Mojo 1.2's LLVM spells special floats in a syntax clang 22 cannot read: `+inf`, `-qnan`,
+  `+nan(0x<payload>)` (quiet; the payload is the significand below the quiet bit), `-snan(0x1)`
+  and `f0x<bits>`, also as untyped operands (`fmul double %a, +inf`). `harness_mojo_wasm`
+  rewrites them to `0x<16 hex>` (`double` and `float`), `0xH` (`half`) and `0xR` (`bfloat`).
 - On wasm64, `String(Float64)` returns (it hung on mojo-wasm's wasm32 route) and EmberJson's
   float writer round-tripped 99,952 random doubles.
 - mojo-wasm's pinned Mojo (1.2.0.dev2026092605) is older than 1.2.0: no `std.hash`, no

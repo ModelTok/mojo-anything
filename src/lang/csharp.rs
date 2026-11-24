@@ -1,5 +1,5 @@
 //! C#: .csproj projects and their NuGet packages, `using` directives, risks, the
-//! package-to-crate table, and `public static` methods of public classes with C# types mapped
+//! package-to-Mojo table, and `public static` methods of public classes with C# types mapped
 //! into the TS-like type dialect. A unit is a folder.
 
 use std::collections::HashMap;

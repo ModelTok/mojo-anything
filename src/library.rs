@@ -354,7 +354,7 @@ pub(crate) fn original_references(repo: &Path, state: &State) -> Vec<String> {
     let walker = crate::walk::filtered(repo, |e| {
         !matches!(
             e.file_name().to_string_lossy().as_ref(),
-            "rust" | "mojo" | "target" | "node_modules" | ".git"
+            "mojo" | "target" | "node_modules" | ".git"
         )
     })
     .build();

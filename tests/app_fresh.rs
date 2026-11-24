@@ -218,3 +218,45 @@ fn front_door_found_through_symlink() {
     let _ = std::fs::remove_dir_all(&repo);
     let _ = std::fs::remove_dir_all(&elsewhere);
 }
+
+/// `MOJO_ANYTHING_REPO` naming a folder without the original stops the front door with an
+/// error naming the path; it does not run a file of the same name from the working directory.
+#[cfg(unix)]
+#[test]
+fn wrong_repo_variable_is_an_error() {
+    if !mojo_anything::mojo::available() {
+        return;
+    }
+    let repo = repo();
+    record(&repo);
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo: &repo,
+        library: false,
+        check: true,
+    })
+    .unwrap();
+    let exe = PathBuf::from(&door.replay.unwrap().build[0]);
+    let cwd = repo.with_extension("cwd");
+    let wrong = repo.with_extension("wrong");
+    for dir in [&cwd, &wrong] {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(cwd.join("tool.sh"), "echo the working directory\n").unwrap();
+    let out = Command::new(&exe)
+        .current_dir(&cwd)
+        .env("MOJO_ANYTHING_REPO", &wrong)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&cwd);
+    let _ = std::fs::remove_dir_all(&wrong);
+    let _ = std::fs::remove_dir_all(&repo);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{stderr}");
+    assert_eq!(out.status.code(), Some(125), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{}/tool.sh", wrong.display()))
+            && stderr.contains("MOJO_ANYTHING_REPO"),
+        "{stderr}"
+    );
+}

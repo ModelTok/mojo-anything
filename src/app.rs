@@ -1228,7 +1228,7 @@ pub(crate) fn scan_examples<T>(repo: &Path, parse: impl Fn(&str, &Path) -> Optio
     .max_depth(Some(4))
     .sort_by_file_name(|a, b| a.cmp(b))
     .build();
-    let generated = [repo.join("rust"), repo.join("mojo")];
+    let generated = [repo.join("mojo")];
     let mut out = Vec::new();
     for entry in walker.flatten() {
         let path = entry.path();

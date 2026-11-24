@@ -4,23 +4,11 @@
 
 <h1 align="center">mojo-anything</h1>
 
-<p align="center"><b>Port your app to Mojo, and prove it still behaves the same.</b><br>
-It records what the original does, your coding agent writes the Mojo one piece at a time,<br>
-and every piece is checked against that recording before it moves on. It doesn't translate code; it proves the port.</p>
+<p align="center"><b>Rewrite your app in Mojo, and prove it still behaves the same.</b><br>
+Point it at your app: it records what the original does, your coding agent writes the Mojo one piece at a time,<br>
+and every piece is checked against that recording before it moves on. It doesn't translate code; it proves the rewrite.</p>
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-555" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/Linux-checked-2563EB" alt="Checked on Linux">
-  <img src="https://img.shields.io/badge/macOS-not%20checked%20yet-8A8A8A" alt="macOS not checked yet">
-  <img src="https://img.shields.io/badge/Windows-through%20WSL-8A8A8A" alt="Windows through WSL">
-  <img src="https://img.shields.io/badge/status-pre--release-E8361C" alt="Pre-release">
-</p>
-
-<p align="center"><b><a href="#quick-start">Install</a></b> · <a href="docs/STATUS.md">What works today</a> · <a href="docs/real-world.md">Real-world ports</a> · <a href="docs/faq.md#faq">FAQ</a><br>
-<sub><a href="#languages">Languages</a> · <a href="docs/how-it-works.md#how-it-works">How it works</a> · <a href="docs/whole-apps.md#port-a-whole-app">Whole apps</a> · <a href="LICENSE">MIT</a></sub><br>
-A fork of <a href="https://github.com/erkamyaman/rust-anything">rust-anything</a> by Erkam Yaman, retargeted from Rust to Mojo.</p>
-
-<p align="center"><sub>Pre-release: no version has been tagged yet. Units written in Python, C, Go, Ruby, TypeScript/JavaScript, Java and Kotlin port to Mojo; PHP and C# record and replay only. The docs are still being re-measured on Mojo, and some figures in them still come from rust-anything. See <a href="docs/STATUS.md">STATUS</a>.</sub></p>
+<p align="center"><b><a href="#quick-start">Install</a></b> · <a href="docs/real-world-languages.md">Real code, ported</a> · <a href="docs/how-it-works.md#how-it-works">How it works</a> · <a href="docs/whole-apps.md#port-a-whole-app">Whole apps</a> · <a href="docs/STATUS.md">Status</a> · <a href="docs/faq.md#faq">FAQ</a> · <a href="LICENSE">MIT</a></p>
 
 <table>
   <tr>
@@ -30,11 +18,11 @@ A fork of <a href="https://github.com/erkamyaman/rust-anything">rust-anything</a
     </td>
     <td width="25%" valign="top">
       <b>Port</b><br>
-      <code>bridge</code> generates a Mojo port to fill in and a wrapper, so callers keep the original API. You or your agent write the Mojo.
+      <code>bridge</code> generates the Mojo unit and the bindings, so callers keep the original API. You or your agent write <code>port.mojo</code>.
     </td>
     <td width="25%" valign="top">
       <b>Check</b><br>
-      <code>diff</code> replays every recorded case against the Mojo port, and nothing ships until they all match and <code>gate</code> passes.
+      <code>diff</code> replays every recorded case against the Mojo, and nothing ships until they all match and <code>gate</code> passes.
     </td>
     <td width="25%" valign="top">
       <b>Lift</b><br>
@@ -43,20 +31,42 @@ A fork of <a href="https://github.com/erkamyaman/rust-anything">rust-anything</a
   </tr>
 </table>
 
-**Port your whole app to Mojo, one piece at a time.** mojo-anything records what your
-Node.js (TypeScript/JavaScript), Python, C, Go, Ruby, Java or Kotlin code does today, then checks every
-piece of the Mojo port against that recording before it moves on, until the app is pure Mojo. CLIs,
-HTTP servers and libraries; your coding agent (or you) writes the Mojo. Calls reach the port through
-a generated CPython extension (Python), a Node-API shim or a WebAssembly module (Node), the Java
-Foreign Function & Memory API on Java 22+ (Java and Kotlin), or a C ABI with a JSON dispatcher (C, Go,
-Ruby); mojo-anything decides what to move and proves it matches. It can only catch what the recording
-covers: see [What it can't catch](docs/how-it-works.md#what-it-cant-catch).
-The speed-ups rust-anything measured for its Rust ports are kept in
-[Real-world ports](docs/real-world.md) as history; they are not Mojo results. What the Mojo
-ports match and how fast they run so far is in [STATUS](docs/STATUS.md).
+**Rewrite your app in Mojo, one piece at a time.** mojo-anything records what your Node.js
+(TypeScript/JavaScript), Python, C, C++, Go, Ruby, Java or Kotlin code does today, then checks
+every piece of the Mojo rewrite against that recording before it moves on. CLIs, HTTP servers and
+libraries; your coding agent (or you) writes the Mojo. Each port is called from the original
+language through a bridge mojo-anything generates (a Node-API addon or a wasm module, a Python
+extension, a C ABI library, for C++ behind a generated `extern "C"` shim, a JSON dispatcher for
+Go and Ruby, Java's Foreign Function & Memory API); mojo-anything decides what to move and
+proves it matches. It can only catch what the recording covers: see
+[What it can't catch](docs/how-it-works.md#what-it-cant-catch).
 
-> mojo-anything is an independent project, not affiliated with or endorsed by Modular Inc.
-> "Mojo" and "Modular" are trademarks of Modular Inc.
+It runs on Linux and macOS (on Windows, inside WSL). Every test and every run below was on
+x86-64 Linux; macOS has not been run yet ([Status](docs/STATUS.md#known-gaps)).
+
+### Real code, ported to Mojo
+
+Each unit below was ported to Mojo 1.2.0 and checked again on 2026-11-22 (the C++ unit on
+2026-11-23) by `build`, `diff` and `gate` on a copy of its demo folder; each row links the
+log of that run.
+
+| Real code | Bridge | Recorded cases matched | `gate` | Log |
+| --- | --- | ---: | --- | --- |
+| [vercel/ms](docs/real-world.md#vercelms-on-mojo) | Node-API addon | 1,128/1,128 | passes | [log](docs/measurements/2026-11-22-vercel-ms-node.md) |
+| vercel/ms | wasm module (Node 24) | 1,128/1,128 | passes | [log](docs/measurements/2026-11-22-vercel-ms-wasm.md) |
+| CPython 3.13's [`colorsys`](docs/real-world-languages.md) | Python extension | 2,400/2,400 | passes | [log](docs/measurements/2026-11-22-colorsys.md) |
+| CPython 3.12's [`quopri`](docs/real-world-languages.md#a-whole-cli-lifted-to-mojo-cpythons-quopri) (unit) | Python extension | 481/481 (4 by `known-diffs.jsonl`) | passes | [log](docs/measurements/2026-11-22-quopri.md) |
+| `python3 -m quopri`, lifted to a pure Mojo binary | none left | 163/163 CLI cases, original moved away | - | [log](docs/measurements/2026-11-22-quopri.md) |
+| Go 1.24's `path` | JSON dispatcher over cgo | 2,042/2,042 | passes | [log](docs/measurements/2026-11-22-go-path.md) |
+| Ruby 3.3's `shellwords` | JSON dispatcher over Fiddle | 1,626/1,626 | passes | [log](docs/measurements/2026-11-22-shellwords.md) |
+| OpenJDK 25 behind a facade | Foreign Function & Memory API | 4,782/4,782 | passes | [log](docs/measurements/2026-11-22-jdk-facade.md) |
+| ffmpeg n7.1's `rational.c` | C ABI, ffmpeg's own signatures | 46,764/46,764 | passes | [log](docs/measurements/2026-11-22-ffmpeg-rational.md) |
+| glibc behind a facade | C ABI | 2,488/2,488 | passes (`size` not compared: the C calls glibc) | [log](docs/measurements/2026-11-22-glibc-facade.md) |
+| EnergyPlus 27.1.0's [psychrometrics](docs/real-world-languages.md), behind a C++ facade | C ABI through an `extern "C"` shim, with a C++ wrapper | 9,658/9,658, bit for bit | passes (`cpp api` included) | [log](docs/measurements/2026-11-23-psychrometrics.md) |
+
+How fast the Mojo ports are against their originals is not published yet: the timings wait for
+a run on a quiet machine, and no speed figure carries over from rust-anything, whose Rust ports
+these are not.
 
 > [!WARNING]
 > `record` and `app record` run your original code, calling each function (or the whole app) on
@@ -67,36 +77,43 @@ ports match and how fast they run so far is in [STATUS](docs/STATUS.md).
 
 ## Quick start
 
+**No release exists yet.** Version 0.1.0 is not published, so the two install paths below
+answer "not found" until it is; until then, build mojo-anything from a clone
+([Install](docs/install.md#from-a-clone)).
+
+Once 0.1.0 is published, on Linux (x64, arm64) or macOS (Apple silicon):
+
+```sh
+npm install -g mojo-anything   # a launcher that downloads the release binary on first run
+mojo-anything setup            # registers it with Claude Code, Codex, Cursor, Gemini CLI and OpenCode
+mojo-anything doctor           # what is installed, and the command for what is missing
+```
+
+or unpack `mojo-anything-v0.1.0-<target>.tar.gz` from the
+[GitHub release](https://github.com/ModelTok/mojo-anything/releases) (checked against its
+`SHA256SUMS`) and put `mojo-anything` on your `PATH`. On Windows, use it inside WSL. Mojo itself
+comes from [pixi](https://pixi.sh): every unit pins Mojo 1.2.0 in its own `pixi.toml`, so there
+is nothing else to install for Mojo.
+
 Paste this into Claude Code, Codex, Cursor, Gemini CLI or OpenCode and let your agent install it:
 
 ```text
-Install mojo-anything: run `cargo install mojo-anything`, then `mojo-anything setup`.
+Install mojo-anything: run `npm install -g mojo-anything`, then `mojo-anything setup`.
 Tell me when to restart you.
 ```
-
-Or yourself:
-
-```sh
-cargo install mojo-anything   # from crates.io
-mojo-anything setup           # registers it with Claude Code, Codex, Cursor, Gemini CLI and OpenCode
-```
-
-No Rust toolchain yet? Prebuilt binaries for macOS, Linux and Windows are attached to each
-[GitHub release](https://github.com/erkamyaman/rust-anything/releases), and for JavaScript
-projects `npm install -g mojo-anything` installs the same binary.
 
 In Claude Code you can also install it as a plugin (the MCP server and the skill; the CLI above
 must be on your `PATH`):
 
 ```text
-/plugin install mojo-anything --marketplace erkamyaman/mojo-anything
+/plugin install mojo-anything --marketplace ModelTok/mojo-anything
 ```
 
-In Codex, from the agents marketplace in this repo (`.agents/plugins/marketplace.json`, the same
-plugin under `plugin/`, with the skill and MCP server):
+In Codex, from the agents marketplace in this repository (`.agents/plugins/marketplace.json`, the
+same plugin under `plugin/`, with the skill and MCP server):
 
 ```sh
-codex plugin marketplace add erkamyaman/mojo-anything
+codex plugin marketplace add ModelTok/mojo-anything
 codex plugin add mojo-anything@mojo-anything
 ```
 
@@ -104,10 +121,9 @@ codex plugin add mojo-anything@mojo-anything
 reads skills. It keeps your other settings, is safe to run again, and `--remove` undoes it.
 Then ask your agent, for example:
 
-- *"Rewrite this CLI in Rust with mojo-anything, end to end, and prove it behaves the same."*
-- *"This search feels slow. Profile it with mojo-anything and move the hot loop to Rust."*
-- *"Plan a migration of `src/parser/` to Rust with mojo-anything; port the first unit and prove it."*
-- *"Bench the Rust port in `rust/text-rs` against the original and tell me whether to ship it."*
+- *"Rewrite this CLI in Mojo with mojo-anything, end to end, and prove it behaves the same."*
+- *"Plan a migration of `src/parser/` to Mojo with mojo-anything; port the first unit and prove it."*
+- *"Port `colorsys.py` to Mojo with mojo-anything and run gate on it."*
 
 ### Works with
 
@@ -118,125 +134,73 @@ Then ask your agent, for example:
 | Cursor | MCP server in `~/.cursor/mcp.json` |
 | Gemini CLI | MCP server in `~/.gemini/settings.json` |
 | OpenCode | MCP server in `~/.config/opencode/opencode.json` (`mcp.servers`), skill in `~/.config/opencode/skills/` |
-| Any other MCP client | add `mojo-anything mcp` as a stdio server by hand (see [Install](docs/install.md#install)) |
+| Any other MCP client | add `mojo-anything mcp` as a stdio server by hand (see [Install](docs/install.md#agents)) |
 
-Before changing a file that exists, `setup` saves a copy beside it (`<file>.mojo-anything.bak`); `--no-backup` skips the copy.
-
-To wire OpenCode up by hand, put the server in `~/.config/opencode/opencode.json` (`command` is
-the whole argv) and copy [`skills/mojo-anything/`](./skills/mojo-anything) to
-`~/.config/opencode/skills/mojo-anything/`:
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "mojo-anything": { "type": "local", "command": ["mojo-anything", "mcp"] }
-    }
-  }
-}
-```
+Before changing a file that exists, `setup` saves a copy beside it (`<file>.mojo-anything.bak`);
+`--no-backup` skips the copy.
 
 Or run the steps yourself:
 
 ```sh
-mojo-anything profile . -- node bench.mjs              # what is hot, and who calls it
-mojo-anything bridge . src/fuzzy.ts --batch fuzzyScore:text
-# write src/port.rs (or let your agent), then:
-mojo-anything record rust/fuzzy-rs && mojo-anything build rust/fuzzy-rs
-mojo-anything diff rust/fuzzy-rs                       # every recorded case must match
-mojo-anything fuzz rust/fuzzy-rs --time 60 --keep      # fresh inputs: what the recording missed
-mojo-anything bench rust/fuzzy-rs                      # faster? the verdict says
-mojo-anything gate rust/fuzzy-rs                       # done means this passes
+mojo-anything analyze .                                 # units, port order, risks, Mojo replacements
+mojo-anything bridge . src/colorsys.py                  # mojo/colorsys-mojo: bindings and port.mojo stubs
+mojo-anything record mojo/colorsys-mojo                 # what the original does
+# write port.mojo (or let your agent), then:
+mojo-anything build mojo/colorsys-mojo
+mojo-anything diff mojo/colorsys-mojo                   # every recorded case must match
+mojo-anything fuzz mojo/colorsys-mojo --time 60 --keep  # fresh inputs: what the recording missed
+mojo-anything gate mojo/colorsys-mojo                   # done means this passes
 ```
 
-mojo-anything does not translate code: your coding agent (Claude Code, Codex, Cursor, OpenCode, ...) or you write
-the Rust. mojo-anything supplies what an agent cannot guess reliably: where the time goes, what to port
-first and in which order, a bridge so the rest of the code calls the Rust with its API unchanged,
-the exact behavior the port must match, a safe way to ship it, and a gate that says when a port is
-done.
-
-Same output is not enough. Record what the app sends too, and a rewrite that mails twice fails:
-
-<p align="center">
-  <img src="docs/assets/effects.gif" alt="app record with --effects smtp records one welcome email per signup; app replay of a rewrite that prints the same output but mails twice reports 0/2 cases passed, failing on effects, and the report shows the extra email." width="820">
-  <br>
-  <sub>A real run of <code>app record --effects</code> and <code>app replay</code>. See <a href="docs/whole-apps.md#side-effects-email-webhooks-and-databases">Side effects</a>.</sub>
-</p>
+mojo-anything does not translate code: your coding agent (Claude Code, Codex, Cursor, OpenCode,
+...) or you write the Mojo. mojo-anything supplies what an agent cannot guess reliably: what to
+port first and in which order, a bridge so the rest of the code calls the Mojo with its API
+unchanged, the exact behaviour the port must match, a safe way to ship it, and a gate that says
+when a port is done.
 
 ## Languages
 
 | Language | Unit | Bridge | Recorded and replayed by |
 | --- | --- | --- | --- |
-| TypeScript/JavaScript | folder or file | napi-rs or wasm-bindgen with a generated binary wire; classes and async included | Node, running the `.ts` sources |
-| Python | package or module | PyO3 (abi3), direct conversion, typed exceptions | Python, importing the original |
-| C | `.c` file | `extern "C"` functions with the original names and a header | the original compiled to a shared library, called through ctypes, one fork per case |
-| Go | package | typed cgo calls and a generated binary wire, in a package with the original API | a generated Go driver, built as its own module |
-| Ruby | file or folder of module functions | a magnus extension under the original modules | a generated Ruby driver |
-| Java | package of `public static` methods | a Mojo port behind the JSON dispatcher, called through the Foreign Function & Memory API (Java 22+) from wrapper classes with the original methods | a generated reflection driver |
-| Kotlin | Gradle module of top-level functions and `@JvmStatic` methods | the Java bridge: Java wrapper classes named for the JVM owners (`<File>Kt`, the `@JvmStatic` class) over the same Mojo port | a generated reflection driver, with the Kotlin sources compiled by `kotlinc` |
-| PHP | folder of functions and `public static` methods | coming next: PHP FFI over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and servers (`php -S`) |
-| C# | folder of `public static` methods | coming next: P/Invoke over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and ASP.NET servers (`dotnet <app>.dll`) |
+| TypeScript/JavaScript | folder or file | `mojo-node`: a Node-API addon over the Mojo port (the default); `mojo-wasm`: the port compiled to a wasm64 module, Node 24+ | Node, running the `.ts` sources |
+| Python | package or module | `mojo-py`: a Python extension module built by Mojo, typed exceptions | Python, importing the original |
+| C | `.c` file | `c-abi`: functions with the original names and signatures, and a header | the original compiled to a shared library, called through ctypes, one fork per case |
+| C++ | `.cpp`/`.cc`/`.cxx` file of free functions (namespaced or not) over numbers, `bool`, `std::string` and `std::vector` of numbers; classes, templates, overloads and state objects stay in C++ with the reason | `c-abi` with `language: cpp`: `extern "C"` symbols the Mojo port exports, and a generated `cpp/wrapper.cpp` that defines the original functions over them | the original and a generated `extern "C"` shim compiled with `c++` to a shared library, called through ctypes, one fork per case; exceptions are recorded as `<type>: <what()>`, or `<type> (<base>): <what()>` for a type derived from a standard one |
+| Go | package | `ffi`: cgo calls into a JSON dispatcher, in a package with the original API | a generated Go driver, built as its own module |
+| Ruby | file or folder of module functions | `ffi`: Fiddle calls into a JSON dispatcher, under the original modules | a generated Ruby driver |
+| Java | package of `public static` methods | `mojo-jvm`: wrapper classes with the original methods, calling the port's JSON dispatcher through the Foreign Function & Memory API (Java 22+) | a generated reflection driver |
+| Kotlin | Gradle module of top-level functions and `@JvmStatic` methods | `mojo-jvm`, with the Java wrapper classes named for the JVM owners (`<File>Kt`, the `@JvmStatic` class) | a generated reflection driver, with the Kotlin sources compiled by `kotlinc` |
+| PHP | folder of functions and `public static` methods | none yet | whole apps today: `app record`, `app replay` and the Mojo front door, for CLIs and servers (`php -S`) |
+| C# | folder of `public static` methods | none yet | whole apps today: `app record`, `app replay` and the Mojo front door, for CLIs and ASP.NET servers (`dotnet <app>.dll`) |
 
-Every language except C also gets batch classes (`--batch`): the items cross once and stay in
-Rust, and each call runs over all of them on all cores.
+TypeScript/JavaScript units also get batch classes (`--batch`): the items cross once and stay on
+the Mojo side, and each call runs the port over all of them. Other languages answer "not yet".
 
 The language is detected from the repository (`go.mod`, `pom.xml`, `build.gradle`/`build.gradle.kts`,
 a `.csproj` or `.sln`, `pyproject.toml`, `Gemfile`, `composer.json`, `package.json`, else the most
 common source files); a Gradle module with `.kt` sources and no `.java` sources is Kotlin, mixed
 modules stay Java. `--lang` overrides it. Types come from the source: TS types, Python hints, C, Go,
 Java, Kotlin and C# signatures, Ruby YARD tags, PHP types and phpdoc; untyped parameters used as
-numbers are inferred as numbers.
-
-For PHP, `analyze` plans a PHP app (Composer packages and PSR-4 autoloading, risks
-such as loose comparison and integer overflow into floats, Composer packages mapped to crates),
-and a PHP CLI or server can be recorded, replayed and put behind a Rust front door. Porting its
-units into Rust through PHP's FFI is the next step ([issue #2](https://github.com/erkamyaman/rust-anything/issues/2)).
-
-C# works the same way: `analyze` reads `.csproj` projects and their NuGet packages
-(mapped to crates), resolves `using` directives to folders, and flags what C# does differently
-(`decimal`, `dynamic`, LINQ's deferred queries, `Task`, `lock`, reflection). A C# CLI or ASP.NET
-server can be recorded, replayed and put behind a Rust front door; porting units through P/Invoke
-comes next.
+numbers are inferred as numbers. `analyze` names a Mojo replacement for each library the code
+imports: a Mojo standard-library module, a Mojo package on pixi, or a Python module called through
+CPython interop.
 
 ## Learn more
 
-- [How it works](docs/how-it-works.md): the loop, what `bridge` and `analyze` decide, hot paths, what it can't catch, what a real port takes, and keeping up with the original (`map`)
-- [Ship a port as a package](docs/packaging.md): not yet; npm packages of Mojo ports and Python wheels come with the packaging plan
+- [How it works](docs/how-it-works.md): the loop, what `bridge` and `analyze` decide, batches, what it can't catch, and keeping up with the original (`map`)
 - [Port a whole app](docs/whole-apps.md): servers, CLIs and libraries, from the front door to `app lift`
-- [Examples and case studies](docs/examples.md): x18n, and real code in six languages
-- [Real-world ports](docs/real-world.md): json-server, Fuse.js, vercel/ms, with benchmarks
-- [Install, update and develop](docs/install.md): every install method, Windows, and building from source
-- [FAQ](docs/faq.md) · [Status](docs/STATUS.md) · [MCP tools](docs/tools.md)
+- [Real code in six languages](docs/real-world-languages.md) and [real-world runs](docs/real-world.md): what was ported to Mojo, and how it was checked
+- [Ship a port as a package](docs/packaging.md): wheels, npm packages, gems, Go modules, C archives and jars of Mojo ports
+- [Install, update and develop](docs/install.md) · [Examples](docs/examples.md) · [FAQ](docs/faq.md) · [Status](docs/STATUS.md) · [MCP tools](docs/tools.md) · [Privacy](docs/privacy.md)
 
-## Sponsors
+## Credits
 
-<p align="center">
-  <a href="https://github.com/erkamyaman/rust-anything">mojo-anything</a> is free and open source. If it helps your work, please consider sponsoring it.<br>
-  Your support keeps development going.
-</p>
-
-<p align="center">
-  <a href="https://coderabbit.link/erkamyaman">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sponsors/company-dark.svg">
-      <img src="docs/assets/sponsors/company-light.svg" width="800" alt="Company sponsor: CodeRabbit">
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/sponsors/erkamyaman">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sponsors/sponsors-dark.svg">
-      <img src="docs/assets/sponsors/sponsors-light.svg" width="800" alt="Sponsors: Santosh Yadav, Hakan Soytürk, Ali Yilmaz, Ashley Hunter, Fatih Uzuntaş">
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/sponsors/erkamyaman"><img src="https://img.shields.io/badge/Become_a_sponsor-%E2%9D%A4-db61a2?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Become a sponsor"></a>
-  <a href="https://buymeacoffee.com/erkamyaman"><img src="https://img.shields.io/badge/Buy_me_a_coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
-</p>
+mojo-anything is a fork of [rust-anything](https://github.com/erkamyaman/rust-anything) by
+[Erkam Yaman](https://github.com/erkamyaman), which records, bridges and gates ports to Rust; the
+recording, replay, front-door and agent machinery come from it, and the bridges, ports and gates
+were rewritten for Mojo. Thanks to Erkam and to rust-anything's sponsors and contributors, whose
+support built what this fork starts from. mojo-anything is an independent project, not
+affiliated with or endorsed by Modular or the rust-anything project.
 
 ## Contributing
 
@@ -248,4 +212,5 @@ security problems privately ([SECURITY.md](./SECURITY.md)), and see the
 
 ## License
 
-[MIT](./LICENSE) © [Erkam Yaman](https://github.com/erkamyaman). Ports and generated code in your repository are yours.
+[MIT](./LICENSE), keeping rust-anything's copyright notice. Ports and generated code in your
+repository are yours.

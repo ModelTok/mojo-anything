@@ -24,8 +24,8 @@ use mojo_anything::{analyze, app, bridge, front_door, gate, harness, lift, mcp, 
 #[command(
     name = "mojo-anything",
     version,
-    about = "Rewrite TypeScript/JavaScript, Python, C, Go, Ruby, Java or Kotlin apps in Rust, one verified piece at a time",
-    after_help = "Loop per unit: analyze -> bridge -> record -> port src/port.rs -> build -> diff -> shadow -> gate"
+    about = "Rewrite TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java or Kotlin apps in Mojo, one verified piece at a time",
+    after_help = "Loop per unit: analyze -> bridge -> record -> port port.mojo -> build -> diff -> shadow -> gate"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,8 +40,8 @@ enum KindArg {
     Wasm,
 }
 
-/// Where `record`, `build` and `diff` run. Only this machine: the Android profile went with
-/// the Rust JNI crates.
+/// Where `record`, `build` and `diff` run: only this machine (the Android profile went with
+/// the JNI bridge).
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Profile {
     /// This machine.
@@ -65,7 +65,7 @@ enum Cmd {
         #[arg(long, value_enum)]
         lang: Option<mojo_anything::lang::Lang>,
         /// Plan a whole-app port: entry points and shape, every dependency (imported or
-        /// declared) with its crate, pieces in port order, and decisions for the user.
+        /// declared) with its Mojo replacement, pieces in port order, and decisions for the user.
         #[arg(long)]
         whole_app: bool,
     },
@@ -99,19 +99,19 @@ enum Cmd {
         #[arg(long, value_name = "TYPE_PARAM")]
         as_json: Vec<String>,
     },
-    /// 2b. Regenerate the bindings from the signatures in the port (`port.mojo`, or `port.rs`).
+    /// 2b. Regenerate the bindings from the signatures in the port (`port.mojo`).
     Refresh {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Add a batch class: `function:param` runs `function` over many `param` values kept on
         /// the native side. Repeat for more.
         #[arg(long)]
         batch: Vec<String>,
     },
-    /// 3a. Record what the TS functions return on generated and given inputs.
+    /// 3a. Record what the original's functions return on generated and given inputs.
     Record {
-        /// Crate folder made by `bridge`.
-        #[arg(default_value = ".", value_parser = absolute)]
+        /// Port folder made by `bridge`.
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Generated cases per function.
         #[arg(long, default_value_t = 200)]
@@ -129,7 +129,7 @@ enum Cmd {
         #[arg(long = "node-arg", allow_hyphen_values = true)]
         node_args: Vec<String>,
         /// Floats match when they differ by at most this times the larger magnitude (absolute
-        /// below 1), e.g. 1e-9 for numeric code. Saved with the crate for diff and gate; 0 removes it.
+        /// below 1), e.g. 1e-9 for numeric code. Saved with the port for diff and gate; 0 removes it.
         #[arg(long)]
         float_tolerance: Option<f64>,
         /// Also record every call the original's own test suite makes to the unit's functions:
@@ -145,7 +145,7 @@ enum Cmd {
         /// Pin the clock and random numbers while recording and diffing (TS/JS with the node
         /// bridge, Python): `Date.now()`, `new Date()` and `Math.random` (`time.time`,
         /// `datetime.now` and `random`) get fixed values, saved in `pinned.json`, and the port
-        /// reads them from `pinned.mojo` (a Rust port: `src/port/pinned.rs`). Kept for later
+        /// reads them from `pinned.mojo`. Kept for later
         /// runs until `--no-pin-clock`.
         #[arg(long, conflicts_with = "no_pin_clock")]
         pin_clock: bool,
@@ -155,20 +155,20 @@ enum Cmd {
     },
     /// 3b. Build the port (Node-API addon, Python extension, shared library).
     Build {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Target: this machine.
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
     },
-    /// 3c. Replay recorded cases against the Rust module.
+    /// 3c. Replay recorded cases against the built Mojo port.
     Diff {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Target: this machine.
         #[arg(long, value_enum, default_value_t = Profile::Host)]
         profile: Profile,
-        /// Test this JS module instead of the crate's `index.cjs`.
+        /// Test this JS module instead of the port's `index.cjs`.
         #[arg(long)]
         module: Option<PathBuf>,
         /// Compare objects regardless of key order.
@@ -182,9 +182,9 @@ enum Cmd {
         #[arg(long = "node-arg", allow_hyphen_values = true)]
         node_args: Vec<String>,
     },
-    /// 3d. Time the recorded cases on the TS original and on Rust, bridge included.
+    /// 3d. Time the recorded cases on the original and on the Mojo port, bridge included.
     Bench {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Minimum measured time per function and side, in milliseconds.
         #[arg(long, default_value_t = 200)]
@@ -200,7 +200,7 @@ enum Cmd {
     /// 3e. Run fresh inputs from a new seed through the original and the port and report where
     /// they differ: what the recorded cases did not cover.
     Fuzz {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         /// Fresh cases per function (and scenarios per class) in each round.
         #[arg(long, default_value_t = 200)]
@@ -238,17 +238,17 @@ enum Cmd {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
-    /// 4. Generate a drop-in module that runs TS and Rust side by side.
+    /// 4. Generate a drop-in module that runs the original and the Mojo port side by side.
     Shadow {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
-        /// Where to write the module; defaults to `<crate>/shadow/<name>.shadow.ts`.
+        /// Where to write the module; defaults to `<port>/shadow/<name>.shadow.ts`.
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
     /// 5. Check the definition of done for a port.
     Gate {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
         #[arg(long)]
         json: bool,
@@ -257,15 +257,15 @@ enum Cmd {
     },
     /// 6. Lay out installable packages and a CI workflow for every platform; never publishes.
     Package {
-        #[arg(default_value = ".", value_parser = absolute)]
+        #[arg(default_value = ".", value_parser = absolute, value_name = "PORT_DIR")]
         crate_dir: PathBuf,
-        /// Package name on npm or PyPI; defaults to the crate name.
+        /// Package name (npm, PyPI, RubyGems, Maven artifact); defaults to the unit's name.
         #[arg(long)]
         name: Option<String>,
         /// Package version; defaults to the original package's.
         #[arg(long)]
         version: Option<String>,
-        /// Output folder; defaults to `<crate>/package`.
+        /// Output folder; defaults to `<port>/package`.
         #[arg(long, value_parser = absolute)]
         out: Option<PathBuf>,
         /// List the files, write nothing.
@@ -300,17 +300,17 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Map the port: every unit of the original, the crate that ports it, its cases and last
+    /// Map the port: every unit of the original, the Mojo port of it, its cases and last
     /// diff, the whole app's glue, and which recordings the original changed past since they
     /// were made. Commit the map (`--write`) to see upstream changes in it.
     Map {
         /// Repository root.
         #[arg(default_value = ".")]
         repo: PathBuf,
-        /// Also look for crates in this folder (crates kept outside the repository).
-        #[arg(long = "crates")]
+        /// Also look for ports in this folder (ports kept outside the repository).
+        #[arg(long = "crates", value_name = "DIR")]
         crates: Vec<PathBuf>,
-        /// Write the map to rust/PORT_MAP.md in the repository instead of printing it.
+        /// Write the map to mojo/PORT_MAP.md in the repository instead of printing it.
         #[arg(long)]
         write: bool,
         /// Exit 1 when the original changed since any port was recorded.
@@ -319,8 +319,9 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Check the language runtimes, the agent setup and the MCP server, with the command that
-    /// fixes each problem. Exits 1 when something required is missing.
+    /// Check pixi and the pinned Mojo, the language runtimes, the agent setup and the MCP
+    /// server, with the command that fixes each problem. Exits 1 when something required is
+    /// missing.
     Doctor {
         #[arg(long)]
         json: bool,
@@ -439,7 +440,7 @@ enum AppCmd {
     },
     /// Scaffold `<repo>/mojo/app`, the Mojo binary that owns the CLI's entry point: it routes the
     /// recorded commands and options, every command running the original until a unit is wired.
-    /// Builds it and replays the cases (100% passed, 100% fallback).
+    /// Builds it and replays the cases (every case passes, every case falling back).
     FrontDoor {
         /// Repository root.
         #[arg(default_value = ".")]
@@ -457,7 +458,7 @@ enum AppCmd {
     /// Hand commands to a unit's port (after it passes gate): adds the unit to `mojo/app`, a
     /// glue file to write once (a CLI), the routing and a kill switch
     /// (`MOJO_ANYTHING_UNIT_<NAME>=original`), then builds and replays. A CLI or a library takes
-    /// a Mojo unit (`mojo/<name>` with `port.mojo`); a server still takes a Rust crate.
+    /// a Mojo unit (`mojo/<name>` with `port.mojo`); a server takes one for each route.
     Wire {
         /// Repository root.
         repo: PathBuf,
@@ -644,8 +645,8 @@ fn run() -> Result<ExitCode> {
                 && let Some(helper) = mojo_anything::pin::set(&crate_dir, pin_clock)?
             {
                 say!(
-                    "Wrote {}: add `mod pinned;` to port.rs and call `pinned::now_ms()` and \
-                     `pinned::random()` where the original reads the clock or draws a number",
+                    "Wrote {}: import it in port.mojo (`from pinned import now_ms, random`) and call \
+                     `now_ms()` and `random()` where the original reads the clock or draws a number",
                     helper.display()
                 );
             }
@@ -759,7 +760,7 @@ fn run() -> Result<ExitCode> {
                 if let Some(t) = d.trend.as_ref().filter(|t| t.stalled) {
                     let shown: Vec<String> = t.passed.iter().map(ToString::to_string).collect();
                     say!(
-                        "Stalled: the last {} changes to port.rs gained no matching case ({} of {}). \
+                        "Stalled: the last {} changes to the port gained no matching case ({} of {}). \
                          Stop and look at the remaining mismatches with a person, or keep these \
                          functions in the original for now.",
                         mojo_anything::recording::STALL_AFTER,
@@ -887,7 +888,7 @@ fn run() -> Result<ExitCode> {
                     "function",
                     "cases",
                     "orig ns/call",
-                    "Rust ns/call",
+                    "port ns/call",
                     "speedup"
                 );
                 for r in &rows {
@@ -947,7 +948,7 @@ fn run() -> Result<ExitCode> {
                 );
             } else if outcome.path.extension().is_some_and(|e| e == "c") {
                 say!(
-                    "Compile the original with the -D flags in shadow/flags.txt, build the crate with --features shadow, and link all three."
+                    "Compile the original with the -D flags in shadow/flags.txt, then link it, this file and the unit's shadow library (lib<name>_shadow.so from `mojo-anything build`)."
                 );
             } else {
                 say!(
@@ -1230,7 +1231,7 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
                     if outcome.api.is_empty() {
                         "binary"
                     } else {
-                        "crate"
+                        "package"
                     },
                     outcome.binary,
                     if !outcome.api.is_empty() {
@@ -1259,7 +1260,7 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
                 }
                 if !outcome.api.is_empty() {
                     say!(
-                        "Every export is still only in the original. After a unit's crate (from `bridge`) passes gate: mojo-anything app wire {} <unit crate>",
+                        "Every export is still only in the original. After a unit (from `bridge`) passes gate: mojo-anything app wire {} <unit folder>",
                         repo.display()
                     );
                 } else if outcome.routes.is_empty() {
@@ -1397,8 +1398,8 @@ fn run_app(command: AppCmd) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// A path argument made absolute: the tools run compilers and cargo from scratch folders, where
-/// a relative crate path points nowhere.
+/// A path argument made absolute: the tools run compilers and `mojo` from scratch folders, where
+/// a relative port path points nowhere.
 fn absolute(arg: &str) -> Result<PathBuf, String> {
     std::path::absolute(arg).map_err(|e| e.to_string())
 }
@@ -1422,6 +1423,32 @@ mod tests {
                 "{step}: {err}"
             );
             assert!(err.to_string().contains("invalid value"), "{step}: {err}");
+        }
+    }
+
+    /// `--help` describes the Mojo tool, not the Rust one it was forked from.
+    #[test]
+    fn help_names_mojo() {
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("Mojo"), "{help}");
+        assert!(!help.contains("Rust"), "{help}");
+        assert!(!help.contains("port.rs"), "{help}");
+        // Every subcommand's help too: a port is a Mojo folder, not a crate.
+        fn walk(cmd: &mut clap::Command, out: &mut Vec<String>) {
+            out.push(cmd.render_long_help().to_string());
+            for sub in cmd.get_subcommands_mut() {
+                walk(sub, out);
+            }
+        }
+        let mut helps = Vec::new();
+        walk(&mut Cli::command(), &mut helps);
+        let rust = regex::Regex::new(r"(?i)\brust\b|\bcrates?\b|crate_dir|cargo|clippy|port\.rs")
+            .expect("valid pattern");
+        for help in &helps {
+            // `--crates` keeps its name for scripts written against 0.1.0.
+            let text = help.replace("--crates", "");
+            assert!(!rust.is_match(&text), "{help}");
         }
     }
 }

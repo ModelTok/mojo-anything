@@ -1,19 +1,20 @@
 {
   "name": "mojo-anything",
-  "version": "0.0.0",
-  "description": "Rewrite your app in Rust, one piece at a time, checked against the original's recorded behavior at every step. TypeScript, Python, C, Go, Ruby, Java.",
-  "keywords": ["rust", "performance", "migration", "ffi", "napi", "pyo3", "mcp", "claude-code", "codex"],
+  "version": "0.1.0",
+  "description": "Rewrite your app in Mojo, one piece at a time, checked against the original's recorded behaviour at every step. TypeScript/JavaScript, Python, C, C++, Go, Ruby, Java and Kotlin. Linux (x64, arm64) and macOS (arm64).",
+  "keywords": ["mojo", "performance", "migration", "ffi", "mcp", "claude-code", "codex"],
   "license": "MIT",
-  "mcpName": "io.github.erkamyaman/mojo-anything",
+  "mcpName": "io.github.ModelTok/mojo-anything",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/erkamyaman/rust-anything.git"
+    "url": "git+https://github.com/ModelTok/mojo-anything.git"
   },
-  "homepage": "https://github.com/erkamyaman/rust-anything",
+  "homepage": "https://github.com/ModelTok/mojo-anything",
+  "bugs": "https://github.com/ModelTok/mojo-anything/issues",
   "bin": {
     "mojo-anything": "bin/mojo-anything.js"
   },
-  "files": ["bin", "binaries"],
+  "files": ["bin"],
   "engines": {
     "node": ">=18"
   }

@@ -11,6 +11,7 @@
 # environment variable `MOJO_ANYTHING_PIN_STATE` (`<case>:<state>`); in production it keeps none.
 
 from std.ffi import external_call
+from std.memory import Pointer
 from std.os import getenv, setenv
 
 comptime _STATE = "MOJO_ANYTHING_PIN_STATE"
@@ -26,9 +27,22 @@ def _var(name: String) -> Optional[Int]:
         return None
 
 
-def _real_secs() -> Int:
-    # SAFETY: `time(NULL)` reads the clock and writes through no pointer.
-    return Int(external_call["time", Int64](Int64(0)))
+def _real_ms() -> Int:
+    """The real clock in whole milliseconds, as `Date.now()` reads it."""
+    # SAFETY: room for a `struct timespec` (two 64-bit fields); `value()` aborts
+    # on NULL.
+    var ts = external_call["malloc", Optional[Pointer[Int64, MutAnyOrigin]]](
+        16
+    ).value()
+    ts[unsafe_offset=0] = 0
+    ts[unsafe_offset=1] = 0
+    # SAFETY: CLOCK_REALTIME is 0 on Linux and macOS; the call writes one
+    # timespec into `ts`.
+    _ = external_call["clock_gettime", Int32](Int32(0), ts)
+    var ms = Int(ts[unsafe_offset=0]) * 1000 + Int(ts[unsafe_offset=1]) // 1_000_000
+    # SAFETY: `ts` came from malloc above and is freed once.
+    external_call["free", NoneType](ts)
+    return ms
 
 
 def now_ms() -> Float64:
@@ -36,7 +50,7 @@ def now_ms() -> Float64:
     var pinned = _var("MOJO_ANYTHING_NOW_MS")
     if pinned:
         return Float64(pinned.value())
-    return Float64(_real_secs()) * 1000.0
+    return Float64(_real_ms())
 
 
 def now_secs() -> Float64:

@@ -167,6 +167,12 @@ Generated folders `mojo/` instead of `rust/`, work folder `.mojo-anything`, envi
   `shellwords.rb`, one ffmpeg unit and vercel/ms, with results in `docs/STATUS.md`.
 - One CLI is lifted to a pure Mojo binary.
 
+**Amendment (2026-11-22): macOS.** The user decided "Linux now, macOS later". CI on macOS is not
+run in Phase 1: Phase 1 closes on Linux, with the code written for macOS but not built or run
+there, and `docs/STATUS.md` lists macOS as not run. The macOS CI job stays in
+`.github/workflows/ci.yml` and runs after publication. The first item above therefore reads, for
+Phase 1, "CI passes on Linux"; the Windows job goes as written.
+
 ## Phase 2: port the tool to Mojo
 
 ### Method
@@ -237,6 +243,12 @@ Python interop makes CPython a runtime dependency of the Mojo tool. That is acce
   units require Java 22 or newer. The JDK 21 verification is redone on Java 22+.
 - **Repository.** A new public `Tokarzewski/mojo-anything` becomes `origin`; `upstream` stays
   on erkamyaman/rust-anything for merging fixes during Phase 1.
+
+**Amendment (2026-11-22): repository name.** The user asked: "publisj mojo-anything on modeltok
+org". mojo-anything is published as `ModelTok/mojo-anything`
+(`https://github.com/ModelTok/mojo-anything`, MCP server `io.github.ModelTok/mojo-anything`),
+which replaces `Tokarzewski/mojo-anything` above and the open question under "Constraints",
+"Repository". `upstream` stays on erkamyaman/rust-anything.
 
 ## Left to the builder
 

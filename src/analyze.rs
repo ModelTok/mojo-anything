@@ -28,7 +28,7 @@ pub enum Status {
     Ready,
     /// Portable, with risks to handle first.
     Caution,
-    /// Depends on something with no Rust equivalent, or on dynamic code.
+    /// Depends on something with no Mojo equivalent, or on dynamic code.
     Blocked,
     /// UI or editor code: stays in JS/TS.
     Keep,
@@ -82,7 +82,7 @@ impl Bridge {
         match lang {
             Lang::Ts => Self::MojoNode,
             Lang::Python => Self::MojoPy,
-            Lang::C => Self::CAbi,
+            Lang::C | Lang::Cpp => Self::CAbi,
             Lang::Go => Self::Cgo,
             Lang::Ruby => Self::Fiddle,
             Lang::Java | Lang::Kotlin => Self::MojoJvm,
@@ -92,7 +92,7 @@ impl Bridge {
     }
 }
 
-/// The Rust counterpart of a dependency, from the language's table.
+/// The Mojo replacement of a dependency, from the language's table.
 pub fn crate_for(lang: Lang, name: &str) -> Option<deps::CrateMatch> {
     match lang {
         Lang::Ts => deps::lookup(name),
@@ -238,9 +238,9 @@ const COMPILED: [&str; 17] = [
 
 fn compiled_hint() -> &'static str {
     "mojo-anything ports source code: it parses functions, records what they do, and checks the \
-     Rust port against the running original. A compiled app (an APK, a JAR, an .exe) has no \
+     Mojo port against the running original. A compiled app (an APK, a JAR, an .exe) has no \
      source to port and no way to record it function by function. Point it at the app's source \
-     folder instead; for an app you only have as a binary, writing a new Rust app from its \
+     folder instead; for an app you only have as a binary, writing a new Mojo app from its \
      visible behavior is a separate project"
 }
 
@@ -312,6 +312,9 @@ fn check_bridgeable(root: &Path, report: &mut Report, lang: Lang) {
     if lang == Lang::C {
         crate::lang::c::use_typedefs(root);
     }
+    if lang == Lang::Cpp {
+        crate::lang::cpp::use_typedefs(root);
+    }
     for unit in &mut report.units {
         if matches!(unit.status, Status::Keep | Status::Blocked) {
             continue;
@@ -348,7 +351,11 @@ fn check_bridgeable(root: &Path, report: &mut Report, lang: Lang) {
             unit.status = Status::Caution;
             unit.notes.insert(
                 0,
-                if lang == Lang::C {
+                if lang == Lang::Cpp {
+                    "No export can cross the C ABI shim (classes, member functions, templates, \
+                     overloads, state objects, types outside the subset): bridge free functions \
+                     with plain arguments over them (a facade), an API change."
+                } else if lang == Lang::C {
                     "No export can cross the C ABI bridge (contexts, function pointers, structs by \
                      value, pointers it cannot pair with a length): bridge a wrapper with plain \
                      arguments, an API change."
@@ -701,7 +708,7 @@ fn score(u: usize, ctx: &Ctx) -> UnitReport {
         Status::Keep
     } else if !blocking_deps.is_empty() || unit.risks.contains_key(&Risk::DynamicCode) {
         for dep in &blocking_deps {
-            notes.push(format!("`{dep}` has no Rust equivalent."));
+            notes.push(format!("`{dep}` has no Mojo equivalent."));
         }
         if unit.risks.contains_key(&Risk::DynamicCode) {
             notes.push("Uses dynamic code (eval, new Function or computed imports).".into());
@@ -720,7 +727,7 @@ fn score(u: usize, ctx: &Ctx) -> UnitReport {
     }
     if unknown_deps > 0 {
         notes.push(format!(
-            "{unknown_deps} {} dependencies not in the crate table: check them by hand.",
+            "{unknown_deps} {} dependencies not in the replacement table: check them by hand.",
             ctx.lang.registry()
         ));
     }

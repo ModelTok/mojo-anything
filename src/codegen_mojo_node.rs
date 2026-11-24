@@ -28,11 +28,17 @@ fn string_params(params: &[(String, String)]) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(_, (_, t))| {
+            // `String` inside any nesting of `Optional[...]` and `List[...]`.
             let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
-            matches!(
-                t.as_str(),
-                "String" | "Optional[String]" | "List[String]" | "List[Optional[String]]"
-            )
+            let mut inner = t.as_str();
+            while let Some(rest) = inner
+                .strip_prefix("Optional[")
+                .or_else(|| inner.strip_prefix("List["))
+                .and_then(|r| r.strip_suffix(']'))
+            {
+                inner = rest;
+            }
+            inner == "String"
         })
         .map(|(i, _)| i)
         .collect()
@@ -206,8 +212,17 @@ for (const [cls, [name, at, arity, kind, numeric]] of Object.entries(batches)) {
     }
     run(...a) {
       if (this[ITEMS] === undefined) throw new Error(`${cls} was freed`)
+      const strings = ports[name][1]
       const parts = []
-      for (let i = 0, j = 0; i < arity; i++) parts.push(i === at ? this[ITEMS] : encode(a[j++]))
+      for (let i = 0, j = 0; i < arity; i++) {
+        if (i === at) {
+          parts.push(this[ITEMS])
+          continue
+        }
+        const v = a[j++]
+        if (strings.includes(i) && illFormed(v)) throw new TypeError(`argument ${i + 1} of ${cls}.run has a lone surrogate, which a Mojo String cannot hold`)
+        parts.push(encode(v))
+      }
       return answer(name, native.call(`${name}:batch`, `[${parts.join(',')}]`))
     }
     // The items live in JS: freeing drops them, and the garbage collector does the rest.
@@ -302,6 +317,73 @@ mod tests {
         ] {
             assert!(js.contains(needle), "{needle}\n{js}");
         }
+    }
+
+    /// A lone surrogate in any parameter a Mojo `String` holds (`Optional[List[String]]`, a
+    /// batch's fixed `String`) is a `TypeError` before the library is called, not a panic.
+    #[test]
+    fn lone_surrogate_in_optional_list_is_a_type_error() {
+        if std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let mut m: Manifest = serde_json::from_str(
+            r#"{"schema": "mojo-anything/bridge@1", "root": "/r", "unit": "src/index.ts",
+                "language": "ts", "kind": "mojo-node", "crate_name": "names-mojo",
+                "exports": [{"name": "count", "file": "src/index.ts", "line": 1,
+                  "params": [{"name": "names", "ts_type": "string[] | undefined", "optional": true, "rest": false}],
+                  "returns": "number", "is_async": false, "is_generator": false,
+                  "type_params": [], "uses_instanceof": false},
+                  {"name": "score", "file": "src/index.ts", "line": 2,
+                  "params": [{"name": "item", "ts_type": "string", "optional": false, "rest": false},
+                             {"name": "query", "ts_type": "string", "optional": false, "rest": false}],
+                  "returns": "number", "is_async": false, "is_generator": false,
+                  "type_params": [], "uses_instanceof": false}]}"#,
+        )
+        .unwrap();
+        m.batches = vec![crate::codegen_batch::Batch {
+            function: "score".into(),
+            param: "item".into(),
+        }];
+        let mut api = crate::codegen_mojo::parse_port_mojo(
+            "def count(names: Optional[List[String]]) raises -> Int:\n    return 0\n\n\n\
+             def score(item: String, query: String) raises -> Float64:\n    return 0.0\n",
+        );
+        crate::bridge::match_export_names(&m, &mut api);
+        let js = index_cjs_mojo(&m, &api).replace(
+            "const native = require('./names_mojo.node')\n",
+            "const native = { call: () => JSON.stringify({ panic: 'the library was called' }) }\n",
+        );
+        let dir = crate::app::temp_dir("lone-surrogate").unwrap();
+        std::fs::write(dir.join("index.cjs"), js).unwrap();
+        std::fs::write(
+            dir.join("use.cjs"),
+            "const m = require('./index.cjs')\n\
+             const kind = f => { try { f(); return 'ok' } catch (e) { return e.constructor.name + (e.code ? ':' + e.code : '') } }\n\
+             console.log(JSON.stringify([\n\
+               kind(() => m.count(['a', '\\ud800'])),\n\
+               kind(() => new m.ScoreBatch(['a']).run('\\udc00')),\n\
+               kind(() => m.count(['a'])),\n\
+             ]))\n",
+        )
+        .unwrap();
+        let out = std::process::Command::new("node")
+            .arg(dir.join("use.cjs"))
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            r#"["TypeError","TypeError","Error:MOJO_PANIC"]"#
+        );
     }
 
     #[test]

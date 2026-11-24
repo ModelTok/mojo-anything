@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use crate::bridge::Manifest;
 use crate::harness::{BenchRow, CASES, DiffOutcome};
+use crate::lang::Lang;
 use crate::lang::c::{defines_main, scalar};
 
 const WORK_DIR: &str = ".mojo-anything";
@@ -44,6 +45,9 @@ fn compiler() -> &'static str {
 /// return, is `struct:<field>=<ctype>,...`.
 fn signatures(manifest: &Manifest) -> Value {
     use crate::codegen_c::{CKind, c_struct, kind, pointee, returns_into};
+    if manifest.language == Lang::Cpp {
+        return signatures_cpp(manifest);
+    }
     let ctype = |c: &str| scalar(c).map_or("c_int", |(_, _, _, ct)| ct).to_string();
     let structure = |ts: &str| {
         c_struct(ts).map(|s| {
@@ -98,23 +102,152 @@ fn signatures(manifest: &Manifest) -> Value {
     Value::Object(map)
 }
 
-/// Compiles the project's C sources (without `main` and tests) into one shared library.
+/// The ctypes signatures of a C++ unit's shim symbols, keyed by the C++ name, with the
+/// `symbol` to load: a string is `utf8` and a vector `array:<ctype>`, each followed by its
+/// length (`len:<index>:c_size_t`); a string or vector result is `owned:str` or
+/// `owned:array:<ctype>`, with its length in a hidden `retlen` parameter; every symbol ends
+/// with the hidden `error` slot.
+fn signatures_cpp(manifest: &Manifest) -> Value {
+    use crate::lang::cpp::{CppType, crossing, symbol};
+    let ctype = |c: &str| scalar(c).map_or("c_int", |(_, _, _, ct)| ct).to_string();
+    let map: serde_json::Map<String, Value> = manifest
+        .exports
+        .iter()
+        .map(|f| {
+            let mut args = Vec::new();
+            for p in &f.params {
+                match p.native_type.as_deref().and_then(crossing).map(|c| c.ty) {
+                    Some(CppType::Str) => {
+                        args.push("utf8".to_string());
+                        args.push(format!("len:{}:c_size_t", args.len() - 1));
+                    }
+                    Some(CppType::Vec(e)) => {
+                        args.push(format!("array:{}", ctype(&e)));
+                        args.push(format!("len:{}:c_size_t", args.len() - 1));
+                    }
+                    Some(CppType::Scalar(s)) => args.push(ctype(&s)),
+                    None => args.push("c_int".into()),
+                }
+            }
+            let ret = match f.native_return.as_deref() {
+                Some("void") | None => "None".to_string(),
+                Some(r) => match crossing(r).map(|c| c.ty) {
+                    Some(CppType::Str) => "owned:str".into(),
+                    Some(CppType::Vec(e)) => format!("owned:array:{}", ctype(&e)),
+                    Some(CppType::Scalar(s)) => ctype(&s),
+                    None => "c_int".into(),
+                },
+            };
+            if ret.starts_with("owned:") {
+                args.push("retlen".into());
+            }
+            args.push("error".into());
+            (
+                f.name.clone(),
+                json!({ "symbol": symbol(&f.name), "args": args, "ret": ret, "names": [], "writes": false }),
+            )
+        })
+        .collect();
+    Value::Object(map)
+}
+
+/// The C and C++ compilers' flag that keeps `a * b + c` two roundings, as the Mojo side is built
+/// ([`crate::harness_mojo_c::C_ABI_FLAGS`]). A recording is only as representative as its
+/// flags: g++ fuses at `-O2 -march=native` or with `-mfma` unless told otherwise.
+pub const NO_CONTRACTION: &str = "-ffp-contract=off";
+
+/// Compiles the project's C sources (without `main` and tests) into one shared library; for a
+/// C++ unit, its C++ sources and the shim (regenerated from the manifest) with `c++`.
 fn build_original(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
-    let (sources, include_dirs) = original_sources(manifest)?;
     let out = crate_dir.join(WORK_DIR).join("original.so");
     std::fs::create_dir_all(crate_dir.join(WORK_DIR))?;
+    if manifest.language == Lang::Cpp {
+        let (sources, include_dirs) = original_sources_cpp(manifest)?;
+        let shim = crate_dir.join(crate::codegen_cpp::SHIM);
+        std::fs::create_dir_all(shim.parent().unwrap_or(crate_dir))?;
+        std::fs::write(
+            &shim,
+            crate::codegen_cpp::shim_cpp(manifest).map_err(anyhow::Error::msg)?,
+        )?;
+        let mut cmd = Command::new(cxx_compiler()?);
+        cmd.args([
+            "-std=c++17",
+            "-shared",
+            "-fPIC",
+            "-O1",
+            "-w",
+            NO_CONTRACTION,
+            "-o",
+        ])
+        .arg(&out);
+        cmd.args(include_args(&include_dirs, "CXXFLAGS"));
+        cmd.args(&sources).arg(&shim).arg("-lm");
+        run(&mut cmd, "c++ (original sources and cpp/shim.cpp)")?;
+        return Ok(out);
+    }
+    let (sources, include_dirs) = original_sources(manifest)?;
     let mut cmd = Command::new(compiler());
-    cmd.args(["-shared", "-fPIC", "-O1", "-w", "-o"]).arg(&out);
-    cmd.args(include_args(&include_dirs));
+    cmd.args(["-shared", "-fPIC", "-O1", "-w", NO_CONTRACTION, "-o"])
+        .arg(&out);
+    cmd.args(include_args(&include_dirs, "CFLAGS"));
     cmd.args(&sources).arg("-lm");
     run(&mut cmd, "cc (original sources)")?;
     Ok(out)
 }
 
+/// The C++ compiler: `c++`, else `g++`, else `clang++`.
+pub fn cxx_compiler() -> Result<&'static str> {
+    ["c++", "g++", "clang++"]
+        .into_iter()
+        .find(|c| Command::new(c).arg("--version").output().is_ok())
+        .context("no C++ compiler: install one that runs as `c++` (g++ or clang++)")
+}
+
+/// The project's C++ sources without `main` and tests, and the folders with headers.
+fn original_sources_cpp(
+    manifest: &Manifest,
+) -> Result<(Vec<PathBuf>, std::collections::BTreeSet<PathBuf>)> {
+    let ws = crate::lang::cpp::discover(&manifest.root)?;
+    let mut sources = Vec::new();
+    let mut include_dirs = std::collections::BTreeSet::new();
+    include_dirs.insert(manifest.root.clone());
+    for file in ws
+        .files
+        .iter()
+        .filter(|f| f.kind == crate::ts::discover::FileKind::Source)
+    {
+        let path = manifest.root.join(&file.path);
+        if let Some(dir) = path.parent() {
+            include_dirs.insert(dir.to_path_buf());
+        }
+        if crate::lang::cpp::is_source(&file.path)
+            && !crate::lang::cpp::defines_main(&std::fs::read_to_string(&path).unwrap_or_default())
+        {
+            sources.push(path);
+        }
+    }
+    for entry in crate::walk::builder(&manifest.root)
+        .require_git(false)
+        .build()
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if crate::lang::cpp::HEADERS
+            .iter()
+            .any(|e| name.ends_with(&format!(".{e}")))
+            && let Some(dir) = entry.path().parent()
+        {
+            include_dirs.insert(dir.to_path_buf());
+        }
+    }
+    Ok((sources, include_dirs))
+}
+
 /// Include flags: each header folder with `-I`, except a folder holding a header named like a
 /// C standard one (ffmpeg's `libavutil/time.h`), which gets `-iquote` so `<time.h>` stays the
-/// system's. Then the flags in `CFLAGS` (`-DHAVE_CONFIG_H`, `-include config.h`).
-fn include_args(dirs: &std::collections::BTreeSet<PathBuf>) -> Vec<String> {
+/// system's. Then the flags in `flags_var` (`CFLAGS` for C, `CXXFLAGS` for C++:
+/// `-DHAVE_CONFIG_H`, `-include config.h`, `-std=c++20`).
+fn include_args(dirs: &std::collections::BTreeSet<PathBuf>, flags_var: &str) -> Vec<String> {
     let mut out = Vec::new();
     for dir in dirs {
         let shadows = crate::lang::c::STANDARD_HEADERS.iter().any(|h| {
@@ -129,7 +262,7 @@ fn include_args(dirs: &std::collections::BTreeSet<PathBuf>) -> Vec<String> {
         }
     }
     out.extend(
-        std::env::var("CFLAGS")
+        std::env::var(flags_var)
             .unwrap_or_default()
             .split_whitespace()
             .map(str::to_string),
@@ -185,16 +318,45 @@ pub fn diff(crate_dir: &Path, manifest: &Manifest) -> Result<DiffOutcome> {
         );
     }
     let port = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
+    diff_library(crate_dir, manifest, &port, "diff.json", &[])
+}
+
+/// Replays the recorded cases through `library` (a packaged copy of the drop-in library) with
+/// `env` added to the driver's environment. The outcome is exact: known diffs are not applied.
+pub fn replay(
+    crate_dir: &Path,
+    library: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let manifest = Manifest::load(crate_dir)?;
+    if !crate_dir.join(CASES).exists() {
+        bail!(
+            "no {CASES} in {} (run `mojo-anything record` first)",
+            crate_dir.display()
+        );
+    }
+    diff_library(crate_dir, &manifest, library, "replay.json", env)
+}
+
+fn diff_library(
+    crate_dir: &Path,
+    manifest: &Manifest,
+    port: &Path,
+    out_name: &str,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> Result<DiffOutcome> {
+    let cases = crate_dir.join(CASES);
     let (driver, sigs) = driver(crate_dir, manifest)?;
-    let out = crate_dir.join(WORK_DIR).join("diff.json");
+    let out = crate_dir.join(WORK_DIR).join(out_name);
     run(
         python()
             .arg(&driver)
             .arg("diff")
-            .arg(&port)
+            .arg(port)
             .arg(&sigs)
             .arg(&cases)
-            .arg(&out),
+            .arg(&out)
+            .envs(env.iter().copied()),
         "python (ctypes)",
     )?;
     Ok(serde_json::from_str(&std::fs::read_to_string(&out)?)?)
@@ -207,6 +369,9 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
             "no {CASES} in {} (run `mojo-anything record` first)",
             crate_dir.display()
         );
+    }
+    if manifest.language == Lang::Cpp {
+        return bench_cpp(crate_dir, manifest, min_ms);
     }
     let port = crate::harness_mojo_c::built_library(crate_dir, manifest, true)?.canonical()?;
     let work = crate_dir.canonical()?.join(WORK_DIR);
@@ -223,11 +388,13 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
     let (sources, include_dirs) = original_sources(manifest)?;
     let bin = work.join("bench");
     let mut cmd = Command::new(compiler());
-    cmd.args(["-O2", "-w", "-o"]).arg(&bin).arg(&source);
+    cmd.args(["-O2", "-w", NO_CONTRACTION, "-o"])
+        .arg(&bin)
+        .arg(&source);
     for f in crate::codegen_c::shadow_flags(manifest).split_whitespace() {
         cmd.arg(f);
     }
-    cmd.args(include_args(&include_dirs));
+    cmd.args(include_args(&include_dirs, "CFLAGS"));
     cmd.args(&sources)
         .arg(&port)
         .arg(format!(
@@ -250,6 +417,197 @@ pub fn bench(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<B
             Some(BenchRow {
                 name: f.name.clone(),
                 cases: usize::try_from(t["cases"].as_u64().unwrap_or(0)).unwrap_or(0),
+                original_ns: o,
+                rust_ns: n,
+                speedup: o / n,
+            })
+        })
+        .collect())
+}
+
+/// What `gate`'s `cpp api` check found: the original's mangled symbol for each export, and
+/// whether `cpp/wrapper.cpp` defines the same one.
+#[derive(Debug, Default)]
+pub struct CppApi {
+    /// Exports the wrapper defines with the original's symbol, demangled.
+    pub same: Vec<String>,
+    /// One line per export the wrapper does not define as the original does.
+    pub different: Vec<String>,
+    /// The original's other external definitions (demangled), which a program linking the
+    /// wrapper in place of the unit no longer has.
+    pub dropped: Vec<String>,
+}
+
+/// Compiles the unit and `cpp/wrapper.cpp` to objects and compares the mangled names they
+/// define for each export: a C++ caller links against those names, so they must not change.
+/// Every other external definition of the unit that the wrapper lacks is listed as dropped:
+/// strong ones only (`T`, `D`, `B`, `R`), since an inline function, an implicit member or a
+/// template instance (`W`, `V`) is emitted again by every file that uses it.
+pub fn cpp_api(crate_dir: &Path, manifest: &Manifest) -> Result<CppApi> {
+    let work = crate_dir.join(WORK_DIR).join("api");
+    std::fs::create_dir_all(&work)?;
+    let (_, include_dirs) = original_sources_cpp(manifest)?;
+    let compiler = cxx_compiler()?;
+    let compile = |src: &Path, obj: &Path, what: &str| -> Result<()> {
+        let mut cmd = Command::new(compiler);
+        cmd.args(["-std=c++17", "-c", "-w", "-o"]).arg(obj);
+        cmd.args(include_args(&include_dirs, "CXXFLAGS"));
+        cmd.arg(src);
+        run(&mut cmd, what)
+    };
+    let (original, wrapper) = (work.join("original.o"), work.join("wrapper.o"));
+    compile(
+        &manifest.root.join(&manifest.unit),
+        &original,
+        "c++ (the original)",
+    )?;
+    compile(
+        &crate_dir.join(crate::codegen_cpp::WRAPPER),
+        &wrapper,
+        "c++ (cpp/wrapper.cpp)",
+    )?;
+    let defined = |obj: &Path| -> Result<Vec<(bool, String, String)>> {
+        let list = |demangle: bool| -> Result<Vec<String>> {
+            let mut cmd = Command::new("nm");
+            cmd.arg("--defined-only");
+            if demangle {
+                cmd.arg("-C");
+            }
+            let out = cmd.arg(obj).output().context("running nm")?;
+            if !out.status.success() {
+                bail!("nm {} failed", obj.display());
+            }
+            Ok(String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(str::to_string)
+                .collect())
+        };
+        let (raw, names) = (list(false)?, list(true)?);
+        Ok(raw
+            .iter()
+            .zip(&names)
+            .filter_map(|(r, d)| {
+                let mut parts = r.splitn(3, ' ');
+                let (_, kind, mangled) = (parts.next()?, parts.next()?, parts.next()?);
+                let demangled = d.splitn(3, ' ').nth(2)?;
+                let strong = matches!(kind, "T" | "D" | "B" | "R");
+                (strong || matches!(kind, "W" | "V"))
+                    .then(|| (strong, mangled.to_string(), demangled.to_string()))
+            })
+            .collect())
+    };
+    let (theirs, ours) = (defined(&original)?, defined(&wrapper)?);
+    let mut api = CppApi::default();
+    let prefixes: Vec<String> = manifest
+        .exports
+        .iter()
+        .map(|f| format!("{}(", f.name))
+        .collect();
+    for (strong, mangled, demangled) in &theirs {
+        if *strong
+            && !ours.iter().any(|(_, m, _)| m == mangled)
+            && !prefixes.iter().any(|p| demangled.starts_with(p))
+        {
+            api.dropped.push(demangled.clone());
+        }
+    }
+    for f in &manifest.exports {
+        let prefix = format!("{}(", f.name);
+        let expected: Vec<(&String, &String)> = theirs
+            .iter()
+            .filter(|(_, _, d)| d.starts_with(&prefix))
+            .map(|(_, m, d)| (m, d))
+            .collect();
+        if expected.is_empty() {
+            api.different.push(format!(
+                "`{}` is not defined by {} any more",
+                f.name, manifest.unit
+            ));
+            continue;
+        }
+        for (mangled, demangled) in expected {
+            if ours.iter().any(|(_, m, _)| m == mangled) {
+                api.same.push(demangled.clone());
+            } else {
+                let wrote: Vec<&str> = ours
+                    .iter()
+                    .filter(|(_, _, d)| d.starts_with(&prefix))
+                    .map(|(_, _, d)| d.as_str())
+                    .collect();
+                api.different.push(format!(
+                    "{} defines `{demangled}` ({mangled}); {} defines {}",
+                    manifest.unit,
+                    crate::codegen_cpp::WRAPPER,
+                    if wrote.is_empty() {
+                        "no such function".to_string()
+                    } else {
+                        format!("`{}`", wrote.join("`, `"))
+                    }
+                ));
+            }
+        }
+    }
+    Ok(api)
+}
+
+/// The exceptions a C++ unit's recording shows that the wrapper cannot throw as they are: each
+/// error recorded as `<type> (<base>): <what()>` (see `cpp/shim.cpp`), once per function and
+/// type, as "`<function>` throws `<type>`, which C++ callers of the wrapper get as `<base>`".
+pub fn cpp_rebuilt_exceptions(crate_dir: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(crate_dir.join(CASES)) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let Ok(case) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let (Some(name), Some(error)) = (case["fn"].as_str(), case["error"].as_str()) else {
+            continue;
+        };
+        let Some((head, _)) = error.split_once(": ") else {
+            continue;
+        };
+        if let Some(open) = head.rfind(" (")
+            && head.ends_with(')')
+        {
+            let (ty, base) = (&head[..open], &head[open + 2..head.len() - 1]);
+            seen.insert(format!(
+                "`{name}` throws `{ty}`, which C++ callers of {} get as `{base}`",
+                crate::codegen_cpp::WRAPPER
+            ));
+        }
+    }
+    seen.into_iter().collect()
+}
+
+/// A C++ unit's bench: the driver calls the original (through the shim) and the port's
+/// library with the same recorded arguments, so both timings include one ctypes call.
+fn bench_cpp(crate_dir: &Path, manifest: &Manifest, min_ms: u64) -> Result<Vec<BenchRow>> {
+    let port = crate::harness_mojo_c::built_library(crate_dir, manifest, false)?;
+    let original = build_original(crate_dir, manifest)?;
+    let (driver, sigs) = driver(crate_dir, manifest)?;
+    let out = crate_dir.join(WORK_DIR).join("bench.json");
+    run(
+        python()
+            .arg(&driver)
+            .arg("bench")
+            .arg(&original)
+            .arg(&port)
+            .arg(&sigs)
+            .arg(crate_dir.join(CASES))
+            .arg(&out)
+            .arg(min_ms.to_string()),
+        "python (ctypes bench)",
+    )?;
+    let rows: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(&out)?)?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let (o, n) = (r["original_ns"].as_f64()?, r["rust_ns"].as_f64()?);
+            Some(BenchRow {
+                name: r["fn"].as_str()?.to_string(),
+                cases: usize::try_from(r["cases"].as_u64().unwrap_or(0)).unwrap_or(0),
                 original_ns: o,
                 rust_ns: n,
                 speedup: o / n,
@@ -581,6 +939,13 @@ import time
 # setlocale, so the library must see "C" here (isspace, toupper, strtod depend on it).
 locale.setlocale(locale.LC_ALL, "C")
 
+# Results the callee allocates (C++ strings, vectors and error texts) are freed with the C
+# library's `free`, the one both the shim and Mojo's `malloc` use.
+FREE = ctypes.CDLL(None).free
+FREE.argtypes = [ctypes.c_void_p]
+FREE.restype = None
+HIDDEN = ("retlen", "error")
+
 
 def enc(v):
     if isinstance(v, float):
@@ -639,7 +1004,7 @@ def from_struct(value):
 def argtype(kind):
     if kind.startswith("struct:"):
         return structure(kind)
-    if kind in ("bytes", "buffer") or kind.startswith("out:") or kind.startswith("outptr:"):
+    if kind in ("bytes", "buffer", "utf8") + HIDDEN or kind.startswith(("out:", "outptr:", "array:")):
         return ctypes.c_void_p
     if kind.startswith("len:"):
         return getattr(ctypes, kind.split(":")[2])
@@ -651,14 +1016,14 @@ def bind(path, signatures):
     functions = {}
     for name, sig in signatures.items():
         try:
-            fn = getattr(lib, name)
+            fn = getattr(lib, sig.get("symbol", name))
         except AttributeError:
             continue
         fn.argtypes = [argtype(t) for t in sig["args"]]
         ret = sig["ret"]
         if ret == "None":
             fn.restype = None
-        elif ret.startswith("ptr:"):
+        elif ret.startswith(("ptr:", "owned:")):
             fn.restype = ctypes.c_void_p
         elif ret.startswith("struct:"):
             fn.restype = structure(ret)
@@ -683,12 +1048,37 @@ def call(functions, c):
     fn, sig = functions[c["fn"]]
     kinds = sig["args"]
     given = iter([dec(a) for a in c["args"]])
-    values = [None if k.startswith("len:") else next(given, None) for k in kinds]
+    values = [None if k.startswith("len:") or k in HIDDEN else next(given, None) for k in kinds]
     args = [None] * len(kinds)
     memory = {}
     outs = {}
+    retlen = ctypes.c_size_t(0)
+    error = ctypes.c_void_p(None)
     for i, (value, kind) in enumerate(zip(values, kinds)):
-        if kind == "c_char_p":
+        if kind == "retlen":
+            args[i] = ctypes.addressof(retlen)
+        elif kind == "error":
+            args[i] = ctypes.addressof(error)
+        elif kind == "utf8":
+            # A C++ string: its UTF-8 bytes and their count, NUL bytes included; `{"$bytes": [...]}`
+            # gives the bytes themselves, which need not be UTF-8.
+            if isinstance(value, dict) and list(value) == ["$bytes"]:
+                data = bytes(value["$bytes"])
+            else:
+                data = str(value if value is not None else "").encode("utf-8")
+            buf = ctypes.create_string_buffer(data, max(len(data), 1))
+            memory[i] = (buf, len(data))
+            args[i] = ctypes.cast(buf, ctypes.c_void_p)
+        elif kind.startswith("array:"):
+            # A C++ vector of numbers: the elements and their count.
+            if not isinstance(value, list):
+                raise TypeError("expects a list of numbers")
+            ctype = getattr(ctypes, kind[len("array:"):])
+            items = [scalar(ctype, dec(v)) for v in value]
+            buf = (ctype * max(len(items), 1))(*items)
+            memory[i] = (buf, len(items))
+            args[i] = ctypes.cast(buf, ctypes.c_void_p)
+        elif kind == "c_char_p":
             if value is not None:
                 data = str(value).encode("utf-8")
                 buf = ctypes.create_string_buffer(data)
@@ -733,6 +1123,28 @@ def call(functions, c):
             slots[i] = ctypes.c_void_p(start)
             args[i] = ctypes.addressof(slots[i])
     result = fn(*args)
+    ret = sig["ret"]
+    if error.value:
+        # A C++ exception the shim caught, or an error a Mojo port raised.
+        text = ctypes.string_at(error.value).decode("utf-8", "replace")
+        FREE(error.value)
+        if ret.startswith("owned:") and result:
+            FREE(result)
+        return {"error": text}
+    if ret == "owned:str":
+        data = ctypes.string_at(result, retlen.value) if result and retlen.value else b""
+        if result:
+            FREE(result)
+        try:
+            return {"ok": data.decode("utf-8")}
+        except UnicodeDecodeError:
+            return {"ok": enc(data)}
+    if ret.startswith("owned:array:"):
+        ctype = getattr(ctypes, ret[len("owned:array:"):])
+        items = [enc(v) for v in (ctype * retlen.value).from_address(result)] if result and retlen.value else []
+        if result:
+            FREE(result)
+        return {"ok": items}
     if sig["ret"].startswith("ptr:"):
         target = int(sig["ret"][4:])
         if result is not None:

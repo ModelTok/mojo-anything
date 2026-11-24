@@ -611,16 +611,15 @@ fn record_resolves_workspace_packages_to_source() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-fn error_checks(dir: &Path, fails: &str) -> Vec<mojo_anything::gate::Check> {
-    let checks = mojo_anything::error_paths::checks(dir, &Manifest::load(dir).unwrap());
-    let errors = &checks[0];
+fn error_checks(dir: &Path, fails: &str) -> mojo_anything::gate::Check {
+    let errors = mojo_anything::error_paths::check(dir, &Manifest::load(dir).unwrap());
     assert_eq!(errors.name, "error cases");
     assert!(errors.passed, "{errors:?}");
     assert!(
         errors.detail.starts_with("each of the"),
         "{fails} fails in the original: {errors:?}"
     );
-    checks
+    errors
 }
 
 #[test]
@@ -835,7 +834,7 @@ fn go_packages_bridge_record_and_diff() {
     .unwrap();
     assert!(recorded.cases > 100, "{recorded:?}");
     assert!(recorded.errors > 0, "ParsePort returns errors");
-    assert!(error_checks(&dir, "ParsePort")[1].passed);
+    assert!(error_checks(&dir, "ParsePort").passed);
     // A port where every function fails: the diff must run through the Go wrapper and say so.
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
@@ -908,7 +907,7 @@ fn ruby_modules_bridge_record_and_diff() {
     assert!(recorded.cases > 100, "{recorded:?}");
     // `page_count` raises ArgumentError for a non-positive page size.
     assert!(recorded.errors > 0);
-    assert!(error_checks(&dir, "the fixture")[1].passed);
+    assert!(error_checks(&dir, "the fixture").passed);
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
         crate_dir: &dir,
@@ -1024,8 +1023,9 @@ fn kotlin_functions_bridge_record_and_diff() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A top-level function (owner `TextKt`) and a companion object's `@JvmStatic` member (owner
-/// `Units`) in one Kotlin file: both bridge, record and replay through the Mojo port.
+/// A top-level function (owner `TextKt`), a companion object's `@JvmStatic` member (owner
+/// `Units`) and a nested object's (owner `Shapes$Sign`) in one Kotlin file: all three bridge,
+/// record and replay through the Mojo port.
 #[test]
 fn kotlin_top_level_and_companion_replay() {
     if !common::have_java() {
@@ -1053,7 +1053,7 @@ fn kotlin_top_level_and_companion_replay() {
     assert_eq!(outcome.kind, Kind::MojoJvm);
     let mut exports = outcome.exports.clone();
     exports.sort();
-    assert_eq!(exports, ["parse", "slug"]);
+    assert_eq!(exports, ["parse", "sign", "slug"]);
     let m = Manifest::load(&dir).unwrap();
     let owner = |name: &str| {
         let f = m.exports.iter().find(|f| f.name == name).unwrap();
@@ -1061,6 +1061,10 @@ fn kotlin_top_level_and_companion_replay() {
     };
     assert_eq!(owner("slug"), "com.example.owners.TextKt");
     assert_eq!(owner("parse"), "com.example.owners.Units");
+    assert_eq!(owner("sign"), "com.example.owners.Shapes$Sign");
+    let sign =
+        std::fs::read_to_string(dir.join("java/com/example/owners/Shapes$Sign.java")).unwrap();
+    assert!(sign.contains("public static long sign(long n) {"), "{sign}");
     let text = std::fs::read_to_string(dir.join("java/com/example/owners/TextKt.java")).unwrap();
     assert!(
         text.contains("public static String slug(String s) {"),
@@ -1083,7 +1087,7 @@ fn kotlin_top_level_and_companion_replay() {
         node_args: &[],
     })
     .unwrap();
-    for name in ["slug", "parse"] {
+    for name in ["slug", "parse", "sign"] {
         assert!(
             recorded.per_function.get(name).copied().unwrap_or(0) > 10,
             "{recorded:?}"
@@ -1168,7 +1172,9 @@ fn java_sources(dir: &Path) -> Vec<PathBuf> {
 /// A Kotlin caller compiled against the original classes prints the same against the wrappers.
 /// Kotlin calls a companion object's `@JvmStatic` member through the companion
 /// (`getstatic Units.Companion`, then `invokevirtual Units$Companion.parse`), so a wrapper with
-/// the static method alone fails at link time with `NoSuchFieldError`.
+/// the static method alone fails at link time with `NoSuchFieldError`. `Units()` needs the
+/// implicit public constructor, and `Shapes.Sign.sign` the class `Shapes$Sign`; the original
+/// classes are not on the wrappers' class path, so a call that missed the wrappers fails.
 #[test]
 fn kotlin_caller_links_against_the_wrappers() {
     if !common::have_java() || !common::have("kotlinc") || !common::have_mojo() {
@@ -1194,13 +1200,17 @@ fn kotlin_caller_links_against_the_wrappers() {
     );
     std::fs::write(
         check.join("Caller.kt"),
-        r#"import com.example.owners.Units
+        r#"import com.example.owners.Shapes
+import com.example.owners.Units
 import com.example.owners.slug
 
 fun main() {
     println(slug("a b c"))
     println(Units.parse(" 42 "))
     println(Units.Companion.parse("-7"))
+    println(Units().javaClass.name)
+    println(Shapes.Sign.sign(-5))
+    println(Shapes.Sign.sign(9))
     try {
         Units.parse("x")
     } catch (e: NumberFormatException) {
@@ -1242,7 +1252,10 @@ fun main() {
         )
     };
     let expected = run(&original);
-    assert!(expected.contains("\n42\n-7\n"), "{expected}");
+    assert!(
+        expected.contains("\n42\n-7\ncom.example.owners.Units\n-1\n1\n"),
+        "{expected}"
+    );
     assert_eq!(run(&wrappers), expected);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1481,6 +1494,62 @@ fn ts_mojo_shadow_reports_mismatch() {
     assert_eq!(run("shadow"), r#"[1,0,2,["count"]]"#);
     // New: the Mojo port answers, bug included.
     assert_eq!(run("new"), r#"[1,1,0,[]]"#);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The addon finds a missing library when it is loaded, so the shadow runs the original alone
+/// with its "module not loaded" warning instead of reporting every call as a mismatch.
+#[test]
+fn shadow_falls_back_when_library_is_missing() {
+    if !(common::have("node") && common::have("cc") && common::have_mojo()) {
+        return;
+    }
+    let dir = bridged_mojo("ts-mojo-no-lib");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini-mojo-port/port.mojo"),
+        dir.join("port.mojo"),
+    )
+    .unwrap();
+    harness::build(&dir).unwrap();
+    let mut removed = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if name.starts_with("lib") && (name.ends_with(".so") || name.ends_with(".dylib")) {
+            std::fs::remove_file(&path).unwrap();
+            removed += 1;
+        }
+    }
+    assert_eq!(removed, 1, "the built library in {}", dir.display());
+    let out = shadow::shadow(&dir, None).unwrap();
+    let script = dir.join("use.ts");
+    std::fs::write(
+        &script,
+        format!(
+            "import {{ count, shadowStats }} from '{}'\n\
+             console.log(JSON.stringify([count('a b'), count('a\\tb'), shadowStats]))\n",
+            out.path.display()
+        ),
+    )
+    .unwrap();
+    let o = Command::new("node")
+        .arg(&script)
+        .env("MOJO_ANYTHING_MODE", "shadow")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert!(o.status.success(), "{stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout).trim(),
+        r#"[1,0,{"calls":0,"mismatches":0}]"#,
+        "{stderr}"
+    );
+    assert!(stderr.contains("Mojo module not loaded"), "{stderr}");
+    let text = std::fs::read_to_string(&out.path).unwrap();
+    assert!(
+        !text.contains("Rust"),
+        "the shadow still says Rust:\n{text}"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

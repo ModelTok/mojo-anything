@@ -1,5 +1,5 @@
 //! MCP prompts: the skill's playbooks as ready-to-send messages, for agents that load prompts
-//! rather than skills.
+//! rather than skills. Each message is the guide first, then the request.
 
 use serde_json::{Value, json};
 
@@ -11,8 +11,8 @@ pub fn list() -> Value {
     json!({ "prompts": [
         {
             "name": "port_unit",
-            "title": "Port one unit to Rust",
-            "description": "Port one unit of a repository to Rust: analyze, bridge, record, port, build, diff, shadow, gate.",
+            "title": "Port one unit to Mojo",
+            "description": "Port one unit of a repository to Mojo: analyze, bridge, record, port it in port.mojo, build, diff, shadow, gate.",
             "arguments": [
                 { "name": "path", "description": "Repository root.", "required": true },
                 { "name": "unit", "description": "Unit id from analyze; the best first port from `start_here` when omitted.", "required": false },
@@ -20,8 +20,8 @@ pub fn list() -> Value {
         },
         {
             "name": "port_whole_app",
-            "title": "Port a whole app to Rust",
-            "description": "Rewrite a whole app (CLI, server or library) as a pure Rust app: grill the decisions, record the app, front door, port every unit, lift.",
+            "title": "Port a whole app to Mojo",
+            "description": "Rewrite a whole app (CLI, server or library) as a pure Mojo app: grill the decisions, record the app, put a Mojo front door in mojo/app, port every unit, lift.",
             "arguments": [
                 { "name": "path", "description": "Repository root.", "required": true },
             ],
@@ -37,27 +37,28 @@ pub fn get(name: &str, arguments: &Value) -> Result<Value, String> {
         "port_unit" => {
             let target = match arg("unit") {
                 Some(unit) => format!(
-                    "Port the unit `{unit}` of the repository at {path} to Rust with mojo-anything."
+                    "Port the unit `{unit}` of the repository at {path} to Mojo with mojo-anything."
                 ),
                 None => format!(
-                    "Port one unit of the repository at {path} to Rust with mojo-anything: run \
+                    "Port one unit of the repository at {path} to Mojo with mojo-anything: run \
                      analyze on it first and take the best first port from `start_here`."
                 ),
             };
             (
-                "Port one unit to Rust",
+                "Port one unit to Mojo",
                 format!(
-                    "{target} Call the port done only when gate passes.\n\nFollow this guide:\n\n{}",
+                    "{}\n\n---\n\nFollow the guide above. {target} Call the port done only when \
+                     gate passes.",
                     body(SKILL)
                 ),
             )
         }
         "port_whole_app" => (
-            "Port a whole app to Rust",
+            "Port a whole app to Mojo",
             format!(
-                "Rewrite the app at {path} as a pure Rust app with mojo-anything, keeping the \
-                 original only as reference.\n\nFollow this guide:\n\n{}\n\nEach unit goes through \
-                 the per-unit loop:\n\n{}",
+                "{}\n\n---\n\nEach unit goes through the per-unit loop:\n\n{}\n\n---\n\nFollow the \
+                 guides above. Rewrite the app at {path} as a pure Mojo app with mojo-anything, \
+                 keeping the original only as reference.",
                 body(WHOLE_APP),
                 body(SKILL)
             ),
@@ -70,7 +71,7 @@ pub fn get(name: &str, arguments: &Value) -> Result<Value, String> {
     }))
 }
 
-fn body(markdown: &str) -> &str {
+pub(crate) fn body(markdown: &str) -> &str {
     markdown
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---\n"))

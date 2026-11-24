@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# For every Mojo unit: copies it next to the tree that ../ffmpeg-rs/scripts/prepare.sh
-# assembles, records ffmpeg's behaviour on the inputs from ../ffmpeg-rs/scripts/inputs.py (and
+# For every Mojo unit: copies it next to the tree that prepare.sh (next to this script)
+# assembles, records ffmpeg's behaviour on the inputs from inputs.py (and
 # mojo-anything's generated edge cases), builds the Mojo library, replays every case and runs
 # gate. Run prepare.sh first, with the same WORK. Pass unit folder names to verify only those.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
-SCRIPTS=$REPO/demo/real-world/ffmpeg-rs/scripts
-WORK=${WORK:-$REPO/demo/real-world/ffmpeg-rs/work}
+SCRIPTS=$HERE/scripts
+WORK=${WORK:-$HERE/work}
 TREE=$WORK/tree
 MA=${MA:-$REPO/target/release/mojo-anything}
 [ -x "$MA" ] || cargo build --release --manifest-path "$REPO/Cargo.toml"

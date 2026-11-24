@@ -1,8 +1,8 @@
-//! The catalog of TypeScript/JavaScript behaviors that do not carry over to Rust as-is.
+//! The catalog of source-language behaviours that do not carry over to Mojo as-is.
 
 use serde::Serialize;
 
-/// A construct whose JS semantics differ from the obvious Rust translation.
+/// A construct whose source semantics differ from the obvious Mojo translation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Risk {
@@ -22,7 +22,7 @@ pub enum Risk {
     Json,
     /// Unbounded or differently sized integers (Python `int`, C/Go/Java widths and overflow).
     IntegerSemantics,
-    /// Floor division and modulo that differ from Rust's (`//`, `%` on negatives, C `/` by zero).
+    /// Floor or truncating division and modulo (`//`, `%` on negatives, C `/` by zero).
     DivisionSemantics,
     /// Iteration over hash sets or maps whose order a port cannot reproduce.
     UnorderedIteration,
@@ -34,7 +34,7 @@ pub enum Risk {
     NullReferences,
     /// Changing classes, modules or methods at runtime (monkeypatching, `method_missing`).
     Monkeypatching,
-    /// Code already compiled to machine code (numba, Cython, JAX): Rust gains little speed.
+    /// Code already compiled to machine code (numba, Cython, JAX): Mojo gains little speed.
     AlreadyCompiled,
     /// Parameters typed as numpy arrays, which `record` cannot generate.
     ArrayParameters,
@@ -95,8 +95,8 @@ impl Risk {
     pub fn title(self) -> &'static str {
         match self {
             Self::StringOffsets => "String offsets and slicing",
-            Self::RegexSyntax => "Regex features the `regex` crate lacks",
-            Self::DynamicRegex => "Regexes built at runtime",
+            Self::RegexSyntax => "Regexes (Mojo has no engine; lookaround, backreferences, `y`)",
+            Self::DynamicRegex => "Regexes built at runtime (Mojo has no engine)",
             Self::DynamicCode => "Dynamic code (eval, new Function, computed import)",
             Self::DynamicTyping => "Dynamic typing",
             Self::OrderedCollections => "Insertion-ordered maps and object keys",
@@ -125,49 +125,55 @@ impl Risk {
     pub fn guidance(self) -> &'static str {
         match self {
             Self::StringOffsets => {
-                "JS indexes strings in UTF-16 code units, Rust in UTF-8 bytes. Offsets that cross \
-                 the boundary must be converted, or non-ASCII text gets wrong ranges silently."
+                "JS indexes strings in UTF-16 code units, a Mojo `String` in UTF-8 bytes. Offsets \
+                 that cross the boundary must be converted, or non-ASCII text gets wrong ranges \
+                 silently."
             }
             Self::RegexSyntax => {
-                "Lookaround, backreferences and the `y` flag are not in the `regex` crate. Use \
-                 `fancy-regex` for those patterns, or rewrite them, and test them on non-ASCII \
-                 text: `\\w`, `\\b` and case-insensitive matching differ between engines even \
-                 where a pattern compiles. JS `/i` without `u` never matches a non-ASCII letter to \
-                 an ASCII one, Rust `(?i)` does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): \
-                 write `(?i-u)` or compare with `eq_ignore_ascii_case`."
+                "Mojo's standard library has no regex engine: rewrite the pattern by hand, or run \
+                 it through Python's `re` over CPython interop, which a lifted binary then still \
+                 needs. Lookaround and backreferences make a hand rewrite harder, and `re` has \
+                 no `y` flag. Test either on non-ASCII text: `\\w`, `\\b` and case-insensitive \
+                 matching differ between engines even where a pattern compiles. JS `/i` without \
+                 `u` never matches a non-ASCII letter to an ASCII one, `re.IGNORECASE` on a `str` \
+                 does (`ſ` matches `s`, the Kelvin sign `K` matches `k`): add `re.ASCII`, or \
+                 compare ASCII letters by hand."
             }
             Self::DynamicRegex => {
-                "Patterns come from data or config in JS syntax. Rust regex syntax differs, so \
+                "Patterns come from data or config in the original's syntax at runtime. Mojo has \
+                 no regex engine, and Python's `re` reads some of that syntax differently, so \
                  user-visible behavior can change. Pin it with tests on real patterns."
             }
             Self::DynamicCode => {
-                "eval, new Function and computed imports have no Rust equivalent. Keep this part \
+                "eval, new Function and computed imports have no Mojo equivalent. Keep this part \
                  in JS or replace it with an explicit registry."
             }
             Self::DynamicTyping => {
-                "Values whose shape is checked at runtime need an explicit Rust enum or \
-                 `serde_json::Value`."
+                "Values whose shape is checked at runtime need an explicit Mojo type (a struct per \
+                 shape) or a `JsonValue` from `json.mojo`."
             }
             Self::OrderedCollections => {
-                "JS Map, Set and object keys keep insertion order. `HashMap` does not: use \
-                 `indexmap` wherever order reaches output. With serde_json's `preserve_order`, \
-                 `Map::remove` swaps the last key into the hole: use `shift_remove` for JS `delete`. \
-                 Sort with `js::sort` when a comparator can return NaN: the order then depends \
-                 on V8's algorithm."
+                "JS Map, Set and object keys keep insertion order. Keep that order in the port \
+                 wherever it reaches output (a `JsonValue` object keeps its key order), and keep \
+                 the other keys in place when one is deleted. A sort whose comparator can return \
+                 NaN gives an order that depends on V8's algorithm: record such cases and match \
+                 them."
             }
             Self::Exceptions => {
-                "Thrown errors become `Result`. Errors crossing the bridge must map back to the \
-                 same JS error shape."
+                "Thrown errors become `raise Error(\"TypeName: message\")` in the port. Errors \
+                 crossing the bridge must map back to the same JS error shape."
             }
             Self::Async => {
                 "Promises have no Mojo counterpart across the bridge: keep the async shell in JS and \
                  port the sync core."
             }
             Self::Generators => {
-                "Lazy generators become iterators, or return a collected Vec across the bridge."
+                "Lazy generators become an iterator struct, or return a collected `List` across the \
+                 bridge."
             }
             Self::ClassInheritance => {
-                "Class hierarchies become traits plus composition; `instanceof` checks become enums."
+                "Class hierarchies become traits plus composition; `instanceof` checks become a \
+                 tag the port matches on. `bridge` keeps TS classes in TS for now."
             }
             Self::Reflection => {
                 "Proxy, Reflect, Symbol and prototype tricks need a redesign, not a translation."
@@ -177,50 +183,56 @@ impl Risk {
                  boundaries coarse: pass data in, get data out."
             }
             Self::NumberSemantics => {
-                "JS numbers are f64; bitwise ops truncate to i32; parseInt is lenient. Pick Rust \
-                 integer types deliberately. Printing differs: `${n}` gives `1e+21`, `1e-7` and `0` \
-                 for -0 where Rust's `{}` does not, so use `js::number_to_string`. `Math.round` \
-                 rounds halves up (-2.5 gives -2), Rust's `round` away from zero: use \
-                 `js::math_round`. `toFixed` rounds exact halves up ((2.5).toFixed(0) is \"3\"), \
-                 Rust's `{:.0}` to even."
+                "JS numbers are f64; bitwise ops truncate to i32; parseInt is lenient. Pick Mojo \
+                 integer types (`Int32`, `Int64`) deliberately. Printing differs: `${n}` gives \
+                 `1e+21`, `1e-7` and `0` for -0, and Mojo's `String(Float64)` picks other digits \
+                 than V8 for some values, so format numbers as JS does wherever the text reaches \
+                 output. `Math.round` rounds halves up (-2.5 gives -2) and `toFixed` rounds exact \
+                 halves up ((2.5).toFixed(0) is \"3\"): record halves and check the port's \
+                 rounding against them."
             }
             Self::Json => {
-                "JSON.stringify key order and number formatting must match `serde_json` output if \
-                 the result is user-visible."
+                "JSON.stringify key order and number formatting must match the original if the \
+                 result is user-visible: `json.mojo` (EmberJson) keeps key order but does not lay \
+                 numbers out as V8 does (`1e21`, `100.0`)."
             }
             Self::IntegerSemantics => {
                 "Python ints never overflow; C, Go and Java ints wrap or are undefined on overflow. \
-                 Pick i64, i128 or a bignum crate deliberately, and use wrapping_* where the source wraps."
+                 Pick the Mojo integer width deliberately: fixed-width integers wrap in two's \
+                 complement, as C's do. In Python ports, `PyNum` keeps ints unbounded."
             }
             Self::DivisionSemantics => {
-                "Python `//` and `%` floor toward negative infinity; Rust `/` and `%` truncate: use \
-                 `div_euclid`/`rem_euclid` or explicit floor math. C division by zero is undefined."
+                "Mojo's `//` and `%` on `Int` floor toward negative infinity, as Python's and Ruby's \
+                 do; JS, Java, C and Go truncate: write a truncating division for signed operands \
+                 that can be negative. C division by zero is undefined."
             }
             Self::UnorderedIteration => {
                 "Set and map iteration order comes from the source language's hash function. A port \
                  cannot reproduce it: sort before output, or make the order part of the contract."
             }
             Self::Pointers => {
-                "Pointer arithmetic and manual memory become slices, indices and owned types. Code that \
-                 exposes pointers across the boundary needs `unsafe`, isolated and explained."
+                "Pointer arithmetic and manual memory become `List`, `Span` and indices. Code that \
+                 exposes pointers across the boundary needs raw pointers with a `# SAFETY:` \
+                 comment, isolated and explained; a C ABI port keeps them out of `port.mojo` \
+                 (`exports.mojo` reads and writes them)."
             }
             Self::Concurrency => {
-                "Threads, goroutines and locks need a design in Rust (channels, Send/Sync), not a \
-                 line-by-line translation; keep concurrency in the caller where possible."
+                "Threads, goroutines and locks need a design in Mojo, not a line-by-line \
+                 translation; keep concurrency in the caller where possible."
             }
             Self::NullReferences => {
-                "Any reference may be null in the source: decide per parameter whether it is `Option` \
-                 and what null means, instead of mapping every value to `Option`."
+                "Any reference may be null in the source: decide per parameter whether it is \
+                 `Optional` and what null means, instead of mapping every value to `Optional`."
             }
             Self::Monkeypatching => {
-                "Code that rewrites classes or modules at runtime has no Rust equivalent: keep it in \
+                "Code that rewrites classes or modules at runtime has no Mojo equivalent: keep it in \
                  the source language and port the stable parts."
             }
             Self::AlreadyCompiled => {
                 "numba, Cython and JAX already compile this code to machine code (numba through \
-                 LLVM, like Rust): a Rust port is unlikely to run much faster. Port it for a pure \
-                 Rust app, not for speed, and profile first. Its floats may not match Rust's bit for \
-                 bit (fastmath, operation order): record with `--float-tolerance`."
+                 LLVM, as Mojo does): a Mojo port is unlikely to run much faster. Port it for a \
+                 pure Mojo app, not for speed, and profile first. Its floats may not match the \
+                 port's bit for bit (fastmath, operation order): record with `--float-tolerance`."
             }
             Self::ArrayParameters => {
                 "`record` passes JSON values, never numpy arrays, so a function that takes \
@@ -240,9 +252,8 @@ impl Risk {
                  the node bridge, Python): `Date.now()`, `new Date()` and `Math.random` \
                  (`time.time`, `datetime.now` and `random`) then return fixed values during \
                  record, diff and gate, and the port reads the same ones from `pinned.mojo` \
-                 (`now_ms()`, `random()`, a documented mulberry32; `src/port/pinned.rs` for a \
-                 Rust port). Or pass the time and the seed in as \
-                 parameters."
+                 (`now_ms()`, `random()`, a documented mulberry32). Or pass the time and the \
+                 seed in as parameters."
             }
         }
     }
@@ -304,6 +315,7 @@ pub fn uses_regex(lang: crate::lang::Lang, source: &str) -> bool {
         ]),
         Lang::Kotlin => has(&["kotlin.text.Regex", "Regex(", ".toRegex("]),
         Lang::C => has(&["<regex.h>", "pcre", "regcomp("]),
+        Lang::Cpp => has(&["<regex>", "<regex.h>", "std::regex", "pcre", "regcomp("]),
         Lang::Php => has(&["preg_", "mb_ereg"]),
         Lang::Csharp => has(&["Regex", "RegularExpressions"]),
     }
@@ -413,8 +425,62 @@ pub fn regex_needs_fancy(pattern: &str, flags: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        compiled_by, python_compiled, regex_folds_differently, regex_needs_fancy, uses_regex,
+        Risk, compiled_by, python_compiled, regex_folds_differently, regex_needs_fancy, uses_regex,
     };
+
+    #[test]
+    fn regex_advice_is_for_mojo() {
+        // Mojo has no regex engine: the advice is a hand rewrite or Python's `re`, not a crate.
+        for risk in [Risk::RegexSyntax, Risk::DynamicRegex] {
+            let text = format!("{} {}", risk.title(), risk.guidance());
+            assert!(text.contains("Mojo"), "{text}");
+            assert!(text.contains("`re`"), "{text}");
+            for stale in ["crate", "fancy-regex", "Rust"] {
+                assert!(!text.contains(stale), "{stale}: {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_risk_is_advised_for_mojo() {
+        // The advice reaches the plan, `analyze --json` and the MCP tools: none of it may tell
+        // the user to write Rust (it did before this fork targeted Mojo).
+        let all = [
+            Risk::StringOffsets,
+            Risk::RegexSyntax,
+            Risk::DynamicRegex,
+            Risk::DynamicCode,
+            Risk::DynamicTyping,
+            Risk::OrderedCollections,
+            Risk::Exceptions,
+            Risk::Async,
+            Risk::Generators,
+            Risk::ClassInheritance,
+            Risk::Reflection,
+            Risk::Callbacks,
+            Risk::NumberSemantics,
+            Risk::Json,
+            Risk::IntegerSemantics,
+            Risk::DivisionSemantics,
+            Risk::UnorderedIteration,
+            Risk::Pointers,
+            Risk::Concurrency,
+            Risk::NullReferences,
+            Risk::Monkeypatching,
+            Risk::AlreadyCompiled,
+            Risk::ArrayParameters,
+            Risk::PlatformSpecific,
+            Risk::ClockAndRandom,
+        ];
+        let rust = regex::Regex::new(
+            r"\bRust\b|\bcrate|serde|indexmap|\bVec\b|`Result`|`Option`|unsafe`|wrapping_|div_euclid|\.rs\b",
+        )
+        .unwrap();
+        for risk in all {
+            let text = format!("{} {}", risk.title(), risk.guidance());
+            assert!(!rust.is_match(&text), "{risk:?}: {text}");
+        }
+    }
 
     #[test]
     fn detects_case_folds_rust_widens() {

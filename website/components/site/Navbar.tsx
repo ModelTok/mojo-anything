@@ -64,7 +64,7 @@ export default function Navbar({
 }) {
   const L = (p: string) => withLocale(p, locale)
   const LINKS = [
-    { title: ui.docs, href: L('/docs/introduction/what-is-rust-anything'), match: L('/docs/') },
+    { title: ui.docs, href: L('/docs/introduction/what-is-mojo-anything'), match: L('/docs/') },
     { title: ui.languages, href: L('/docs/languages/overview'), match: L('/docs/languages/') },
     { title: ui.realWorld, href: L('/docs/real-world/overview'), match: L('/docs/real-world/') },
   ]
@@ -118,7 +118,7 @@ export default function Navbar({
         <div className="sm:hidden">
           <SearchButton ui={ui} compact onOpen={() => setSearchOpen(true)} />
         </div>
-        <LanguageMenu currentPath={currentPath} locale={locale} label={ui.language} />
+        {LOCALES.length > 1 && <LanguageMenu currentPath={currentPath} locale={locale} label={ui.language} />}
         <a
           href={REPO_URL}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md text-fg/80 hover:text-fg"

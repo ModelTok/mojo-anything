@@ -13,8 +13,99 @@ use crate::front_door::{
 };
 use crate::walk::Canonical;
 
-/// `original.mojo`, with `{{RUN}}`, `{{IN_ROOT}}`, `{{FALLBACK_ENV}}` and `{{REPO_ENV}}` to fill.
-const ORIGINAL_MOJO: &str = include_str!("mojo/original.mojo");
+/// `original.mojo`, with `{{RUN}}`, `{{REPO_FILES}}`, `{{IN_ROOT}}`, `{{FALLBACK_ENV}}` and
+/// `{{REPO_ENV}}` to fill, and `#[linux]` / `#[macos]` regions (see [`render_os`]).
+pub(crate) const ORIGINAL_MOJO: &str = include_str!("mojo/original.mojo");
+
+/// How a front door finds its own executable, for the repository beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExePath {
+    /// `readlink("/proc/self/exe")` (Linux).
+    ProcSelfExe,
+    /// `_NSGetExecutablePath`, then `realpath` (macOS).
+    NsGetExecutablePath,
+}
+
+/// The values a generated front door uses that differ between the systems Mojo builds on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OsConstants {
+    /// `linux` or `macos`: the `CompilationTarget.is_<os>()` the generated code checks.
+    pub os: &'static str,
+    pub sol_socket: i32,
+    pub so_reuseaddr: i32,
+    pub so_rcvtimeo: i32,
+    /// `sizeof(struct timeval)`.
+    pub timeval_size: i32,
+    pub af_inet6: i32,
+    pub ipv6_v6only: i32,
+    /// `MSG_NOSIGNAL` for `send`; 0 where sockets get `SO_NOSIGPIPE` instead (macOS).
+    pub msg_nosignal: i32,
+    /// `PR_SET_PDEATHSIG`: the original gets SIGTERM when the front door ends, however it ends.
+    pub has_pdeathsig: bool,
+    pub exe_path: ExePath,
+}
+
+/// The constants for `os` (`std::env::consts::OS` spelling); anything but `macos` is Linux,
+/// the only other system Mojo builds on.
+pub fn os_constants(os: &str) -> OsConstants {
+    if os == "macos" {
+        OsConstants {
+            os: "macos",
+            sol_socket: 0xffff,
+            so_reuseaddr: 4,
+            so_rcvtimeo: 0x1006,
+            timeval_size: 16,
+            af_inet6: 30,
+            ipv6_v6only: 27,
+            msg_nosignal: 0,
+            has_pdeathsig: false,
+            exe_path: ExePath::NsGetExecutablePath,
+        }
+    } else {
+        OsConstants {
+            os: "linux",
+            sol_socket: 1,
+            so_reuseaddr: 2,
+            so_rcvtimeo: 20,
+            timeval_size: 16,
+            af_inet6: 10,
+            ipv6_v6only: 26,
+            msg_nosignal: 0x4000,
+            has_pdeathsig: true,
+            exe_path: ExePath::ProcSelfExe,
+        }
+    }
+}
+
+/// The constants of the machine mojo-anything runs on, where the front door is built.
+pub fn host_os() -> OsConstants {
+    os_constants(std::env::consts::OS)
+}
+
+/// A front door template for one system: lines from `#[linux]` or `#[macos]` up to the next such
+/// marker or `#[end]` are kept only for that system (the marker lines go), and the `{{OS}}`,
+/// `{{SOL_SOCKET}}`, ... placeholders take the values of `c`.
+pub(crate) fn render_os(template: &str, c: &OsConstants) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut keep = true;
+    for line in template.split_inclusive('\n') {
+        match line.trim() {
+            "#[linux]" => keep = c.os == "linux",
+            "#[macos]" => keep = c.os == "macos",
+            "#[end]" => keep = true,
+            _ if keep => out += line,
+            _ => {}
+        }
+    }
+    out.replace("{{OS}}", c.os)
+        .replace("{{SOL_SOCKET}}", &c.sol_socket.to_string())
+        .replace("{{SO_REUSEADDR}}", &c.so_reuseaddr.to_string())
+        .replace("{{SO_RCVTIMEO}}", &c.so_rcvtimeo.to_string())
+        .replace("{{TIMEVAL_SIZE}}", &c.timeval_size.to_string())
+        .replace("{{AF_INET6}}", &c.af_inet6.to_string())
+        .replace("{{IPV6_V6ONLY}}", &c.ipv6_v6only.to_string())
+        .replace("{{MSG_NOSIGNAL}}", &c.msg_nosignal.to_string())
+}
 
 /// Where the front door's binary is built, inside `mojo/app`; nothing else builds there.
 pub const BUILD_DIR: &str = ".mojo-anything/build";
@@ -192,12 +283,30 @@ def main() raises:
 
 /// `original.mojo`: `run`, `run_with_stdin` and `report_fallbacks`. `in_root`: the original
 /// starts in the repository, as recorded; otherwise in the front door's working directory.
-pub(crate) fn original_mojo(run: &[String], in_root: bool) -> String {
-    ORIGINAL_MOJO
+/// `repo_files`: the words of `run` that name files in the repository; one missing there
+/// stops the front door with an error naming it instead of running whatever has that name in
+/// the working directory.
+pub(crate) fn original_mojo(
+    run: &[String],
+    repo_files: &[String],
+    in_root: bool,
+    os: &OsConstants,
+) -> String {
+    render_os(ORIGINAL_MOJO, os)
         .replace("{{RUN}}", &mojo_list(run))
+        .replace("{{REPO_FILES}}", &mojo_list(repo_files))
         .replace("{{IN_ROOT}}", if in_root { "True" } else { "False" })
         .replace("{{FALLBACK_ENV}}", crate::app::FALLBACK_ENV)
         .replace("{{REPO_ENV}}", REPO_ENV)
+}
+
+/// The words of a recorded command that name files in `repo` (options and programs on PATH
+/// do not).
+pub(crate) fn repo_files(run: &[String], repo: &Path) -> Vec<String> {
+    run.iter()
+        .filter(|w| !w.starts_with('-') && !w.is_empty() && repo.join(w).is_file())
+        .cloned()
+        .collect()
 }
 
 /// `units.mojo`: each wired command goes to its unit's glue unless the unit's kill switch says
@@ -715,15 +824,23 @@ mod tests {
 
     #[test]
     fn original_fills_the_template() {
-        let code = original_mojo(&["python3".into(), "tcli.py".into()], false);
+        let linux = os_constants("linux");
+        let code = original_mojo(
+            &["python3".into(), "tcli.py".into()],
+            &["tcli.py".into()],
+            false,
+            &linux,
+        );
         assert!(code.contains("return [\"python3\", \"tcli.py\"]"), "{code}");
+        assert!(code.contains("return [\"tcli.py\"]"), "{code}");
         assert!(code.contains("comptime IN_ROOT = False"), "{code}");
         assert!(
             code.contains("comptime FALLBACK_LOG = \"MOJO_ANYTHING_FALLBACK_LOG\""),
             "{code}"
         );
         assert!(!code.contains("{{"), "{code}");
-        assert!(original_mojo(&[], true).contains("comptime IN_ROOT = True"));
+        assert!(!code.contains("#["), "{code}");
+        assert!(original_mojo(&[], &[], true, &linux).contains("comptime IN_ROOT = True"));
         // Every external call carries its safety note in the comment block above it.
         let lines: Vec<&str> = code.lines().collect();
         for (i, line) in lines.iter().enumerate() {
@@ -818,6 +935,157 @@ mod tests {
             once
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Review Focus 4: a front door generated for macOS uses the Darwin socket numbers, has no
+    /// `prctl` or `/proc/self/exe`, and finds itself with `_NSGetExecutablePath`.
+    #[test]
+    fn front_door_constants_per_os() {
+        let linux = os_constants("linux");
+        let mac = os_constants("macos");
+        assert_eq!((linux.sol_socket, linux.so_rcvtimeo), (1, 20));
+        assert_eq!((mac.sol_socket, mac.so_rcvtimeo), (0xffff, 0x1006));
+        assert_eq!((linux.timeval_size, mac.timeval_size), (16, 16));
+        assert!(linux.has_pdeathsig && !mac.has_pdeathsig);
+        assert_eq!(mac.exe_path, ExePath::NsGetExecutablePath);
+        assert_eq!(os_constants("freebsd"), linux);
+        let run = ["python3".to_string(), "s.py".to_string()];
+        let files = ["s.py".to_string()];
+        let sources = |os: &OsConstants| {
+            [
+                original_mojo(&run, &files, false, os),
+                crate::front_door_http::original_mojo_http(&run, &files, &[], true, os),
+                crate::front_door_http::http_mojo(os),
+            ]
+        };
+        for code in sources(&mac) {
+            for linux_only in [
+                "\"prctl\"",
+                "\"/proc/self/exe\"",
+                "\"open64\"",
+                "\"__errno_location\"",
+                "\"sigtimedwait\"",
+            ] {
+                assert!(!code.contains(linux_only), "{linux_only} in\n{code}");
+            }
+            assert!(!code.contains("{{") && !code.contains("#["), "{code}");
+        }
+        let [cli, server, http] = sources(&mac);
+        assert!(cli.contains("_NSGetExecutablePath") && server.contains("_NSGetExecutablePath"));
+        assert!(cli.contains("is_macos()") && http.contains("is_macos()"));
+        assert!(
+            http.contains("comptime _SOL_SOCKET = Int32(65535)"),
+            "{http}"
+        );
+        assert!(
+            http.contains("comptime _SO_RCVTIMEO = Int32(4102)"),
+            "{http}"
+        );
+        assert!(http.contains("comptime _MSG_NOSIGNAL = Int32(0)"), "{http}");
+        assert!(http.contains("_SO_NOSIGPIPE"), "{http}");
+        assert!(
+            http.contains("a[unsafe_offset=0] = UInt8(16)"),
+            "sin_len: {http}"
+        );
+        let [cli, server, http] = sources(&linux);
+        assert!(cli.contains("prctl") && server.contains("prctl"));
+        assert!(cli.contains("/proc/self/exe") && !cli.contains("_NSGetExecutablePath"));
+        assert!(http.contains("comptime _SOL_SOCKET = Int32(1)"), "{http}");
+        assert!(http.contains("comptime _SO_RCVTIMEO = Int32(20)"), "{http}");
+        assert!(
+            http.contains("comptime _MSG_NOSIGNAL = Int32(16384)"),
+            "{http}"
+        );
+        assert!(!http.contains("_SO_NOSIGPIPE"), "{http}");
+    }
+
+    /// The child of `fork` runs only async-signal-safe calls on memory allocated before the
+    /// fork: no `_cstr` (malloc) and no `perror` between `fork` and `_exit`.
+    #[test]
+    fn the_forked_child_allocates_nothing() {
+        let run = ["sh".to_string()];
+        for os in [os_constants("linux"), os_constants("macos")] {
+            for code in [
+                original_mojo(&run, &[], false, &os),
+                crate::front_door_http::original_mojo_http(&run, &[], &[], false, &os),
+            ] {
+                let fork = code.find("external_call[\"fork\"").unwrap();
+                let exit = fork + code[fork..].find("Int32(127)").unwrap();
+                let child = &code[fork..exit];
+                for unsafe_call in ["_cstr(", "perror", "malloc", "print("] {
+                    assert!(!child.contains(unsafe_call), "{unsafe_call} in\n{child}");
+                }
+            }
+        }
+    }
+
+    /// The text generated for each system builds with `--Werror` as far as an object file: the
+    /// macOS calls are type-checked on Linux, not linked or run.
+    #[test]
+    fn front_doors_type_check_for_each_os() {
+        if !crate::mojo::available() {
+            return;
+        }
+        let env = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut http_state = state(Vec::new());
+        http_state.kind = AppKind::Http;
+        for os in [os_constants("linux"), os_constants("macos")] {
+            let run = ["sh".to_string(), "tool.sh".to_string()];
+            let files = ["tool.sh".to_string()];
+            let apps = [
+                (
+                    "cli",
+                    vec![
+                        ("main.mojo", main_mojo(&state(Vec::new()), &BTreeMap::new())),
+                        ("original.mojo", original_mojo(&run, &files, false, &os)),
+                        ("units.mojo", units_mojo(&state(Vec::new()), false)),
+                    ],
+                ),
+                (
+                    "server",
+                    vec![
+                        (
+                            "main.mojo",
+                            crate::front_door_http::main_mojo_http(&http_state, &[]),
+                        ),
+                        (
+                            "original.mojo",
+                            crate::front_door_http::original_mojo_http(
+                                &run,
+                                &files,
+                                &[],
+                                true,
+                                &os,
+                            ),
+                        ),
+                        (
+                            "units.mojo",
+                            crate::front_door_http::units_mojo_http(&http_state, false),
+                        ),
+                        ("http.mojo", crate::front_door_http::http_mojo(&os)),
+                    ],
+                ),
+            ];
+            for (kind, files) in apps {
+                let dir = crate::app::temp_dir(&format!("typecheck-{}-{kind}", os.os)).unwrap();
+                for (name, text) in &files {
+                    std::fs::write(dir.join(name), text).unwrap();
+                }
+                let mut cmd = crate::mojo::command(env).unwrap();
+                cmd.current_dir(&dir)
+                    .args(["build", "--Werror", "--emit", "object", "main.mojo", "-o"])
+                    .arg(dir.join("main.o"));
+                let out = crate::process::output(&mut cmd, crate::process::BUILD).unwrap();
+                assert!(
+                    out.success(),
+                    "{} {kind}:\n{}{}",
+                    os.os,
+                    out.stdout_text(),
+                    out.stderr_text()
+                );
+                std::fs::remove_dir_all(&dir).unwrap();
+            }
+        }
     }
 
     #[test]

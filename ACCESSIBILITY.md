@@ -23,6 +23,6 @@ mojo-anything is a command-line tool, so its accessibility is mostly about its o
 ## Reporting a barrier
 
 If something in mojo-anything or its docs gets in your way, please open an
-[issue](https://github.com/erkamyaman/rust-anything/issues/new/choose) and describe what you were
+[issue](https://github.com/ModelTok/mojo-anything/issues/new/choose) and describe what you were
 trying to do and what you use (screen reader, terminal, OS). Accessibility issues are treated as
 bugs.

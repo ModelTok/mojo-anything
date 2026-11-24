@@ -59,6 +59,10 @@ pub struct ExportedFn {
     /// wrapper class must keep for Kotlin callers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jvm_holder: Option<crate::jvm::Holder>,
+    /// Java and Kotlin: the class the function is declared on has a public no-arg constructor
+    /// (Kotlin's and Java's implicit one included), which the wrapper class keeps.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub jvm_constructor: bool,
 }
 
 /// An exported class: its constructor and public instance methods, or why it must stay in TS.

@@ -74,6 +74,15 @@ pub fn require_java() -> Result<()> {
     Ok(())
 }
 
+/// [`require_java`] for the unit in `unit_dir` when it is a Java or Kotlin unit; anything
+/// else (including a folder without a manifest, which the caller reports) passes.
+pub fn require_java_for(unit_dir: &std::path::Path) -> Result<()> {
+    match crate::bridge::Manifest::load(unit_dir) {
+        Ok(m) if is_jvm(m.language) => require_java(),
+        _ => Ok(()),
+    }
+}
+
 /// Whether a unit in `language` runs on the JVM, and so needs [`require_java`].
 pub fn is_jvm(language: crate::lang::Lang) -> bool {
     matches!(

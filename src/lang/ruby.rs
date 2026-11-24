@@ -1,4 +1,4 @@
-//! Ruby: gems, requires, risks, the gem-to-crate table, and module functions (`def self.x`,
+//! Ruby: gems, requires, risks, the gem-to-Mojo table, and module functions (`def self.x`,
 //! `module_function`) with YARD types mapped into the TS-like type dialect.
 
 use std::collections::HashMap;

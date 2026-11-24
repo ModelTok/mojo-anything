@@ -1,4 +1,4 @@
-//! Go: modules, imports, risks, the module-to-crate table, and exported functions with Go types
+//! Go: modules, imports, risks, the module-to-Mojo table, and exported functions with Go types
 //! mapped into the TS-like type dialect. A unit is a package (a folder).
 
 use std::collections::HashMap;

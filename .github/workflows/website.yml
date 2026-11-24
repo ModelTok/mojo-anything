@@ -45,9 +45,13 @@ jobs:
 
   # Deploys only from main, and only when the CLOUDFLARE_API_TOKEN secret exists.
   # Without the secret this job skips the deploy step and succeeds.
+  #
+  # Disabled until mojo-anything's deploy target is named: `void deploy` names the Worker after
+  # `website/package.json`'s `name` (`mojo-anything-website`). To enable it, set the target and
+  # remove `false &&` below.
   deploy:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

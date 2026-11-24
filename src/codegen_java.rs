@@ -546,7 +546,7 @@ public final class MojoAnythingDriver {
     private static boolean same(Map<String, Object> expected, Map<String, Object> got) {
         // A panic, or a Mojo stub not ported yet, never agrees with an error the original threw.
         String error = String.valueOf(got.get("error"));
-        if (got.containsKey("panic") || error.contains("Rust panic:") || error.startsWith("not ported: ")) {
+        if (got.containsKey("panic") || error.startsWith("not ported: ")) {
             return false;
         }
         // The exception class and its message are both behaviour: `For input string: "x"` is what

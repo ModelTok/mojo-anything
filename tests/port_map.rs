@@ -23,7 +23,7 @@ fn map_lists_ports_and_marks_upstream_changes() {
     let _ = std::fs::remove_dir_all(&repo);
     copy_dir(&fixture, &repo);
     let unit = "packages/a/src/util.ts";
-    let crate_dir = repo.join("rust/util-rs");
+    let crate_dir = repo.join("mojo/util-mojo");
     bridge::bridge(&bridge::Options {
         root: &repo,
         unit,
@@ -42,7 +42,7 @@ fn map_lists_ports_and_marks_upstream_changes() {
     assert_eq!(map.ports.len(), 1, "{map:#?}");
     let port = &map.ports[0];
     assert_eq!(port.unit, unit);
-    assert_eq!(port.crate_dir, "rust/util-rs");
+    assert_eq!(port.crate_dir, "mojo/util-mojo");
     assert!(!port.in_rust.is_empty());
     assert_eq!(port.cases, 0);
     assert!(port.last_diff.is_none());
@@ -61,7 +61,13 @@ fn map_lists_ports_and_marks_upstream_changes() {
     assert_eq!(map.changed(), 1);
     let md = port_map::markdown(&map);
     assert!(md.contains("**1 changed upstream**"), "{md}");
-    assert!(md.contains("`mojo-anything record rust/util-rs`"), "{md}");
+    assert!(md.contains("`mojo-anything record mojo/util-mojo`"), "{md}");
+    assert!(
+        md.contains("have a Mojo port") && md.contains("| In Mojo |"),
+        "{md}"
+    );
+    assert!(!md.contains("Rust"), "{md}");
+    assert_eq!(port_map::MAP_FILE, "mojo/PORT_MAP.md");
 
     let outside =
         std::env::temp_dir().join(format!("mojo-anything-map-out-{}", std::process::id()));

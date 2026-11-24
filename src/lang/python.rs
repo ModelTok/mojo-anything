@@ -1,4 +1,4 @@
-//! Python: packages, imports, risks, the PyPI-to-crate table, and exported functions and
+//! Python: packages, imports, risks, the PyPI-to-Mojo table, and exported functions and
 //! classes with type hints mapped into the TS-like type dialect.
 
 use std::collections::{BTreeSet, HashMap};

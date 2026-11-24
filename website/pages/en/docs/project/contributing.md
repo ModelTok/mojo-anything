@@ -1,10 +1,9 @@
 ---
-title: Contributing
-description: Set up, where tests go, how to add a crate mapping or a language, and how to share a real port.
+title: "Contributing"
+description: "Setting up, where tests go, adding a language or a Mojo replacement, and opening a pull request."
 source: CONTRIBUTING.md
 ---
 
 # Contributing
 
 <!-- include: CONTRIBUTING.md -->
-

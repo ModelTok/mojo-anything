@@ -962,10 +962,11 @@ fn http_port_argument_reaches_the_front_door_not_the_original() {
         listening.contains(&format!("pid={},", child.id())),
         "the front door listens on the public port: {listening}"
     );
-    assert_eq!(listening.lines().count(), 1, "{listening}");
+    assert_eq!(listening.lines().count(), 2, "{listening}");
     assert!(
-        listening.contains(&format!("127.0.0.1:{port} ")),
-        "loopback only: {listening}"
+        listening.contains(&format!("127.0.0.1:{port} "))
+            && listening.contains(&format!("[::1]:{port} ")),
+        "loopback only, IPv4 and IPv6: {listening}"
     );
     let (status, body) = answer.unwrap();
     assert!(status.contains(" 200 "), "{status}");
@@ -974,6 +975,171 @@ fn http_port_argument_reaches_the_front_door_not_the_original() {
         waited < std::time::Duration::from_secs(8),
         "a silent connection held the next client up for {waited:?}"
     );
+}
+
+/// The `port-arg` server recorded and its front door built; returns the repository and the
+/// front door's binary.
+fn port_arg_door(tag: &str) -> (PathBuf, String) {
+    let repo = fixture("python", tag);
+    std::fs::remove_file(repo.join("README.md")).unwrap();
+    std::fs::write(repo.join("port_server.py"), PORT_ARG_SERVER).unwrap();
+    let inputs = repo.join("inputs.jsonl");
+    std::fs::write(&inputs, "{\"name\":\"hello\",\"path\":\"/hello\"}\n").unwrap();
+    app::record(&RecordOptions {
+        repo: &repo,
+        run: &words("python3 port_server.py"),
+        inputs: Some(&inputs),
+        normalize: &[],
+        name: None,
+        traps: false,
+        timeout_secs: None,
+        http: true,
+        server_args: &["--port".to_string(), "{port}".to_string()],
+        fresh: &[],
+        pace_ms: None,
+        port: None,
+        float_tolerance: None,
+        float_files: &[],
+        effects: None,
+    })
+    .unwrap();
+    let door = front_door::front_door(&FrontDoorOptions {
+        repo: &repo,
+        library: false,
+        check: true,
+    })
+    .unwrap();
+    let binary = door.replay.unwrap().build[0].clone();
+    (repo, binary)
+}
+
+/// Writes `request` on a fresh connection to `addr` and reads until the server closes it or
+/// `secs` pass; returns what came back and how long it took.
+fn exchange(
+    addr: std::net::SocketAddr,
+    request: &[u8],
+    secs: u64,
+) -> (String, std::time::Duration) {
+    use std::io::{Read, Write};
+    let started = std::time::Instant::now();
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(secs)))
+        .unwrap();
+    stream.write_all(request).unwrap();
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    while let Ok(n) = stream.read(&mut buf) {
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n]);
+    }
+    (
+        String::from_utf8_lossy(&out).into_owned(),
+        started.elapsed(),
+    )
+}
+
+/// Node 17 and later resolve `localhost` to ::1 first: the front door answers there too.
+#[cfg(target_os = "linux")]
+#[test]
+fn front_door_answers_on_ipv6_localhost() {
+    if !common::have("python3") || !common::have_mojo() {
+        return;
+    }
+    if std::net::TcpListener::bind("[::1]:0").is_err() {
+        eprintln!("skipping: this machine has no IPv6 loopback");
+        return;
+    }
+    let (repo, binary) = port_arg_door("ipv6");
+    let port = mojo_anything::http::free_port().unwrap();
+    let mut child = start_listening(&binary, &["--port", &port.to_string()], &[], port);
+    let (answer, _) = exchange(
+        std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+        b"GET /hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        20,
+    );
+    let _ = child.kill();
+    let _ = child.wait();
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert!(answer.starts_with("HTTP/1.1 200 "), "{answer:?}");
+    assert!(answer.ends_with("hello\n"), "{answer:?}");
+}
+
+/// A body larger than `MOJO_ANYTHING_MAX_BODY` (16 MiB by default) gets 413 at once, before a
+/// byte of it is read, and `Expect: 100-continue` gets its interim answer.
+#[cfg(target_os = "linux")]
+#[test]
+fn oversized_body_is_refused() {
+    if !common::have("python3") || !common::have_mojo() {
+        return;
+    }
+    let (repo, binary) = port_arg_door("max-body");
+    let port = mojo_anything::http::free_port().unwrap();
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut child = start_listening(&binary, &["--port", &port.to_string()], &[], port);
+    // The default limit: 17,000,000 bytes announced, none sent.
+    let (default_limit, waited) = exchange(
+        addr,
+        b"POST /hello HTTP/1.1\r\nHost: x\r\nContent-Length: 17000000\r\n\r\n",
+        20,
+    );
+    let _ = child.kill();
+    let _ = child.wait();
+    let mut child = start_listening(
+        &binary,
+        &["--port", &port.to_string()],
+        &[("MOJO_ANYTHING_MAX_BODY", "100")],
+        port,
+    );
+    let (small_limit, _) = exchange(
+        addr,
+        b"POST /hello HTTP/1.1\r\nHost: x\r\nContent-Length: 101\r\n\r\n",
+        20,
+    );
+    let (chunked, _) = exchange(
+        addr,
+        b"POST /hello HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n65\r\n",
+        20,
+    );
+    // The client sends the head, waits for `100 Continue`, then sends the body.
+    let continued = {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(addr).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(20)))
+            .unwrap();
+        stream
+            .write_all(b"POST /hello HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let mut first = [0u8; 25];
+        let n = stream.read(&mut first).unwrap_or(0);
+        let interim = String::from_utf8_lossy(&first[..n]).into_owned();
+        stream.write_all(b"ok").unwrap();
+        let mut rest = String::new();
+        let _ = stream.read_to_string(&mut rest);
+        (interim, rest)
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert!(
+        default_limit.starts_with("HTTP/1.1 413 "),
+        "{default_limit:?}"
+    );
+    assert!(
+        waited < std::time::Duration::from_secs(4),
+        "the refusal waited for the body: {waited:?}"
+    );
+    assert!(
+        default_limit.contains("MOJO_ANYTHING_MAX_BODY"),
+        "{default_limit}"
+    );
+    assert!(small_limit.starts_with("HTTP/1.1 413 "), "{small_limit:?}");
+    assert!(chunked.starts_with("HTTP/1.1 413 "), "{chunked:?}");
+    assert_eq!(continued.0, "HTTP/1.1 100 Continue\r\n\r\n");
+    assert!(continued.1.starts_with("HTTP/1.1 "), "{:?}", continued.1);
 }
 
 #[test]

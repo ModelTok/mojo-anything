@@ -3,41 +3,49 @@ import { join, posix, resolve } from 'node:path'
 
 export const WEBSITE_ROOT = resolve(import.meta.dirname, '..')
 export const REPO_ROOT = resolve(WEBSITE_ROOT, '..')
-const REPO_URL = 'https://github.com/erkamyaman/rust-anything'
+const REPO_URL = 'https://github.com/ModelTok/mojo-anything'
 const INCLUDE_RE = /^<!--\s*include:\s*(\S+)\s*-->\s*$/gm
 
+// A link in an included file to a section the website shows goes to that page; anything else
+// (rust-anything's history in docs/real-world.md, logs, demos, source files) goes to GitHub.
+// A page path ending in `#` takes the section's anchor as the website spells it.
 const LINK_MAP = {
   'README.md': '/',
   'README.md#quick-start': '/docs/introduction/quick-start',
-  'docs/install.md#install': '/docs/introduction/install',
-  'README.md#works-with': '/docs/introduction/agents',
+  'README.md#works-with': '/docs/introduction/quick-start#',
   'README.md#languages': '/docs/languages/overview',
+  'README.md#real-code-ported-to-mojo': '/docs/introduction/what-is-mojo-anything#',
+  'docs/install.md': '/docs/introduction/install',
+  'docs/install.md#install': '/docs/introduction/install',
+  'docs/install.md#from-a-clone': '/docs/introduction/install#',
+  'docs/install.md#agents': '/docs/introduction/install#',
+  'docs/how-it-works.md': '/docs/concepts/the-loop',
   'docs/how-it-works.md#how-it-works': '/docs/concepts/the-loop',
   'docs/how-it-works.md#the-loop': '/docs/concepts/the-loop',
-  'docs/whole-apps.md#port-a-whole-app': '/docs/whole-apps/overview',
-  'docs/whole-apps.md#servers': '/docs/whole-apps/servers',
-  'docs/whole-apps.md#libraries': '/docs/whole-apps/libraries',
-  'docs/how-it-works.md#hot-paths-keep-the-data-in-rust': '/docs/concepts/batches',
-  'docs/how-it-works.md#what-it-cant-catch': '/docs/concepts/limits',
+  'docs/how-it-works.md#hot-paths-batches': '/docs/concepts/batches',
   'docs/how-it-works.md#what-bridge-decides': '/docs/concepts/bridge',
   'docs/how-it-works.md#what-analyze-looks-at': '/docs/concepts/analyze',
-  'docs/faq.md#faq': '/docs/project/faq',
-  'docs/how-it-works.md': '/docs/concepts/the-loop',
+  'docs/how-it-works.md#what-it-cant-catch': '/docs/concepts/limits',
+  'docs/how-it-works.md#what-a-real-port-takes': '/docs/concepts/real-port',
+  'docs/how-it-works.md#keep-the-originals-shape': '/docs/concepts/real-port',
+  'docs/how-it-works.md#keep-up-with-the-original': '/docs/concepts/keep-up',
   'docs/whole-apps.md': '/docs/whole-apps/overview',
-  'docs/install.md': '/docs/introduction/install',
-  'docs/faq.md': '/docs/project/faq',
-  'docs/examples.md': '/docs/concepts/port',
-  'CONTRIBUTING.md': '/docs/project/contributing',
-  'docs/STATUS.md': '/docs/project/status',
+  'docs/whole-apps.md#port-a-whole-app': '/docs/whole-apps/overview',
+  'docs/whole-apps.md#side-effects-email-webhooks-and-databases': '/docs/whole-apps/overview#',
+  'docs/whole-apps.md#servers': '/docs/whole-apps/overview#',
+  'docs/whole-apps.md#libraries': '/docs/whole-apps/overview#',
+  'docs/packaging.md': '/docs/whole-apps/packaging',
+  'docs/real-world-languages.md': '/docs/real-world/overview',
+  'docs/real-world-languages.md#a-whole-cli-lifted-to-mojo-cpythons-quopri': '/docs/real-world/overview#',
+  'docs/real-world.md#vercelms-on-mojo': '/docs/real-world/vercel-ms',
+  'docs/examples.md': '/docs/real-world/examples',
   'docs/tools.md': '/docs/reference/mcp-tools',
-  'docs/real-world.md': '/docs/real-world/overview',
-  'docs/real-world.md#x18n-the-case-study-repository': '/docs/real-world/x18n',
-  'docs/real-world.md#vercelms': '/docs/real-world/vercel-ms',
-  'docs/real-world.md#fusejs': '/docs/real-world/fuse-js',
-  'docs/real-world.md#json-server': '/docs/real-world/json-server',
-  'docs/real-world.md#fixtures-written-to-stress-the-tool': '/docs/real-world/fixtures',
-  'docs/real-world.md#external-libraries-static-only': '/docs/real-world/fixtures',
-  'docs/real-world-languages.md': '/docs/real-world/six-languages',
+  'docs/STATUS.md': '/docs/project/status',
+  'docs/STATUS.md#known-gaps': '/docs/project/status#',
+  'docs/faq.md': '/docs/project/faq',
+  'docs/faq.md#faq': '/docs/project/faq',
+  'CONTRIBUTING.md': '/docs/project/contributing',
+  'docs/privacy.md': '/docs/project/privacy',
 }
 
 export function githubSlug(text) {
@@ -95,6 +103,22 @@ function shiftHeadings(lines) {
   )
 }
 
+// The id the website gives the heading of `repoPath` whose GitHub anchor is `hash`: the
+// heading's text without markup, lower case, spaces as `-`, percent-encoded (as
+// `anchorSlug(plainText(...))` in pages.mjs and @void/md's heading ids spell it).
+function siteAnchor(repoPath, hash) {
+  const source = readFileSync(join(REPO_ROOT, repoPath), 'utf8').replace(/\r\n/g, '\n')
+  const heading = scanLines(source).find((l) => l.heading && githubSlug(l.heading.text) === hash)
+  if (!heading) throw new Error(`md-include: ${repoPath} has no heading #${hash}`)
+  const text = heading.heading.text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[|`*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return encodeURIComponent(text.toLowerCase().replace(/\s+/g, '-'))
+}
+
 export function rewriteTarget(target, sourceFile, image = false) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//') || target.startsWith('/')) {
     return target
@@ -105,11 +129,12 @@ export function rewriteTarget(target, sourceFile, image = false) {
   if (repoPath.startsWith('..')) return target
   if (!image) {
     const key = hash ? `${repoPath}#${hash}` : repoPath
-    if (LINK_MAP[key]) return LINK_MAP[key]
+    const page = LINK_MAP[key]
+    if (page) return page.endsWith('#') ? page + siteAnchor(repoPath, hash) : page
     if (!hash && LINK_MAP[repoPath]) return LINK_MAP[repoPath]
-    if (hash && sourceFile === repoPath && !p) return `#${hash}`
+    if (hash && sourceFile === repoPath && !p) return `#${siteAnchor(repoPath, hash)}`
   }
-  if (image) return `https://raw.githubusercontent.com/erkamyaman/rust-anything/main/${repoPath}`
+  if (image) return `https://raw.githubusercontent.com/ModelTok/mojo-anything/main/${repoPath}`
   const abs = join(REPO_ROOT, repoPath)
   const kind = existsSync(abs) && statSync(abs).isDirectory() ? 'tree' : 'blob'
   return `${REPO_URL}/${kind}/main/${repoPath}${hash ? '#' + hash : ''}`
@@ -132,10 +157,10 @@ function readCliHelp() {
 export function renderCliHelp() {
   const { version, commands } = readCliHelp()
   const parts = [
-    `Generated from \`rust-anything --help\` and each subcommand's \`--help\` (rust-anything ${version}).`,
+    `Generated from \`mojo-anything --help\` and each subcommand's \`--help\` (mojo-anything ${version}); \`tests/tools.rs\` checks it is current.`,
   ]
   for (const { command, help } of commands) {
-    const title = command ? `rust-anything ${command}` : 'rust-anything'
+    const title = command ? `mojo-anything ${command}` : 'mojo-anything'
     parts.push(`## \`${title}\``, '```text\n' + help.trimEnd() + '\n```')
   }
   return parts.join('\n\n')
@@ -189,7 +214,7 @@ export function markCodeFilenames(markdown) {
 
 export function mdIncludePlugin() {
   return {
-    name: 'rust-anything-md-include',
+    name: 'mojo-anything-md-include',
     enforce: 'pre',
     transform(code, id) {
       if (!id.endsWith('.md')) return

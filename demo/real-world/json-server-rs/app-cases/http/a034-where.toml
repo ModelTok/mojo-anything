@@ -1,6 +1,0 @@
-[request]
-method = "GET"
-path = "/posts?title:contains=ü"
-
-[response]
-status = 400
