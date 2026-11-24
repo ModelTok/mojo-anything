@@ -43,6 +43,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Java, Go, Ruby and C# workspaces with source files (read through tree-sitter's Python bindings), `map` of those repositories with no port | 524 | 524 | 44.8% (235/524), [log](measurements/2026-11-23-phase2-replay-9.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Kotlin, PHP and C workspaces with source files, `map` of those repositories with no port | 524 | 524 | 38.4% (201/524), [log](measurements/2026-11-24-phase2-replay-10.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of C++ workspaces, `map` of repositories whose bridge crates name another root, Python `analyze --whole-app` | 524 | 524 | 31.5% (165/524), [log](measurements/2026-11-24-phase2-replay-11.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` of Python units and the errors of every planned unit, `refresh` of Python units, the manifest's errors in `refresh` and `record` | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-12.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -197,6 +198,37 @@ The eleventh row adds C++, `map` with foreign bridge crates, and Python `--whole
 `test_analyze_whole_app.mojo` and `test_map.mojo` run both binaries on copies of the same
 projects (`pixi run check-tool`: 28 test files, 164 tests). TS, `--whole-app` of other
 languages, `map` with real ports, `bridge`, `refresh` and `record` still fall back.
+
+The twelfth row starts M9's Task 2 (`bridge`, `refresh`, `record`).
+
+- **`bridge` of Python units.** A Python unit's exports are read through tree-sitter-python
+  0.25.0, the grammar the Rust tool walks (`python_exports` in `analyze_tree.py`). The bridge
+  rules, the port's name and folder, and every generated file (`port.mojo`, `pixi.toml`,
+  `.gitignore`, `README.md`, `mojo-anything.json` in serde_json's layout, `_native.mojo`, the
+  wrapper package, `py_num.mojo`) are Mojo (`bridge.mojo`, `codegen_mojo.mojo`,
+  `codegen_mojo_py.mojo`). A failed write gets the Rust tool's error text.
+- **`bridge`'s errors.** For every language whose plan the Mojo tool builds: a root that does
+  not exist, a unit that is not in the plan, a unit the plan keeps or blocks, PHP and C#
+  units, and a C, C++, Go or Ruby unit with no exports.
+- **`refresh` of Python units.** `port.mojo`'s signatures are read back and the bindings
+  rewritten. `Manifest::load`'s errors are answered in `refresh` and `record`, and so are the
+  errors of the kinds the Mojo tool does not regenerate.
+
+The following go to the Phase 1 binary before anything is written:
+- the exports of every other language, and Java and Kotlin units;
+- `--kind`, `--out`, `--name`, `--keep`, `--batch` and `--as-json`;
+- a tree with an error, and text outside ASCII;
+- a manifest serde_json might read otherwise than Python's json (duplicate keys, `\u`
+  escapes, numbers it refuses, a field of another type);
+- `refresh` of C, C++, TS and JVM units;
+- every recording (`record` past the manifest).
+
+`bridge` now falls back in 19 of its 38 cases, `refresh` in 2 of 7 and `record` in 0 of 7
+([log](measurements/2026-11-24-phase2-replay-12.md)). `tool/tests/test_bridge.mojo` and
+`test_refresh.mojo` run both binaries on copies of the fixtures under `tests/fixtures/` and
+compare stdout, stderr, the exit code and every written file (`pixi run check-tool`: 30 test
+files, 175 tests). TS, `--whole-app` of other languages, `map` with real ports, the bridges of
+the other languages, `refresh` of their kinds and every recording still fall back.
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
