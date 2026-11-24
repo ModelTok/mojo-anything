@@ -12,6 +12,7 @@ written.
 
 import ast
 import io
+import os
 import re
 import sys
 import tokenize
@@ -818,3 +819,171 @@ def longest_prefix(lang, name):
                 if best is None or len(p) >= len(best):
                     best = p
     return best or ""
+
+
+# ---- analyze --whole-app (src/whole_app.rs), for Python workspaces --------------------
+
+_WA_SERVER = (
+    r"""WebApplication\.Create(?:Slim)?Builder|\bHttpListener\(|\.UseKestrel\(|\$_SERVER\[\s*['"]REQUEST_(?:METHOD|URI)|\$_(?:GET|POST)\[|\.listen\(|createServer\(|ListenAndServe|HTTPServer\(|HttpServer\.create|uvicorn\.run|\bapp\.run\(|SpringApplication\.run|TCPServer\.new|WEBrick::HTTPServer|Sinatra::Base|FastAPI\(|Flask\(|\bexpress\(\)|\blisten\(\s*\w+\s*,\s*\w+\s*\)|\bserve\(\s*listener"""
+)
+_WA_PY_MAIN = r"""if\s+__name__\s*==\s*['"]__main__['"]"""
+# Where SERVER's `\b` and `\w` meet text: outside ASCII, Python's word characters are not
+# Rust's (marks, connector punctuation, other numbers).
+_WA_WORD_SPOTS = ("HttpListener(", "app.run(", "express()", "listen(", "serve(")
+# Python's `\s` takes these (str.isspace), Rust's does not (White_Space).
+_WA_SPACES = ("\x1c", "\x1d", "\x1e", "\x1f")
+
+
+class _WaDecline(Exception):
+    pass
+
+
+def _wa_read(path):
+    """read_to_string, or "" (unwrap_or_default)."""
+    try:
+        with open(path, "rb") as f:
+            return f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        return ""
+
+
+def _wa_lines(text):
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return [l[:-1] if l.endswith("\r") else l for l in lines]
+
+
+def _wa_ascii(text, what):
+    if not text.isascii():
+        raise _WaDecline(what + " outside ASCII")
+    if any(c in text for c in _WA_SPACES):
+        raise _WaDecline(what + " with a character only Python's strip takes")
+
+
+def _wa_requirement_name(spec):
+    """requirement_name, for ASCII text."""
+    spec = spec.strip()
+    i = 0
+    while i < len(spec) and (spec[i].isalnum() or spec[i] in "-_."):
+        i += 1
+    name = spec[:i]
+    if not name or not name[0].isalnum():
+        return None
+    rest = spec[i:].lstrip()
+    if rest == "" or rest[0] in "[(=<>!~;,@#":
+        return name
+    return None
+
+
+def _wa_requirements(path, out, seen):
+    """requirements_from: `-r` / `--requirement` includes against the including file's
+    folder, each file once."""
+    key = os.path.realpath(path) if os.path.exists(path) else path
+    if key in seen:
+        return
+    seen.add(key)
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        return
+    _wa_ascii(text, "a requirements file")
+    folder = os.path.dirname(path)
+    for line in _wa_lines(text):
+        line = line.strip()
+        rest = None
+        if line.startswith("--requirement"):
+            rest = line[len("--requirement") :]
+        elif line.startswith("-r"):
+            rest = line[2:]
+        if rest is not None:
+            included = rest.lstrip("= \t")
+            if included:
+                _wa_requirements(os.path.join(folder, included), out, seen)
+            continue
+        if not line or line[0] in "#-":
+            continue
+        name = _wa_requirement_name(line)
+        if name is not None:
+            out.add(name)
+
+
+def _wa_table(doc, *keys):
+    for k in keys:
+        if not isinstance(doc, dict) or k not in doc:
+            return None
+        doc = doc[k]
+    return doc
+
+
+def whole_app_facts(root, files):
+    """What whole_app reads around analyze's plan of a Python workspace: ("ok", the
+    manifests' entry points and those found in the code, each (kind, path, name or None,
+    evidence), the declared names) or ("decline", why)
+    where Python's readers may read otherwise than Rust's (a package.json, which
+    serde_json reads; a pyproject.toml tomllib refuses; text outside ASCII where it
+    matters)."""
+    import re
+    import tomllib
+
+    try:
+        if os.path.lexists(os.path.join(root, "package.json")):
+            raise _WaDecline("a package.json")
+        entries = []
+        found = []
+        pyproject = _wa_read(os.path.join(root, "pyproject.toml"))
+        try:
+            doc = tomllib.loads(pyproject)
+        except (tomllib.TOMLDecodeError, ValueError, RecursionError):
+            raise _WaDecline("a pyproject.toml tomllib refuses")
+        for table in (_wa_table(doc, "project", "scripts"), _wa_table(doc, "tool", "poetry", "scripts")):
+            if not isinstance(table, dict):
+                continue
+            for name, target in table.items():
+                entries.append(("cli", target if isinstance(target, str) else "", name, "pyproject.toml scripts"))
+        server = re.compile(_WA_SERVER)
+        main = re.compile(_WA_PY_MAIN, re.M)
+        for rel in sorted(set(files)):
+            text = _wa_read(os.path.join(root, rel))
+            if any(c in text for c in _WA_SPACES):
+                raise _WaDecline("a character only Python's \\s takes")
+            if not text.isascii() and any(s in text for s in _WA_WORD_SPOTS):
+                raise _WaDecline("a word boundary next to text outside ASCII")
+            m = server.search(text)
+            kind = "server"
+            if m is None:
+                m = main.search(text)
+                kind = "cli"
+            if m is None:
+                continue
+            line = text.count("\n", 0, m.start()) + 1
+            found.append((kind, rel, None, "`%s` at %s:%d" % (m.group(0).strip(), rel, line)))
+        declared = set()
+        deps = _wa_table(doc, "project", "dependencies")
+        if isinstance(deps, list):
+            for v in deps:
+                if isinstance(v, str):
+                    _wa_ascii(v, "a dependency")
+                    n = _wa_requirement_name(v)
+                    if n is not None:
+                        declared.add(n)
+        poetry = _wa_table(doc, "tool", "poetry", "dependencies")
+        if isinstance(poetry, dict):
+            for k in poetry:
+                if k != "python":
+                    declared.add(k)
+        _wa_requirements(os.path.join(root, "requirements.txt"), declared, set())
+        out = set()
+        for n in declared:
+            if n:
+                _wa_ascii(n, "a dependency name")
+                out.add(n.lower().replace("_", "-"))
+        def row(e):
+            return (e[0], e[1], "" if e[2] is None else e[2], 0 if e[2] is None else 1, e[3])
+
+        return ("ok", [row(e) for e in entries], [row(e) for e in found], sorted(out))
+    except _WaDecline as e:
+        return ("decline", str(e))
+    except RecursionError:
+        return ("decline", "too deep")

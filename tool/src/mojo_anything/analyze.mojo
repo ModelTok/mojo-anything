@@ -13,7 +13,7 @@
 # unreadable folder or a name that is not ASCII, a `package.json` serde_json
 # might read otherwise than Python's json, an ignore file in a TS workspace
 # with a pattern globset might refuse (the ignore crate's error stops a TS
-# walk), and `--whole-app`.
+# walk), and `--whole-app` of anything but a Python plan (whole_app.mojo).
 
 from std.os import listdir
 from std.os.path import exists, isdir, isfile, islink
@@ -34,6 +34,12 @@ from mojo_anything.plan import (
 from mojo_anything.python_lang import Facts, py_helpers, read_facts
 from mojo_anything.tree_lang import read_tree_facts, tree_helpers
 from mojo_anything.walk import canonical, walk
+from mojo_anything.whole_app import (
+    WholeApp,
+    whole_app,
+    whole_app_json,
+    whole_app_markdown,
+)
 
 comptime SCHEMA = "mojo-anything/analyze@1"
 
@@ -1815,8 +1821,8 @@ def _emit(
 
 
 def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
-    if p.flag("whole-app"):
-        return fallback(argv)
+    # `--whole-app` is answered for Python plans only (whole_app.mojo).
+    var whole = p.flag("whole-app")
     var root = p.value("ROOT").or_else(".")
     if root.byte_length() == 0:
         return fallback(argv)
@@ -1826,7 +1832,7 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
     if given:
         lang = given.value()
     var state = String(py=py["root_state"](PythonObject(root)))
-    if state == "other":
+    if state == "other" or (whole and state != "dir"):
         return fallback(argv)
     if state == "file":
         var ext = _extension(_name_of(root))
@@ -1881,23 +1887,37 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
         if not _ascii(own) or _extension(own).lower() in _compiled():
             return fallback(argv)
         var lp = lang_plan(lang, root, py)
-        if lp.declined:
+        if lp.declined or (whole and not (lp.planned and lang == "python")):
             return fallback(argv)
         if lp.planned:
+            var w = WholeApp()
+            if whole:
+                var declined = False
+                w = whole_app(lp.report, root, py_helpers(), declined)
+                if declined:
+                    return fallback(argv)
             if p.flag("json"):
-                return _emit(p, py, to_json(lp.report, bridge_id(lang)), argv)
-            return _emit(
-                p,
-                py,
-                markdown(
-                    lp.report,
-                    _title(root),
-                    lang_name(lang),
-                    registry(lang),
-                    bridge_label(lang),
-                ),
-                argv,
+                var text = to_json(lp.report, bridge_id(lang))
+                if whole:
+                    # The report ends with its dependencies and `}`: the
+                    # whole_app field goes between them.
+                    text = (
+                        String(text[byte = 0 : text.byte_length() - 3])
+                        + ",\n"
+                        + whole_app_json(w)
+                        + "\n}\n"
+                    )
+                return _emit(p, py, text, argv)
+            var text = markdown(
+                lp.report,
+                _title(root),
+                lang_name(lang),
+                registry(lang),
+                bridge_label(lang),
             )
+            if whole:
+                text += whole_app_markdown(w)
+            return _emit(p, py, text, argv)
         var d = empty_workspace(lang, root, py)
         if d.declined:
             return fallback(argv)
