@@ -23,8 +23,18 @@ BASE = os.path.join(tempfile.gettempdir(), "mojo-anything-test-record-%d" % os.g
 PHASE1 = os.path.abspath("tool/fallback/mojo-anything")
 
 def write(d, files):
+    # "!gone" removes a file; "!sub OLD=>NEW" replaces text in it.
     for rel, text in files:
         p = os.path.join(d, rel)
+        if text == "!gone":
+            os.remove(p)
+            continue
+        if text.startswith("!sub "):
+            old, new = text[5:].split("=>")
+            with open(p) as f:
+                body = f.read()
+            assert old in body, (p, old)
+            text = body.replace(old, new)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", newline="") as f:
             f.write(text)
@@ -43,6 +53,10 @@ def fixture(side, name, source, before, bridge, after):
         assert p.returncode == 0, p.stderr
     write(d, after)
     return d
+
+def read(side, name, rel):
+    with open(os.path.join(BASE, side, name, rel)) as f:
+        return f.read()
 
 def gone():
     shutil.rmtree(BASE, ignore_errors=True)
@@ -314,7 +328,7 @@ comptime _SLOW = """import time
 
 
 def nap(word: str) -> str:
-    if word == "a":
+    if word == "":
         time.sleep(4)
     return word + "."
 """
@@ -336,6 +350,15 @@ def test_record_failures_match_the_phase1_binary() raises:
     slow.env.append("MOJO_ANYTHING_CASE_TIMEOUT=1")
     _record(slow, "mojo/slow-mojo", "12")
     _owned(t, slow)
+    assert_true(
+        String(
+            py=t["read"](
+                "old", "slow", "mojo/slow-mojo/.mojo-anything/timed-out.json"
+            )
+        )
+        != "[]",
+        "no case timed out in slow",
+    )
     _ = t["gone"]()
 
 
@@ -466,6 +489,21 @@ def test_pinned_records_match_the_phase1_binary() raises:
     order.args.append("--inputs")
     order.args.append("in.jsonl")
     _owned(t, order)
+    # Rust removes pinned.json before it reads the manifest.
+    var off_broken = _clock(
+        "pin-off-broken", '{"now_ms": 5, "seed": 2}\n', False
+    )
+    off_broken.after.append("mojo/clock-mojo/mojo-anything.json=!gone")
+    off_broken.args.append("--no-pin-clock")
+    _ = _both(t, off_broken)
+    # A Python unit of kind `ffi` gets Rust's pinned.rs, not pinned.mojo.
+    var ffi = _clock("pin-ffi", "", False)
+    ffi.after.append(
+        'mojo/clock-mojo/mojo-anything.json=!sub "kind": "mojo-py"=>"kind":'
+        ' "ffi"'
+    )
+    ffi.args.append("--pin-clock")
+    assert_true(_both(t, ffi) != "", "a Python ffi unit did not fall back")
     var odd_on = _clock("pin-odd-on", '{"now_ms": 1.5, "seed": 2}')
     odd_on.args.append("--pin-clock")
     assert_true(_both(t, odd_on) != "", "--pin-clock on an odd file")

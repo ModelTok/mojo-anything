@@ -249,8 +249,22 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
         if p.value(name):
             return fallback(argv)
     var bh = bridge_helpers()
-    var l = load(bh, p.value("CRATE_DIR").or_else("."))
-    if l.declined or String(py=l.manifest["language"]) != "python":
+    var l: Loaded
+    try:
+        l = load(bh, p.value("CRATE_DIR").or_else("."))
+    except e:
+        # Rust's `--no-pin-clock` removes pinned.json before it reads the
+        # manifest (main.rs); the Phase 1 binary gives that order.
+        if p.flag("no-pin-clock") and not from_tests:
+            return fallback(argv)
+        raise e^
+    # A Python unit of another kind (`ffi`) gets Rust's pinned.rs helper
+    # (pin.rs `mojo_unit`), which the Mojo tool does not write.
+    if (
+        l.declined
+        or String(py=l.manifest["language"]) != "python"
+        or String(py=l.manifest["kind"]) != "mojo-py"
+    ):
         return fallback(argv)
     return record_python(
         manifest_from_py(l.manifest),
