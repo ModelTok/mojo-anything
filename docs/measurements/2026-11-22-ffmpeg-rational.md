@@ -7,7 +7,7 @@
 - Original: ffmpeg n7.1 (b08d796) libavutil/rational.c, gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 - Load average (1, 5, 15 min) during the run: 19.94, 19.40, 21.17; 10.52, 15.19, 16.98. The machine was busy (other sessions' builds and benchmarks): this run checks correctness and sizes only, and times nothing.
 
-`demo/real-world/ffmpeg-mojo/scripts/verify.sh`, which copies the unit next to the tree `ffmpeg-rs/scripts/prepare.sh` assembled (ffmpeg n7.1, commit `b08d796`), records ffmpeg's behaviour on the inputs of `ffmpeg-rs/scripts/inputs.py` plus generated cases, builds, diffs and gates. The demo keeps no cases, so this run recorded them again.
+`demo/real-world/ffmpeg-mojo/scripts/verify.sh`, which copies the unit next to the tree `ffmpeg-rs/scripts/prepare.sh` assembled (ffmpeg n7.1, commit `b08d796`), records ffmpeg's behaviour on the inputs of `ffmpeg-rs/scripts/inputs.py` plus generated cases, builds, diffs and gates. Both scripts have since moved, unchanged, to `demo/real-world/ffmpeg-mojo/scripts/`. The demo keeps no cases, so this run recorded them again.
 
 `<work>` is the scratch folder the run used, `<repo>` this repository.
 

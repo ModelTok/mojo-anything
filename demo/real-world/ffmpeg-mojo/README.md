@@ -3,7 +3,7 @@
 FFmpeg `libavutil` (tag `n7.1`, commit `b08d796`) ported to Mojo with mojo-anything, starting
 with `rational.c`. Each unit is proven against recordings of the real ffmpeg functions and passes
 `mojo-anything gate`. The Rust ports of the same units, made before mojo-anything targeted Mojo,
-are in [`../ffmpeg-rs`](../ffmpeg-rs) and stay there as the reference.
+are in rust-anything's [`demo/real-world/ffmpeg-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/ffmpeg-rs).
 
 ## License
 
@@ -19,7 +19,7 @@ clone ffmpeg and regenerate them.
 | `rational-mojo` | `rational.c` | `av_reduce`, `av_mul_q`, `av_div_q`, `av_add_q`, `av_sub_q`, `av_d2q`, `av_nearer_q`, `av_q2intfloat` | 46,764 |
 
 Every recorded call is matched by the Mojo (2026-11-21, Ubuntu 24.04 in WSL, Mojo 1.2.0, gcc
-13). The inputs are those of `../ffmpeg-rs/scripts/inputs.py`: the vectors of ffmpeg's own
+13). The inputs are those of `scripts/inputs.py`: the vectors of ffmpeg's own
 rational tests plus seeded edge cases (`INT_MIN`/`INT_MAX` terms, zero and negative
 denominators, NaN, infinities and subnormals for `av_d2q`), and mojo-anything's generated cases on
 top. `av_gcd_q` and `av_find_nearest_q_idx` stay in C, as in the Rust port.
@@ -49,9 +49,9 @@ root:
 
 ```sh
 cargo build --release
-WORK=$PWD/work demo/real-world/ffmpeg-rs/scripts/prepare.sh   # clone ffmpeg n7.1, build libavutil.a, assemble the tree
+WORK=$PWD/work demo/real-world/ffmpeg-mojo/scripts/prepare.sh  # clone ffmpeg n7.1, build libavutil.a, assemble the tree
 WORK=$PWD/work demo/real-world/ffmpeg-mojo/scripts/verify.sh  # per unit: record, build, diff, gate
 ```
 
-The other nine units of `../ffmpeg-rs` (adler32, base64, mathematics, avstring, parseutils and
+The other nine units of rust-anything's `ffmpeg-rs` (adler32, base64, mathematics, avstring, parseutils and
 the four one-shot hash wrappers) are not ported to Mojo yet.

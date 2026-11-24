@@ -63,7 +63,7 @@ gone, and the Rust crates that remain in `demo/` (`*-rs`) no longer build with m
 
 | Target | What ran | Result |
 | --- | --- | --- |
-| `packages/core`, 9 units, 29 functions | analyze, bridge, record, diff, bench, shadow, gate | every gate passes; 7,925 recorded cases match; slower than TS through a bridge ([report](../demo/x18n-core/README.md)) |
+| `packages/core`, 9 units, 29 functions | analyze, bridge, record, diff, bench, shadow, gate | every gate passes; 7,925 recorded cases match; slower than TS through a bridge ([report](https://github.com/erkamyaman/rust-anything/blob/main/demo/x18n-core/README.md)) |
 | `packages/builtins/src/formats/shared/`, 7 functions | same | 3,672/3,672 cases match, 960 of them built from 40 real files of the repository (YAML locales, JSON, Markdown, TS), in LF and CRLF |
 | whole repository | analyze | 142 units; `start_here` now lists only units with bridgeable exports |
 
@@ -89,7 +89,7 @@ batch (3.4x counting the handover). Those numbers belong to that port and do not
 
 [Fuse.js](https://github.com/krisk/Fuse) (20k stars, about 20 million npm downloads a week,
 commit `edf2fb6`) is the fuzzy-search library behind countless search boxes. Ported with
-rust-anything 1.6 (unreleased); the crate is in [`demo/real-world/fuse-rs`](../demo/real-world/fuse-rs).
+rust-anything 1.6 (unreleased); the crate is in rust-anything's [`demo/real-world/fuse-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/fuse-rs).
 
 `analyze` put every folder of `src/` in one import cycle, so Fuse cannot be ported file by file.
 The port takes the path a search spends its time on instead: a 54-line adapter
@@ -140,8 +140,8 @@ Fuse's own index (3.4 ms against 2.8 ms for 50,000 strings).
 [json-server](https://github.com/typicode/json-server) (75k stars, MIT, commit `89a34a4`,
 1.0.0-beta.15) serves a REST API from a JSON file: Node, tinyhttp and lowdb. It is the first whole
 app ported end to end with the whole-app flow (`app record`, `front-door`, `wire`, `lift`):
-the result is one Rust binary that answers what the Node server answers. Everything is in
-[`demo/real-world/json-server-rs`](../demo/real-world/json-server-rs).
+the result is one Rust binary that answers what the Node server answers. Everything is in rust-anything's
+[`demo/real-world/json-server-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/json-server-rs).
 
 | Step | Result |
 | --- | --- |
@@ -185,7 +185,7 @@ Benchmark: Apple M4 (10 cores, 16 GB), macOS 27.3, Node 24.15.0 running `lib/bin
 `tsc` builds it for npm, the Rust binary built with `--release`. Both serve a copy of the same
 database on loopback; `ab -k` sends the same requests, 20,000 per row (40 for the slow embed on
 the big database) after a warm-up. Two runs, each started with the 1-minute load average under 3;
-cells give run 1 / run 2 in requests per second. [`bench/bench.py`](../demo/real-world/json-server-rs/bench/bench.py)
+cells give run 1 / run 2 in requests per second. [`bench/bench.py`](https://github.com/erkamyaman/rust-anything/blob/main/demo/real-world/json-server-rs/bench/bench.py)
 is the script.
 
 The fixture database (6 posts, 3 comments):
@@ -259,8 +259,8 @@ in memory until the next reload; the port stores `null`, which is what the file 
 [Prettier](https://github.com/prettier/prettier) (MIT, tag `3.6.2`, commit `7a8b05f`) is the
 first large tool ported with the whole-app flow where the port covers only part of the input:
 the front door formats a file in Rust when every construct in it is ported, and hands the whole
-file to Prettier otherwise. Everything is in
-[`demo/real-world/prettier-rs`](../demo/real-world/prettier-rs); its `DECISIONS.md` records the
+file to Prettier otherwise. Everything is in rust-anything's
+[`demo/real-world/prettier-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/prettier-rs); its `DECISIONS.md` records the
 choices (whole-file fallback, oxc for parsing, Prettier's own printer code ported rather than an
 existing Rust formatter, byte-identical output as the bar).
 
@@ -279,7 +279,7 @@ existing Rust formatter, byte-identical output as the bar).
 | YAML | 3,344 more cases (`gen-yaml-inputs.mjs`): Prettier's 355 YAML fixtures (348 in `tests/format/yaml`, the rest pragma, parser-inference and error fixtures) as `.yml` and `.yaml`, six option variants (`--prose-wrap always` and `never`, `--tab-width 4`, `--no-bracket-spacing`, `--single-quote`, `--print-width 40`), every fixture with CRLF line ends, 35 real files (Prettier's and the three repositories' GitHub workflows, issue templates, `.codecov.yml`...), YAML file names (`CITATION.cff`, `.clang-format`, `.prettierrc`, `yarn.lock`) and edge snippets (anchors, tags, `%TAG` directives, documents, block scalars, duplicate keys, bad indentation); the port is `src/yaml/`: yaml 1.10.2's CST parser and the checks its `Document#parse` makes (anchors, tags, pairs, duplicate keys, every error it reports), yaml-unist-parser 2.0.5's transform, comment attachment and position updates, and `printer-yaml.js`; **3,309 of the 3,310 YAML cases Prettier formats run in Rust** (the one left is `.prettierrc`, which Prettier prints as JSON), the other 34 are Prettier's own errors |
 | Markdown | 6,350 more cases (`gen-markdown-inputs.mjs`): Prettier's 852 Markdown fixtures (821 in `tests/format/markdown`, the rest pragma and front matter fixtures), five option variants (`--prose-wrap always` and `never`, `--tab-width 4`, `--print-width 40`, `--single-quote`), every fixture with CRLF, a quarter of them as `.markdown`, 54 real files (Prettier's docs and READMEs, the three repositories' Markdown) twice, and edge snippets (lists, tasks, tables, links, footnotes, math, liquid, wiki links, entities, `prettier-ignore` ranges, CJK text); the port is `src/markdown/`: remark-parse 8.0.3 with remark-footnotes, remark-math and Prettier's front matter, liquid and wiki link tokenizers, parse-entities, Prettier's preprocess and `printer-markdown.js`; code blocks in JavaScript, TypeScript, JSON, GraphQL, YAML, Markdown, CSS, SCSS and Less, and YAML front matter, are formatted by the other ports as Prettier does; **6,305 of the 6,350 Markdown cases run in Rust**, the rest hold HTML code blocks (not ported) or code oxc does not parse |
 | CSS, SCSS, Less | 2,062 more cases (`gen-css-inputs.mjs`): Prettier's 248 style fixtures (109 CSS, 80 SCSS, 36 Less, 23 in `tests/format/misc`), the CSS fixtures again as `.scss` and `.less`, five option variants (`--single-quote`, `--tab-width 4`, `--print-width 40`, `--trailing-comma none`, `--use-tabs`), every fixture with CRLF, 6 real files (Prettier's website styles, Fuse.js's docs styles) and 22 edge snippets in all three languages; the port is `src/css/`: postcss 8.5.6's tokenizer and parser with postcss-scss 4.0.9's changes (`//` comments, `#{}` interpolation, nested properties) and postcss-less 6.0.0's (inline comments, mixin calls, `each`, variables, `@{}` interpolation, `extend`), Prettier's `parseNestedCSS` and its quote masking for Less comments, postcss-values-parser 2.0.1 in loose mode, postcss-selector-parser 2.2.3, postcss-media-query-parser 0.2.3, and `printer-postcss.js` with its value group printers; **all 2,004 CSS, SCSS and Less cases Prettier formats run in Rust** (890 CSS, 711 SCSS, 403 Less), the other 58 are Prettier's own errors |
-| equivalence checks | differential fuzzing against Prettier in process (about 6M runs, random options, Prettier's output fed back, libFuzzer), mutation testing with the replay as the test, a comparison of the Rust `Doc` with Prettier's doc, and every doc up to size 5 through both doc printers; they found about 75 differences outside the corpus, now fixed or handed to Prettier, and 355 new cases (`equiv/cases.jsonl`). After the fixes: 17,224/17,224 at 7.9% fallback (15,861 in Rust), 355/355 new cases, and no difference in the last fuzzing runs. Details and bounds in [`equiv/README.md`](../demo/real-world/prettier-rs/equiv/README.md) |
+| equivalence checks | differential fuzzing against Prettier in process (about 6M runs, random options, Prettier's output fed back, libFuzzer), mutation testing with the replay as the test, a comparison of the Rust `Doc` with Prettier's doc, and every doc up to size 5 through both doc printers; they found about 75 differences outside the corpus, now fixed or handed to Prettier, and 355 new cases (`equiv/cases.jsonl`). After the fixes: 17,224/17,224 at 7.9% fallback (15,861 in Rust), 355/355 new cases, and no difference in the last fuzzing runs. Details and bounds in [`equiv/README.md`](https://github.com/erkamyaman/rust-anything/blob/main/demo/real-world/prettier-rs/equiv/README.md) |
 
 Formatted fully in Rust, by group: 1,295 of the 1,525 fixtures, 1,016 of the 1,196 option
 variants, all 59 real files, 20 of the 300 traps, and 46 of the 63 config cases. Of the 929
@@ -340,8 +340,8 @@ What the port had to get right, all caught by recorded cases:
 
 Benchmark: Apple M4 (10 cores, 16 GB), macOS 27.3, Node 24.15.0 running Prettier 3.6.2's
 `dist` build, the Rust built with `--release`, after milestone 2. Two runs, each started with the
-1-minute load average under 3 (2.60 and 2.95); cells give run 1 / run 2. The scripts are in
-[`demo/real-world/prettier-rs/bench`](../demo/real-world/prettier-rs/bench) and
+1-minute load average under 3 (2.60 and 2.95); cells give run 1 / run 2. The scripts are in rust-anything's
+[`demo/real-world/prettier-rs/bench`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/prettier-rs/bench) and
 `prettier-js-rs/examples/bench.rs`; every CLI output was compared and matched in both runs.
 
 | What | Prettier | Rust | |
@@ -479,8 +479,8 @@ JavaScript library. ffmpeg is C plus hand-written assembly, and Rust does not be
 assembly; what a Rust port can honestly match is ffmpeg's portable C. So this run took
 [FFmpeg](https://ffmpeg.org)'s `libavutil` (tag `n7.1`, commit `b08d796`, LGPL-2.1-or-later),
 the utility library under every codec, and ported its pure C units one at a time, each proven
-against recordings of the real ffmpeg functions. Everything is in
-[`demo/real-world/ffmpeg-rs`](../demo/real-world/ffmpeg-rs): the crates (LGPL, like the code
+against recordings of the real ffmpeg functions. Everything is in rust-anything's
+[`demo/real-world/ffmpeg-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/ffmpeg-rs): the crates (LGPL, like the code
 they port; `adler32-rs` keeps zlib's license), and the scripts that clone ffmpeg, assemble the
 tree, record, verify and bench. No ffmpeg source or recorded case is copied. The port is also
 published on its own as [erkamyaman/ffmpeg-rs-anything](https://github.com/erkamyaman/ffmpeg-rs-anything).
@@ -651,7 +651,7 @@ exact-behavior Rust ESLint would be something else. This run took
 front door in front of its CLI: the front door lints a run in Rust when its
 whole config comes from flags (`--no-config-lookup --rule ... --stdin`) and every rule it enables
 is one of the 90 ported (`eslint:recommended` and 26 widely used rules), and hands every other run
-to ESLint. Everything is in [`demo/real-world/eslint-rs`](../demo/real-world/eslint-rs); its
+to ESLint. Everything is in rust-anything's [`demo/real-world/eslint-rs`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/eslint-rs); its
 `DECISIONS.md` records the choices. No ESLint source, test or recorded case is copied there.
 
 | Step | Result |
@@ -712,7 +712,7 @@ Found in rust-anything, and fixed (all in the [changelog](../CHANGELOG.md)):
 
 Benchmark: Apple M4 (10 cores), Node 24.15.0, two runs at load
 average 3.0 to 3.9, on the 443 real files the port answers with all 90 rules on
-([`bench/`](../demo/real-world/eslint-rs/bench)): one process per file, ESLint's CLI took
+([`bench/`](https://github.com/erkamyaman/rust-anything/tree/main/demo/real-world/eslint-rs/bench)): one process per file, ESLint's CLI took
 53.5 s and 56.4 s and the front door 2.07 s and 2.15 s (25.9x, 26.3x; per file median 34.5x, the
 slowest file 6.3x, none slower, the same bytes from both). In process, ESLint's `Linter` warm in
 V8 took 2,368 ms and 2,553 ms and the port 754 ms and 759 ms (3.1x, 3.4x; per file median 2.9x
