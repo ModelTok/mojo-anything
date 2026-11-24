@@ -354,6 +354,38 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
         )
 
 
+def test_manifests_of_other_roots_list_no_port_as_in_rust() raises:
+    """A bridge crate whose manifest names another repository (a demo's
+    placeholder root, one that does not exist, another folder, none at all)
+    is no port of this one: the map lists none, and analyze skips the
+    crate's folder."""
+    var t = _py()
+    var manifests: List[String] = [
+        (
+            '{"schema": "mojo-anything/bridge@1", "root":'
+            ' "../../../tests/fixtures/c"}\n'
+        ),
+        "{}\n",
+        '{"root": "/nonexistent/mojo-anything-root"}\n',
+        '{"root": "../other"}\n',
+        '{"root": 3}\n',
+        "[]\n",
+    ]
+    var flags = List[List[String]]()
+    flags.append(["map", "."])
+    flags.append(["map", ".", "--json"])
+    flags.append(["map", ".", "--write"])
+    flags.append(["map", ".", "--check"])
+    for i in range(len(manifests)):
+        var spec = _c_repo()
+        spec.append("other/")
+        spec.append("port/mojo-anything.json=" + manifests[i])
+        spec.append("port/port.mojo=def f(): pass\n")
+        spec.append("port/c/shim.c=int shim(int x) { return x; }\n")
+        for f in flags:
+            _owned(t, String("foreign-", i), spec, f)
+
+
 def test_a_missing_repository_is_an_error_as_in_rust() raises:
     var t = _py()
     var empty = List[String]()
@@ -366,7 +398,11 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     and it answers them."""
     var t = _py()
     var cases = List[Tuple[String, String]]()
-    cases.append(("crate", "go.mod=x\n|port/mojo-anything.json={}\n"))
+    cases.append(
+        ("crate", 'go.mod=x\n|port/mojo-anything.json={"root": ".."}\n')
+    )
+    cases.append(("crate-root", 'go.mod=x\n|mojo-anything.json={"root": ""}\n'))
+    cases.append(("crate-bad", "go.mod=x\n|port/mojo-anything.json={\n"))
     cases.append(("source", "package.json={}\n|a.ts=export const x = 1;\n"))
     cases.append(("glue", "go.mod=x\n|mojo/app/glue/a.mojo=x\n"))
     cases.append(("bad-json", "package.json={\n"))
@@ -387,7 +423,8 @@ def main() raises:
     test_maps_without_ports_match_the_phase1_binary()
     test_python_maps_without_ports_match_the_phase1_binary()
     test_tree_sitter_maps_without_ports_match_the_phase1_binary()
+    test_manifests_of_other_roots_list_no_port_as_in_rust()
     test_a_missing_repository_is_an_error_as_in_rust()
     test_what_is_not_ported_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_map: 5 passed")
+    print("test_map: 6 passed")

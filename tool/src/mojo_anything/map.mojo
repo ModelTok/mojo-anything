@@ -7,8 +7,10 @@
 # then not ported yet: the map in Markdown, JSON or mojo/PORT_MAP.md
 # (`--write`), and `--check`, which has nothing to fail on. Java
 # repositories are planned the same way (analyze.mojo's `lang_plan`). A repository that
-# does not exist gets the Rust tool's error. A `mojo-anything.json` anywhere
-# under the repository (a port to list), front-door glue (`mojo/app/glue`),
+# does not exist gets the Rust tool's error. A bridge crate whose manifest
+# names another root is no port of the repository (port_map skips it), so its
+# map is the same. A `mojo-anything.json` under the repository that may be a
+# port of it (`may_port`), front-door glue (`mojo/app/glue`),
 # `--crates`, a repository that is a file or `/`, and every workspace
 # `analyze` would not answer in Mojo go to the Phase 1 binary before anything
 # is written.
@@ -42,11 +44,41 @@ def canon(repo):
         return ("other", "")
     return ("dir", os.path.realpath(repo))
 
-def has_manifest(root):
+class _Object(list):
+    pass
+
+
+def may_port(root):
+    # 1 when a mojo-anything.json under the canonical root may be a port of it:
+    # Manifest::load resolves a relative `root` against the crate's folder,
+    # and port_map lists the crate only when that canonicalizes to this root.
+    # A manifest whose every top-level `root` is not a string, or names a path
+    # that does not exist or is another folder, is no port of it, whether or
+    # not the rest of the file loads. The walk is unfiltered (a superset of
+    # port_map's); a file that does not read or parse, or a walk error, is 1.
+    import json
     bad = []
     for base, dirs, files in os.walk(root, onerror=bad.append):
-        if "mojo-anything.json" in dirs or "mojo-anything.json" in files:
+        if "mojo-anything.json" not in files:
+            continue
+        path = os.path.join(base, "mojo-anything.json")
+        try:
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8")
+            top = json.loads(text, object_pairs_hook=_Object)
+        except (OSError, ValueError, RecursionError):
             return 1
+        if not isinstance(top, _Object):
+            continue
+        for key, value in top:
+            if key != "root" or not isinstance(value, str):
+                continue
+            target = value if value.startswith("/") else os.path.join(base, value)
+            try:
+                if os.path.exists(target) and os.path.realpath(target) == root:
+                    return 1
+            except (OSError, ValueError):
+                return 1
     return 1 if bad else 0
 
 def write_map(root, text):
@@ -186,7 +218,7 @@ def run_map(p: Parsed, argv: List[String]) raises -> Int:
     var root = String(py=c[1])
     if root == "/":
         return fallback(argv)
-    if Int(py=scope["has_manifest"](PythonObject(root))) != 0:
+    if Int(py=scope["may_port"](PythonObject(root))) != 0:
         return fallback(argv)
     var os = Python.import_module("os")
     if Bool(py=os.path.lexists(PythonObject(root + "/mojo/app/glue"))):
