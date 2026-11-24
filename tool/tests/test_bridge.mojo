@@ -835,6 +835,19 @@ def test_go_and_ruby_units_are_bridged_in_mojo() raises:
     kit.append("Gemfile=source 'https://rubygems.org'\n")
     kit.append(String("lib/kit.rb=", _RUBY_KIT))
     _made(t, "rb-kit", "", kit, _forced(".", "lib/kit.rb"))
+    # Review of 473398e..8eabb18: a default past CPython's 4300-digit limit
+    # for int() is a number to Rust (parse::<f64> gives inf).
+    var digits = String("")
+    for _ in range(5000):
+        digits += "1"
+    var long = List[String]()
+    long.append("Gemfile=source 'https://rubygems.org'\n")
+    long.append(
+        String(
+            "l.rb=module L\n  def self.f(x = ", digits, ")\n    x\n  end\nend\n"
+        )
+    )
+    _made(t, "rb-long", "", long, _forced(".", "l.rb"))
     var rb_stays = List[String]()
     rb_stays.append("Gemfile=source 'https://rubygems.org'\n")
     rb_stays.append("s.rb=module S\n  def self.each(&b) end\nend\n")

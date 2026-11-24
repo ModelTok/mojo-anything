@@ -814,7 +814,7 @@ def go_bridge_exports(root, files):
             if tree.root_node.has_error:
                 return ("decline",)
             out.extend(_go_functions(tree.root_node, data, rel))
-    except (Decline, RecursionError):
+    except (Decline, RecursionError, ValueError):
         return ("decline",)
     if not _ascii_tree(out):
         return ("decline",)
@@ -1232,7 +1232,13 @@ def _parses_i64(v):
     s = v[1:] if v[:1] in ("+", "-") else v
     if not s or not all("0" <= c <= "9" for c in s):
         return False
-    return -(2**63) <= int(v) <= 2**63 - 1
+    # Past 19 significant digits it is out of range; int() would also refuse
+    # more than 4300 digits.
+    digits = s.lstrip("0") or "0"
+    if len(digits) > 19:
+        return False
+    n = -int(digits) if v.startswith("-") else int(digits)
+    return -(2**63) <= n <= 2**63 - 1
 
 
 def _parses_f64(v):
@@ -1495,7 +1501,7 @@ def ruby_bridge_exports(root, files):
                     _ruby_namespace_fns(rel, child, lines, [], found)
             found.sort(key=lambda f: f["line"])
             out.extend(found)
-    except (Decline, RecursionError):
+    except (Decline, RecursionError, ValueError):
         return ("decline",)
     if not _ascii_tree(out):
         return ("decline",)
