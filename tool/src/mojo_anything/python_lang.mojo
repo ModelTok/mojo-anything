@@ -14,6 +14,11 @@ comptime FILE = 0
 comptime EXTERNAL = 1
 comptime STDLIB = 2
 comptime UNRESOLVED = 3
+comptime WORKSPACE = 4
+comptime PLATFORM_NODE = 1
+comptime PLATFORM_BROWSER = 2
+comptime PLATFORM_EDITOR = 4
+comptime PLATFORM_UI = 8
 
 
 def py_helpers() raises -> PythonObject:
@@ -35,6 +40,16 @@ struct Facts(Copyable, Movable):
     var loops: Int
     var exports: Int
     var bridgeable: Int
+    var parse_errors: Int
+    """oxc's diagnostics (TS); the other readers decline on an error."""
+    var platforms: Int
+    """The runtimes the file uses directly (TS): a set of PLATFORM_* bits."""
+    var platform: List[Bool]
+    """Per import (TS): scan::platform_of names a runtime."""
+    var package: List[String]
+    """Per import (TS): deps::package_name."""
+    var aliases: List[List[String]]
+    """Per import (TS): the tsconfig `paths` candidates, empty for none."""
 
     def __init__(out self):
         self.readable = False
@@ -47,6 +62,11 @@ struct Facts(Copyable, Movable):
         self.loops = 0
         self.exports = 0
         self.bridgeable = 0
+        self.parse_errors = 0
+        self.platforms = 0
+        self.platform = List[Bool]()
+        self.package = List[String]()
+        self.aliases = List[List[String]]()
 
 
 def _len(x: PythonObject) raises -> Int:

@@ -403,7 +403,8 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     )
     cases.append(("crate-root", 'go.mod=x\n|mojo-anything.json={"root": ""}\n'))
     cases.append(("crate-bad", "go.mod=x\n|port/mojo-anything.json={\n"))
-    cases.append(("source", "package.json={}\n|a.ts=export const x = 1;\n"))
+    # A decorated class (oxc's ESTree moves its span; test_analyze_ts.mojo).
+    cases.append(("source", "package.json={}\n|a.ts=@d\nexport class A {}\n"))
     cases.append(("glue", "go.mod=x\n|mojo/app/glue/a.mojo=x\n"))
     cases.append(("bad-json", "package.json={\n"))
     for c in cases:

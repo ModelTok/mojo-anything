@@ -330,7 +330,8 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
     cases.append(
         ("python", "pyproject.toml=x\n|pkg/core.py=def f(x):\n    return x\n")
     )
-    cases.append(("ts", "package.json={}\n|src/a.ts=export const a = 1;\n"))
+    # A decorated class (oxc's ESTree moves its span; test_analyze_ts.mojo).
+    cases.append(("ts", "package.json={}\n|src/a.ts=@d\nexport class A {}\n"))
     cases.append(("compiled", "go.mod=x\n|lib/a.so=x"))
     cases.append(
         ("ignored-src", ".gitignore=*.go\n|go.mod=x\n|a.go=package a\n")

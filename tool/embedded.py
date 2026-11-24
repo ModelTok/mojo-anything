@@ -6,6 +6,8 @@
 - `analyze_tree_source()`: tool/src/mojo_anything/analyze_tree.py, the Python that reads a
   file through tree-sitter's Python bindings for the other languages the Rust tool reads with
   tree-sitter.
+- `oxc_reader_source()`: tool/src/mojo_anything/oxc_reader.mjs, the JavaScript that reads a
+  TS/JS file through oxc's own parser (tool/oxc) where the Rust tool walks oxc's AST.
 - `replacements_toml()`: src/replacements.toml, the crate table, which the Rust tool embeds with
   `include_str!` (src/crates.rs).
 - `py_num_mojo()`: src/mojo/py_num.mojo, which `bridge` writes into a Python unit's port
@@ -36,6 +38,7 @@ OUT = os.path.join(REPO, "tool", "src", "mojo_anything", "embedded.mojo")
 FILES = [
     ("analyze_py_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_py.py")),
     ("analyze_tree_source", os.path.join(REPO, "tool", "src", "mojo_anything", "analyze_tree.py")),
+    ("oxc_reader_source", os.path.join(REPO, "tool", "src", "mojo_anything", "oxc_reader.mjs")),
     ("replacements_toml", os.path.join(REPO, "src", "replacements.toml")),
     ("py_num_mojo", os.path.join(REPO, "src", "mojo", "py_num.mojo")),
     ("driver_py", os.path.join(REPO, "src", "harness_py.rs") + "#DRIVER_PY"),

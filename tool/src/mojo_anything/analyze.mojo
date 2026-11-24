@@ -33,6 +33,7 @@ from mojo_anything.plan import (
 )
 from mojo_anything.python_lang import Facts, py_helpers, read_facts
 from mojo_anything.tree_lang import read_tree_facts, tree_helpers
+from mojo_anything.ts_lang import read_ts_facts, ts_helpers
 from mojo_anything.walk import canonical, walk, walk_links
 from mojo_anything.whole_app import (
     WholeApp,
@@ -1057,6 +1058,166 @@ def go_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def _ts_kind(rel: String) -> Int:
+    """discover.rs `classify`: 0 not code, 1 source, 2 test, 3 UI."""
+    var name = _name_of(rel)
+    var dot = name.rfind(".")
+    if dot < 0:
+        return 0
+    var ext = String(name[byte = dot + 1 :])
+    if (
+        name.endswith(".d.ts")
+        or name.endswith(".d.mts")
+        or name.endswith(".d.cts")
+    ):
+        return 0
+    if ".config." in name or name.startswith("."):
+        return 0
+    var test = ".test." in name or ".spec." in name
+    for part in rel.split("/"):
+        if (
+            part == "test"
+            or part == "tests"
+            or part == "__tests__"
+            or part == "e2e"
+        ):
+            test = True
+    var source: List[String] = ["ts", "mts", "cts", "js", "mjs", "cjs"]
+    var ui: List[String] = ["tsx", "jsx", "vue", "svelte", "astro"]
+    if ext in source:
+        return 2 if test else 1
+    if ext in ui:
+        return 2 if test else 3
+    return 0
+
+
+def ts_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """discover.rs `discover`: a package per package.json (its `name`, else
+    its folder, the root's `root`; `src` its source root when there is one;
+    every dependency field, for the package order), the root's when none is
+    there (named by the canonical root), and the files the walk keeps,
+    sorted; declined for a name outside ASCII or holding a backslash, a root
+    named like a folder the walk skips, a package.json serde_json may read
+    otherwise than Python's json, and ignore files with a pattern globset may
+    refuse. With no source file the workspace is left empty."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("ts"):
+        ws.declined = True
+        return ws^
+    var manifests = List[String]()
+    var found = List[String]()
+    var kinds = List[Int]()
+    var odd = False
+    for rel in _files("ts", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        if rel == "package.json" or rel.endswith("/package.json"):
+            manifests.append(rel)
+            continue
+        var kind = _ts_kind(rel)
+        if kind > 0:
+            found.append(rel)
+            kinds.append(kind)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), True)) != 0:
+        ws.declined = True
+        return ws^
+    var th = ts_helpers()
+    var has_root = False
+    for rel in manifests:
+        if Int(py=py["serde_reads"](PythonObject(root + "/" + rel))) != 1:
+            ws.declined = True
+            return ws^
+        var m = th["ts_package"](PythonObject(root + "/" + rel))
+        var dir = _dir_of(rel)
+        var name = dir
+        if Int(py=m[0]) == 1:
+            name = String(py=m[1])
+        elif dir.byte_length() == 0:
+            name = "root"
+        if not _ascii(name):
+            ws.declined = True
+            return ws^
+        var deps = List[String]()
+        for i in range(Int(py=Python.import_module("builtins").len(m[2]))):
+            var d = String(py=m[2][i])
+            if not _ascii(d):
+                ws.declined = True
+                return ws^
+            deps.append(d)
+        var src = join_dir(dir, "src")
+        var src_root = dir
+        if isdir(root + "/" + src):
+            src_root = src
+        if dir.byte_length() == 0:
+            has_root = True
+        ws.packages.append(Package(name, dir, src_root, deps^))
+    if not has_root:
+        var c = canonical(root)
+        var name = String("root")
+        if c != "/" and c.byte_length() > 0:
+            name = _name_of(c)
+        if not _ascii(name):
+            ws.declined = True
+            return ws^
+        var src_root = String("")
+        if isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(Package(name, "", src_root, List[String]()))
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    for i in range(len(found)):
+        ref rel = found[i]
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        ws.files.append(SourceFile(rel, best, kinds[i] == 2, kinds[i] == 3))
+    return ws^
+
+
+def ts_plan(root: String, ws: Workspace, mut declined: Bool) raises -> Report:
+    """The plan of a TS/JS workspace with source files, as analyze_lang
+    builds it: each file's facts through oxc_reader.mjs (a single-file
+    component's scripts parsed as `sfc.ts`), the exports of every source
+    file (check_bridgeable reads those of the units it keeps)."""
+    var paths = List[String]()
+    var parse_as = List[String]()
+    var exports = List[Bool]()
+    for f in ws.files:
+        paths.append(f.path)
+        if (
+            f.path.endswith(".vue")
+            or f.path.endswith(".svelte")
+            or f.path.endswith(".astro")
+        ):
+            parse_as.append("sfc.ts")
+        else:
+            parse_as.append(f.path)
+        exports.append(not f.test and not f.ui)
+    var names = List[String]()
+    var dirs = List[String]()
+    for p in ws.packages:
+        names.append(p.name)
+        dirs.append(p.dir)
+    var facts = read_ts_facts(
+        ts_helpers(), root, paths, parse_as, exports, names, dirs, declined
+    )
+    if declined:
+        return Report("ts")
+    return build("ts", "npm", ws.packages, ws.files, facts, py_helpers())
+
+
 def _is_ruby_test(rel: String, name: String) -> Bool:
     if (
         name.endswith("_test.rb")
@@ -1793,7 +1954,14 @@ struct LangPlan(Movable):
 def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
     """analyze_lang for a folder, for the languages with a Mojo reader."""
     var out = LangPlan(lang)
-    if lang == "python":
+    if lang == "ts":
+        var ws = ts_workspace(root, py)
+        if ws.declined:
+            out.declined = True
+        elif len(ws.files) > 0:
+            out.report = ts_plan(root, ws, out.declined)
+            out.planned = not out.declined
+    elif lang == "python":
         var pyh = py_helpers()
         var ws = python_workspace(root, pyh)
         if ws.declined:

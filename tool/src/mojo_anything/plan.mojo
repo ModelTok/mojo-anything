@@ -14,9 +14,14 @@ from mojo_anything.python_lang import (
     EXTERNAL,
     FILE,
     Facts,
+    PLATFORM_BROWSER,
+    PLATFORM_EDITOR,
+    PLATFORM_NODE,
+    PLATFORM_UI,
     Resolution,
     STDLIB,
     UNRESOLVED,
+    WORKSPACE,
     resolve,
 )
 from mojo_anything.risks import (
@@ -81,11 +86,24 @@ struct Package(Copyable, Movable):
         self.namespaces = namespaces^
 
 
-@fieldwise_init
 struct SourceFile(Copyable, Movable):
     var path: String
     var package: Int
     var test: Bool
+    var ui: Bool
+    """A component or single-file component (TS): flagged, not ported."""
+
+    def __init__(out self, path: String, package: Int, test: Bool):
+        self.path = path
+        self.package = package
+        self.test = test
+        self.ui = False
+
+    def __init__(out self, path: String, package: Int, test: Bool, ui: Bool):
+        self.path = path
+        self.package = package
+        self.test = test
+        self.ui = ui
 
 
 struct _Unit(Copyable, Movable):
@@ -103,6 +121,11 @@ struct _Unit(Copyable, Movable):
     var unresolved: Int
     var direct_tests: Int
     var fan_in: Int
+    var ui: Bool
+    var parse_errors: Int
+    var platforms: Int
+    var workspace: List[String]
+    """Sorted, as a BTreeSet."""
 
     def __init__(out self, id: String, package: Int):
         self.id = id
@@ -120,6 +143,10 @@ struct _Unit(Copyable, Movable):
         self.unresolved = 0
         self.direct_tests = 0
         self.fan_in = 0
+        self.ui = False
+        self.parse_errors = 0
+        self.platforms = 0
+        self.workspace = List[String]()
 
 
 struct UnitReport(Copyable, Movable):
@@ -143,8 +170,17 @@ struct UnitReport(Copyable, Movable):
     var exports: Int
     var bridgeable: Int
     var notes: List[String]
+    var bridge_id: String
+    """The unit's own bridge (TS: per unit); empty for the language's."""
+    var bridge_label: String
+    var platforms: Int
+    var workspace_deps: List[String]
 
     def __init__(out self):
+        self.bridge_id = ""
+        self.bridge_label = ""
+        self.platforms = 0
+        self.workspace_deps = List[String]()
         self.id = ""
         self.package = ""
         self.files = List[String]()
@@ -175,6 +211,7 @@ struct PackageReport(Copyable, Movable):
     var workspace_deps: List[String]
     var test_files: Int
     var units: List[String]
+    var runtime: String
 
 
 @fieldwise_init
@@ -200,8 +237,13 @@ struct Report(Movable):
     var units: List[UnitReport]
     var start_here: List[String]
     var dependencies: List[DependencyReport]
+    var ui_files: Int
+    var parse_errors: Int
+    """Files with parse errors."""
 
     def __init__(out self, language: String):
+        self.ui_files = 0
+        self.parse_errors = 0
         self.language = language
         self.packages_n = 0
         self.source_files = 0
@@ -558,6 +600,96 @@ def _target(
     if lang == "cpp":
         return cpp_resolve(from_path, spec, index, crates)
     return resolve(from_path, spec, index, paths, roots)
+
+
+def _ts_base(base: String, index: Dict[String, Int]) raises -> Int:
+    """analyze::resolve_base: the file a root-relative import target names,
+    with the extensions and index files bundlers try; -1 for none."""
+    var candidates: List[String] = [base]
+    var swaps: List[Tuple[String, String]] = [
+        (".js", ".ts"),
+        (".js", ".tsx"),
+        (".jsx", ".tsx"),
+        (".mjs", ".mts"),
+        (".cjs", ".cts"),
+    ]
+    for s in swaps:
+        if base.endswith(s[0]):
+            candidates.append(
+                String(base[byte = 0 : base.byte_length() - s[0].byte_length()])
+                + s[1]
+            )
+    var exts: List[String] = [
+        "ts",
+        "tsx",
+        "mts",
+        "cts",
+        "js",
+        "jsx",
+        "mjs",
+        "cjs",
+        "vue",
+        "svelte",
+        "astro",
+    ]
+    for e in exts:
+        candidates.append(base + "." + e)
+        candidates.append(base + "/index." + e)
+    for c in candidates:
+        if c in index:
+            return index[c]
+    return -1
+
+
+def ts_resolve(
+    from_path: String,
+    f: Facts,
+    k: Int,
+    index: Dict[String, Int],
+    packages: List[Package],
+) raises -> Resolution:
+    """analyze.rs `build`'s `classify` for TS: a relative import, a runtime,
+    a tsconfig `paths` alias, an alias it cannot follow, a workspace package
+    or an npm one."""
+    ref spec = f.specs[k]
+    if (
+        spec.startswith("./")
+        or spec.startswith("../")
+        or spec == "."
+        or spec == ".."
+    ):
+        var slash = from_path.rfind("/")
+        var dir = String("")
+        if slash >= 0:
+            dir = String(from_path[byte=0:slash])
+        var ok = True
+        var base = _normalize(join_dir(dir, spec), ok)
+        if not ok:
+            return Resolution(UNRESOLVED, -1, "")
+        var i = _ts_base(base, index)
+        if i < 0:
+            return Resolution(UNRESOLVED, -1, "")
+        return Resolution(FILE, i, "")
+    if f.platform[k]:
+        return Resolution(STDLIB, -1, "")
+    if len(f.aliases[k]) > 0:
+        for c in f.aliases[k]:
+            var i = _ts_base(c, index)
+            if i >= 0:
+                return Resolution(FILE, i, "")
+        return Resolution(UNRESOLVED, -1, "")
+    if (
+        spec.startswith("#")
+        or spec.startswith("~")
+        or spec.startswith("@/")
+        or ":" in spec
+    ):
+        return Resolution(UNRESOLVED, -1, "")
+    ref name = f.package[k]
+    for p in packages:
+        if p.name == name:
+            return Resolution(WORKSPACE, -1, name)
+    return Resolution(EXTERNAL, -1, name)
 
 
 def _namespace_dir(namespace: String, project: String) -> String:
@@ -1134,10 +1266,18 @@ def _score(
     lang: String,
     registry: String,
     ln: PythonObject,
+    node: Bool,
 ) raises -> UnitReport:
+    """analyze.rs `score`; `node` is whether the unit, or anything it
+    imports, uses Node APIs, or its package needs Node (TS)."""
     ref unit = units[u]
     var p_tests = package_tests[unit.package]
     var notes = List[String]()
+    var keep = (
+        unit.ui
+        or (unit.platforms & PLATFORM_UI) != 0
+        or (unit.platforms & PLATFORM_EDITOR) != 0
+    )
     var blocking = List[String]()
     var unknown = 0
     for d in unit.external:
@@ -1179,6 +1319,12 @@ def _score(
             " vouch for the target."
         )
         status = KEEP
+    elif keep:
+        if (unit.platforms & PLATFORM_EDITOR) != 0:
+            notes.append("Runs in the editor's extension host: keep in TS.")
+        else:
+            notes.append("UI code: keep in the original language.")
+        status = KEEP
     elif len(blocking) > 0 or dynamic:
         for d in blocking:
             notes.append("`" + d + "` has no Rust equivalent.")
@@ -1187,10 +1333,17 @@ def _score(
                 "Uses dynamic code (eval, new Function or computed imports)."
             )
         status = BLOCKED
-    elif readiness < 50.0:
+    elif readiness < 50.0 or unit.parse_errors > 0:
         status = CAUTION
     else:
         status = READY
+    if unit.parse_errors > 0:
+        notes.append(
+            String(
+                unit.parse_errors,
+                " parse errors: results for this unit are partial.",
+            )
+        )
     if unknown > 0:
         notes.append(
             String(
@@ -1218,17 +1371,34 @@ def _score(
         notes.append(
             "Import cycle with " + _join(others, ", ") + ": port them together."
         )
-    if len(unit.deps) == 0:
+    if len(unit.deps) == 0 and not keep:
         notes.append("Leaf: imports no other unit.")
     if unit.direct_tests > 0:
         notes.append(
             String(unit.direct_tests, " test files import it directly.")
         )
-    elif p_tests == 0:
+    elif p_tests == 0 and not keep:
         notes.append(
             "No tests found: write characterization tests against the original"
             " code first."
         )
+    var bridge_id = String("")
+    var bridge_label = String("")
+    if lang == "ts":
+        if keep:
+            bridge_id = "keep-in-js"
+            bridge_label = "keep"
+        elif node:
+            bridge_id = "mojo-node"
+            bridge_label = "Mojo (Node-API)"
+        else:
+            bridge_id = "wasm"
+            bridge_label = "Mojo (wasm)"
+            notes.append(
+                "Portable code: a wasm build of the Mojo port would keep it"
+                " running in browsers and Node. That bridge is not built yet,"
+                " so `bridge` ports it for Node (`--kind node`)."
+            )
     var string_ops = unit.counts[0]
     var density = 0.0
     if unit.loc > 0:
@@ -1270,6 +1440,10 @@ def _score(
         out.samples.append(unit.samples[r].copy())
     for v in unit.deps:
         out.internal_deps.append(units[v].id)
+    out.bridge_id = bridge_id
+    out.bridge_label = bridge_label
+    out.platforms = unit.platforms
+    out.workspace_deps = unit.workspace.copy()
     out.external_deps = unit.external.copy()
     out.direct_tests = unit.direct_tests
     out.fan_in = unit.fan_in
@@ -1361,6 +1535,7 @@ def build(
             unit_ids[id] = u
             units.append(_Unit(id, files[i].package))
         units[u].files.append(i)
+        units[u].ui = units[u].ui or files[i].ui
         unit_of[i] = u
 
     var report = Report(lang)
@@ -1372,34 +1547,53 @@ def build(
         ref file = files[i]
         if file.test:
             report.test_files += 1
+        elif file.ui:
+            report.ui_files += 1
         else:
             report.source_files += 1
         ref f = facts[i]
         if not f.readable:
             continue
+        if f.parse_errors > 0:
+            report.parse_errors += 1
         if file.test:
             package_tests[file.package] += 1
             var hit = List[Int]()
+            var hit_packages = List[Int]()
             for k in range(len(f.specs)):
-                var r = _target(
-                    lang,
-                    file.path,
-                    f.specs[k],
-                    index,
-                    paths,
-                    roots,
-                    packages,
-                    crates,
-                )
+                var r: Resolution
+                if lang == "ts":
+                    r = ts_resolve(file.path, f, k, index, packages)
+                else:
+                    r = _target(
+                        lang,
+                        file.path,
+                        f.specs[k],
+                        index,
+                        paths,
+                        roots,
+                        packages,
+                        crates,
+                    )
                 if r.kind == FILE and unit_of[r.file] >= 0:
                     _insert_int(hit, unit_of[r.file])
+                elif r.kind == WORKSPACE:
+                    for q in range(len(packages)):
+                        if packages[q].name == r.name:
+                            _insert_int(hit_packages, q)
+                            break
             for u in hit:
                 units[u].direct_tests += 1
+            for q in hit_packages:
+                if q != file.package:
+                    package_tests[q] += 1
             continue
         var u = unit_of[i]
         report.loc += f.loc
         units[u].loc += f.loc
         units[u].loops += f.loops
+        units[u].parse_errors += f.parse_errors
+        units[u].platforms |= f.platforms
         if lang == "c" and c_in_arch_dir(file.path):
             var pr = risk_index("platform-specific")
             units[u].counts[pr] += 1
@@ -1411,20 +1605,27 @@ def build(
                 if len(units[u].samples[r]) < SAMPLES_PER_RISK:
                     units[u].samples[r].append(String(file.path, ":", line))
         for k in range(len(f.specs)):
-            var r = _target(
-                lang,
-                file.path,
-                f.specs[k],
-                index,
-                paths,
-                roots,
-                packages,
-                crates,
-            )
+            var r: Resolution
+            if lang == "ts":
+                r = ts_resolve(file.path, f, k, index, packages)
+            else:
+                r = _target(
+                    lang,
+                    file.path,
+                    f.specs[k],
+                    index,
+                    paths,
+                    roots,
+                    packages,
+                    crates,
+                )
             if r.kind == FILE:
                 var v = unit_of[r.file]
                 if v >= 0 and v != u:
                     _insert_int(units[u].deps, v)
+            elif r.kind == WORKSPACE:
+                if r.name != packages[units[u].package].name:
+                    _insert_str(units[u].workspace, r.name)
             elif r.kind == EXTERNAL and not f.type_only[k]:
                 _insert_str(units[u].external, r.name)
             elif r.kind == UNRESOLVED and not f.type_only[k]:
@@ -1439,6 +1640,30 @@ def build(
     var wave = List[Int]()
     var members = List[List[Int]]()
     waves(edges, wave, members)
+    # A unit needs Node when it, or anything it imports, uses Node APIs; a
+    # package needs it when its source root does (build scripts beside it do
+    # not count).
+    var node_reach = List[Bool]()
+    for u in units:
+        node_reach.append((u.platforms & PLATFORM_NODE) != 0)
+    var changed = True
+    while changed:
+        changed = False
+        for v in range(len(units)):
+            if node_reach[v]:
+                continue
+            for w in edges[v]:
+                if node_reach[w]:
+                    node_reach[v] = True
+                    changed = True
+                    break
+    var node_packages = List[Int]()
+    for u in range(len(units)):
+        ref src = packages[units[u].package].src_root
+        if node_reach[u] and (
+            src.byte_length() == 0 or units[u].id.startswith(src + "/")
+        ):
+            _insert_int(node_packages, units[u].package)
     var reports = List[UnitReport]()
     for u in range(len(units)):
         var r = _score(
@@ -1453,6 +1678,7 @@ def build(
             lang,
             registry,
             ln,
+            node_reach[u] or units[u].package in node_packages,
         )
         var at = len(reports)
         while at > 0 and r.id < reports[at - 1].id:
@@ -1506,7 +1732,9 @@ def build(
         else:
             report.keep += 1
     report.start_here = start_here(reports)
-    report.packages = _package_reports(packages, reports, package_tests)
+    report.packages = _package_reports(
+        packages, reports, package_tests, node_packages
+    )
     report.dependencies = _dependency_reports(reports, crates, lang)
     report.units = reports^
     return report^
@@ -1516,6 +1744,7 @@ def _package_reports(
     packages: List[Package],
     units: List[UnitReport],
     package_tests: List[Int],
+    node_packages: List[Int],
 ) -> List[PackageReport]:
     var deps_of = List[List[Int]]()
     for i in range(len(packages)):
@@ -1541,9 +1770,18 @@ def _package_reports(
         var names = List[String]()
         for j in deps_of[i]:
             names.append(packages[j].name)
+        var runtime = String("portable")
+        if i in node_packages:
+            runtime = "node"
         out.append(
             PackageReport(
-                p.name, p.dir, len(out) + 1, names^, package_tests[i], ids^
+                p.name,
+                p.dir,
+                len(out) + 1,
+                names^,
+                package_tests[i],
+                ids^,
+                runtime,
             )
         )
     return out^
@@ -1606,6 +1844,27 @@ def _status_label(s: Int) -> String:
     return "keep"
 
 
+def _label(u: UnitReport, bridge: String) -> String:
+    """The unit's bridge label: its own (TS), else the language's."""
+    if u.bridge_label.byte_length() > 0:
+        return u.bridge_label
+    return bridge
+
+
+def _platform_names(bits: Int) -> List[String]:
+    """A unit's platforms, in the Platform enum's order, in kebab case."""
+    var out = List[String]()
+    if (bits & PLATFORM_NODE) != 0:
+        out.append("node")
+    if (bits & PLATFORM_BROWSER) != 0:
+        out.append("browser")
+    if (bits & PLATFORM_EDITOR) != 0:
+        out.append("editor")
+    if (bits & PLATFORM_UI) != 0:
+        out.append("ui")
+    return out^
+
+
 def _top_risks(u: UnitReport, n: Int) -> String:
     if len(u.risks) == 0:
         return "-"
@@ -1638,7 +1897,9 @@ def markdown(
         r.loc,
         " lines), ",
         r.test_files,
-        " test files, 0 UI files, grouped into ",
+        " test files, ",
+        r.ui_files,
+        " UI files, grouped into ",
         len(r.units),
         " units.\n\n",
     )
@@ -1655,6 +1916,12 @@ def markdown(
         r.keep,
         " |\n\n",
     )
+    if r.parse_errors > 0:
+        out += String(
+            "> ",
+            r.parse_errors,
+            " files had parse errors; their units are marked partial.\n\n",
+        )
     out += "## Start here\n\n"
     if len(r.start_here) == 0:
         out += (
@@ -1690,7 +1957,7 @@ def markdown(
                 " | ",
                 u.direct_tests,
                 " | ",
-                bridge,
+                _label(u, bridge),
                 " | ",
                 _top_risks(u, 3),
                 " |\n",
@@ -1713,7 +1980,7 @@ def markdown(
                 ", readiness ",
                 u.readiness,
                 ", bridge **",
-                bridge,
+                _label(u, bridge),
                 "**.\n\n",
             )
             for note in u.notes:
@@ -1751,7 +2018,9 @@ def markdown(
             p.name,
             " (`",
             dir,
-            "`, portable, ",
+            "`, ",
+            p.runtime,
+            ", ",
             p.test_files,
             " test files",
             deps,
@@ -1791,7 +2060,7 @@ def markdown(
                 " | ",
                 u.readiness,
                 " | ",
-                bridge,
+                _label(u, bridge),
                 " | ",
                 _top_risks(u, 2),
                 " |\n",
@@ -1886,14 +2155,14 @@ def to_json(r: Report, bridge_id: String) raises -> String:
     out += String('    "packages": ', r.packages_n, ",\n")
     out += String('    "source_files": ', r.source_files, ",\n")
     out += String('    "test_files": ', r.test_files, ",\n")
-    out += '    "ui_files": 0,\n'
+    out += String('    "ui_files": ', r.ui_files, ",\n")
     out += String('    "loc": ', r.loc, ",\n")
     out += String('    "units": ', len(r.units), ",\n")
     out += String('    "ready": ', r.ready, ",\n")
     out += String('    "caution": ', r.caution, ",\n")
     out += String('    "blocked": ', r.blocked, ",\n")
     out += String('    "keep": ', r.keep, ",\n")
-    out += '    "parse_errors": 0\n'
+    out += String('    "parse_errors": ', r.parse_errors, "\n")
     out += "  },\n"
     if len(r.packages) == 0:
         out += '  "packages": [],\n'
@@ -1905,7 +2174,7 @@ def to_json(r: Report, bridge_id: String) raises -> String:
             out += '      "name": ' + write_string(p.name) + ",\n"
             out += '      "dir": ' + write_string(p.dir) + ",\n"
             out += String('      "order": ', p.order, ",\n")
-            out += '      "runtime": "portable",\n'
+            out += '      "runtime": "' + p.runtime + '",\n'
             out += (
                 '      "workspace_deps": '
                 + _strings(p.workspace_deps, "      ")
@@ -1933,8 +2202,16 @@ def to_json(r: Report, bridge_id: String) raises -> String:
             out += ind + String('"wave": ', u.wave, ",\n")
             out += ind + String('"readiness": ', u.readiness, ",\n")
             out += ind + '"status": "' + _status_label(u.status) + '",\n'
-            out += ind + '"bridge": "' + bridge_id + '",\n'
-            out += ind + '"platforms": [],\n'
+            var bid = bridge_id
+            if u.bridge_id.byte_length() > 0:
+                bid = u.bridge_id
+            out += ind + '"bridge": "' + bid + '",\n'
+            out += (
+                ind
+                + '"platforms": '
+                + _strings(_platform_names(u.platforms), ind)
+                + ",\n"
+            )
             if len(u.risks) == 0:
                 out += ind + '"risks": [],\n'
             else:
@@ -1967,7 +2244,12 @@ def to_json(r: Report, bridge_id: String) raises -> String:
                 + _strings(u.internal_deps, ind)
                 + ",\n"
             )
-            out += ind + '"workspace_deps": [],\n'
+            out += (
+                ind
+                + '"workspace_deps": '
+                + _strings(u.workspace_deps, ind)
+                + ",\n"
+            )
             out += (
                 ind
                 + '"external_deps": '
