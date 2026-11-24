@@ -257,18 +257,6 @@ fn go_scalar_unit_builds_without_json() {
 }
 
 #[test]
-fn rust_ffi_unit_says_rebridge() {
-    if !common::have("go") {
-        return;
-    }
-    let (_root, dir) = bridged("rebridge", "textkit.go");
-    // A unit folder left from the Rust era still holds a Cargo.toml.
-    std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"textkit-rs\"\n").unwrap();
-    let err = bridge::refresh(&dir).unwrap_err().to_string();
-    assert!(err.contains("bridge again"), "{err}");
-}
-
-#[test]
 fn go_batch_not_yet() {
     if !common::have("go") {
         return;

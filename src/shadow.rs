@@ -568,11 +568,11 @@ mod tests {
     #[test]
     fn builds_relative_specifiers() {
         assert_eq!(
-            relative(Path::new("/r/rust/x/shadow"), Path::new("/r/src/a.ts")),
+            relative(Path::new("/r/mojo/x/shadow"), Path::new("/r/src/a.ts")),
             "../../../src/a.ts"
         );
         assert_eq!(
-            relative(Path::new("/r/rust/x"), Path::new("/r/rust/x/index.cjs")),
+            relative(Path::new("/r/mojo/x"), Path::new("/r/mojo/x/index.cjs")),
             "./index.cjs"
         );
     }

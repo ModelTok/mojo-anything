@@ -611,16 +611,15 @@ fn record_resolves_workspace_packages_to_source() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-fn error_checks(dir: &Path, fails: &str) -> Vec<mojo_anything::gate::Check> {
-    let checks = mojo_anything::error_paths::checks(dir, &Manifest::load(dir).unwrap());
-    let errors = &checks[0];
+fn error_checks(dir: &Path, fails: &str) -> mojo_anything::gate::Check {
+    let errors = mojo_anything::error_paths::check(dir, &Manifest::load(dir).unwrap());
     assert_eq!(errors.name, "error cases");
     assert!(errors.passed, "{errors:?}");
     assert!(
         errors.detail.starts_with("each of the"),
         "{fails} fails in the original: {errors:?}"
     );
-    checks
+    errors
 }
 
 #[test]
@@ -835,7 +834,7 @@ fn go_packages_bridge_record_and_diff() {
     .unwrap();
     assert!(recorded.cases > 100, "{recorded:?}");
     assert!(recorded.errors > 0, "ParsePort returns errors");
-    assert!(error_checks(&dir, "ParsePort")[1].passed);
+    assert!(error_checks(&dir, "ParsePort").passed);
     // A port where every function fails: the diff must run through the Go wrapper and say so.
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
@@ -908,7 +907,7 @@ fn ruby_modules_bridge_record_and_diff() {
     assert!(recorded.cases > 100, "{recorded:?}");
     // `page_count` raises ArgumentError for a non-positive page size.
     assert!(recorded.errors > 0);
-    assert!(error_checks(&dir, "the fixture")[1].passed);
+    assert!(error_checks(&dir, "the fixture").passed);
     harness::build(&dir).unwrap();
     let diff = harness::diff(&DiffOptions {
         crate_dir: &dir,

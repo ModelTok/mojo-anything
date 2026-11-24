@@ -1,6 +1,5 @@
-//! Error paths: where the original fails (`throw`, `raise`, an `error` result), whether a
-//! recorded case reaches each of them, and whether the port panics where the original failed
-//! politely.
+//! Error paths: where the original fails (`throw`, `raise`, an `error` result), and whether a
+//! recorded case reaches each of them.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -9,33 +8,15 @@ use std::path::Path;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::bridge::{Manifest, snake_case};
+use crate::bridge::Manifest;
 use crate::gate::Check;
 use crate::lang::Lang;
-
-/// The marker that allows a panic in `port.rs`: the original treats that state as impossible too.
-pub const INFALLIBLE: &str = "INFALLIBLE:";
-const PANICS: [&str; 5] = [
-    ".unwrap()",
-    ".expect(",
-    "panic!(",
-    "unreachable!(",
-    "todo!(",
-];
 
 /// An export whose original fails on some input, and where.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Raise {
     pub export: String,
     pub site: String,
-}
-
-/// A panic in `port.rs`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Panic {
-    pub function: String,
-    pub line: usize,
-    pub what: &'static str,
 }
 
 fn indent(line: &str) -> usize {
@@ -170,45 +151,8 @@ pub fn recorded_errors(cases: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// `unwrap`, `expect` and panicking macros in `port.rs`, by function, outside tests and not
-/// marked `// INFALLIBLE:` on the line or in the comment just above.
-pub fn panics(port: &str) -> Vec<Panic> {
-    let lines: Vec<&str> = port.lines().collect();
-    let fn_name =
-        Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)")
-            .expect("valid regex");
-    let mut out = Vec::new();
-    let mut current = String::new();
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("#[cfg(test)]") {
-            break;
-        }
-        if let Some(c) = fn_name.captures(line) {
-            current = c[1].to_string();
-        }
-        let code = line.split("//").next().unwrap_or_default();
-        let Some(what) = PANICS.iter().find(|p| code.contains(*p)) else {
-            continue;
-        };
-        let marked = line.contains(INFALLIBLE)
-            || lines[..i]
-                .iter()
-                .rev()
-                .take_while(|l| l.trim_start().starts_with("//"))
-                .any(|l| l.contains(INFALLIBLE));
-        if !marked {
-            out.push(Panic {
-                function: current.clone(),
-                line: i + 1,
-                what,
-            });
-        }
-    }
-    out
-}
-
-/// The `error cases` and `panics` checks of `gate`.
-pub fn checks(crate_dir: &Path, manifest: &Manifest) -> Vec<Check> {
+/// The `error cases` check of `gate`.
+pub fn check(crate_dir: &Path, manifest: &Manifest) -> Check {
     let exports: Vec<(String, String, u32)> = manifest
         .exports
         .iter()
@@ -222,7 +166,7 @@ pub fn checks(crate_dir: &Path, manifest: &Manifest) -> Vec<Check> {
         .filter(|r| !failed.contains(&r.export))
         .map(|r| format!("{} fails at {}", r.export, r.site))
         .collect();
-    let error_cases = Check {
+    Check {
         fix: None,
         name: "error cases",
         passed: unreached.is_empty(),
@@ -239,34 +183,7 @@ pub fn checks(crate_dir: &Path, manifest: &Manifest) -> Vec<Check> {
                 unreached.join("\n")
             )
         },
-    };
-
-    let port = std::fs::read_to_string(crate_dir.join("src/port.rs")).unwrap_or_default();
-    let fails: BTreeSet<String> = manifest
-        .exports
-        .iter()
-        .filter(|f| failed.contains(&f.name) || raised.iter().any(|r| r.export == f.name))
-        .map(|f| snake_case(&f.name))
-        .collect();
-    let bad: Vec<String> = panics(&port)
-        .into_iter()
-        .filter(|p| fails.contains(&p.function))
-        .map(|p| format!("src/port.rs:{} `{}` in {}", p.line, p.what, p.function))
-        .collect();
-    let panics_check = Check {
-        fix: None,
-        name: "panics",
-        passed: bad.is_empty(),
-        detail: if bad.is_empty() {
-            "no unwrap, expect or panic where the original returns an error".into()
-        } else {
-            format!(
-                "the original returns an error here, so the port must too (return Err), or mark a state the original also treats as impossible with `// {INFALLIBLE} <why>`\n{}",
-                bad.join("\n")
-            )
-        },
-    };
-    vec![error_cases, panics_check]
+    }
 }
 
 #[cfg(test)]
@@ -351,19 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn panics_outside_tests_and_markers_are_found() {
-        let port = "pub fn parse_port(s: String) -> Result<i64, String> {\n    let n: i64 = s.parse().unwrap();\n    // INFALLIBLE: checked above\n    let m = Some(1).expect(\"one\");\n    Ok(n + m)\n}\n\nfn helper() -> i64 {\n    \"1\".parse().unwrap_or(0) + Some(2).unwrap() // INFALLIBLE: literal\n}\n\npub async fn later() {\n    todo!(\"x\")\n}\n\n#[cfg(test)]\nmod tests {\n    fn t() { None::<i32>.unwrap(); }\n}\n";
-        let found: Vec<(String, usize, &str)> = panics(port)
-            .into_iter()
-            .map(|p| (p.function, p.line, p.what))
-            .collect();
-        assert_eq!(
-            found,
-            [
-                ("parse_port".to_string(), 2, ".unwrap()"),
-                ("later".to_string(), 13, "todo!(")
-            ]
-        );
+    fn recorded_failures_are_read_by_function() {
         assert_eq!(
             recorded_errors(
                 "{\"fn\":\"a\",\"args\":[],\"result\":1}\n{\"fn\":\"b\",\"args\":[],\"error\":{\"name\":\"E\"}}\n"

@@ -77,48 +77,6 @@ pub fn record(crate_dir: &Path, cases: &[Value]) -> Result<PathBuf> {
     Ok(out)
 }
 
-pub fn build(crate_dir: &Path, manifest: &Manifest) -> Result<PathBuf> {
-    let target = crate_dir.join("target");
-    let output = Command::new("cargo")
-        .args(["build", "--release", "--manifest-path"])
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", &target)
-        .output()
-        .context("running cargo build")?;
-    if !output.status.success() {
-        bail!(
-            "cargo build failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let lib = manifest.lib_name();
-    let release = target.join("release");
-    let built = [
-        format!("lib{lib}.so"),
-        format!("lib{lib}.dylib"),
-        format!("{lib}.dll"),
-    ]
-    .iter()
-    .map(|n| release.join(n))
-    .find(|p| p.exists())
-    .with_context(|| format!("no extension module for `{lib}` in {}", release.display()))?;
-    let (dir, name) = package(crate_dir, manifest);
-    let package_dir = dir.join(&name);
-    std::fs::create_dir_all(&package_dir)?;
-    crate::harness::install(&built, &native_file(crate_dir, manifest))?;
-    Ok(package_dir)
-}
-
-/// The built extension module inside the Python package.
-pub(crate) fn native_file(crate_dir: &Path, manifest: &Manifest) -> PathBuf {
-    let (dir, name) = package(crate_dir, manifest);
-    dir.join(name).join(if cfg!(windows) {
-        "_native.pyd"
-    } else {
-        "_native.abi3.so"
-    })
-}
-
 pub fn diff(crate_dir: &Path, manifest: &Manifest, ignore_key_order: bool) -> Result<DiffOutcome> {
     let cases = crate_dir.join(CASES);
     if !cases.exists() {

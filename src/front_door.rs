@@ -18,8 +18,6 @@ pub const APP_DIR: &str = "mojo/app";
 pub const STATE_FILE: &str = "mojo-anything.json";
 pub const KILL_SWITCH_PREFIX: &str = "MOJO_ANYTHING_UNIT_";
 const SCHEMA: &str = "mojo-anything/app@1";
-/// Where rust-anything kept its front door.
-const OLD_APP_DIR: &str = "rust/app";
 
 /// The glue file still holds a stub `wire` wrote, however it was formatted.
 pub fn is_stub(glue: &str) -> bool {
@@ -88,18 +86,6 @@ pub struct WiredUnit {
 impl State {
     pub fn load(repo: &Path) -> Result<State> {
         let path = repo.join(APP_DIR).join(STATE_FILE);
-        if !path.is_file() {
-            let old = repo.join(OLD_APP_DIR);
-            if [crate::bridge::OLD_MANIFEST, STATE_FILE]
-                .iter()
-                .any(|f| old.join(f).is_file())
-            {
-                bail!(
-                    "{} is a Rust front door from before the move to Mojo: run `mojo-anything app front-door` again to scaffold {APP_DIR}",
-                    old.display()
-                );
-            }
-        }
         let text = std::fs::read_to_string(&path).with_context(|| {
             format!(
                 "reading {}: run `mojo-anything app front-door` first",
@@ -158,13 +144,9 @@ pub fn kill_switch(crate_name: &str) -> String {
     )
 }
 
-/// The unit's name without the `-mojo` suffix `bridge` gives its folder (or the `-rs` of a
-/// unit still bridged to Rust).
+/// The unit's name without the `-mojo` suffix `bridge` gives its folder.
 pub(crate) fn unit_name(crate_name: &str) -> &str {
-    crate_name
-        .strip_suffix("-mojo")
-        .or_else(|| crate_name.strip_suffix("-rs"))
-        .unwrap_or(crate_name)
+    crate_name.strip_suffix("-mojo").unwrap_or(crate_name)
 }
 
 /// `path` as the front door names it: relative to `mojo/app` when it is inside the repository.
@@ -788,7 +770,7 @@ fn http_wire(repo: &Path, opts: &WireOptions, mut state: State) -> Result<WireOu
 /// given as a path, or the unit id a manifest under `mojo/` names. A folder is a Mojo unit
 /// when it holds `port.mojo`.
 fn find_mojo_unit(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
-    let found = find_mojo_unit_dir(repo, unit, door)?;
+    let found = find_mojo_unit_dir(repo, unit)?;
     if let Ok(m) = crate::bridge::Manifest::load(&found)
         && m.kind == crate::bridge::Kind::MojoJvm
     {
@@ -802,7 +784,7 @@ fn find_mojo_unit(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
     Ok(found)
 }
 
-fn find_mojo_unit_dir(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
+fn find_mojo_unit_dir(repo: &Path, unit: &str) -> Result<PathBuf> {
     let mojo = repo.join("mojo");
     let app_dir = repo.join(APP_DIR);
     for candidate in [
@@ -823,35 +805,6 @@ fn find_mojo_unit_dir(repo: &Path, unit: &str, door: &str) -> Result<PathBuf> {
                 && entry.path().join("port.mojo").is_file()
             {
                 return Ok(entry.path().canonical()?);
-            }
-        }
-    }
-    let rust = repo.join("rust");
-    for candidate in [
-        rust.join(unit),
-        rust.join(format!("{unit}-rs")),
-        repo.join(unit),
-        PathBuf::from(unit),
-    ] {
-        // A Rust library crate: what `bridge` made for a unit before the move to Mojo.
-        if candidate.join("src/lib.rs").is_file() {
-            bail!(
-                "{} is a Rust crate: {door} and wires Mojo units (a folder with port.mojo); \
-                 bridge the unit again for a Mojo port",
-                candidate.display()
-            );
-        }
-    }
-    if let Ok(entries) = std::fs::read_dir(&rust) {
-        for entry in entries.flatten() {
-            if let Ok(m) = crate::bridge::Manifest::load(&entry.path())
-                && m.unit.trim_end_matches('/') == wanted
-            {
-                bail!(
-                    "{} is a Rust crate: {door} and wires Mojo units (a folder with port.mojo); \
-                     bridge the unit again for a Mojo port",
-                    entry.path().display()
-                );
             }
         }
     }
@@ -985,20 +938,9 @@ mod tests {
     }
 
     #[test]
-    fn old_front_door_state_says_rerun() {
+    fn older_front_door_state_says_rerun() {
+        // A state file written by an older schema asks for the front door again.
         let repo = crate::app::temp_dir("old-front-door").unwrap();
-        let old = repo.join("rust/app");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(
-            old.join("rust-anything.json"),
-            r#"{"schema": "rust-anything/front-door@1", "name": "tcli", "commands": []}"#,
-        )
-        .unwrap();
-        let err = format!("{:#}", State::load(&repo).unwrap_err());
-        assert!(err.contains("rust/app"), "{err}");
-        assert!(err.contains("app front-door` again"), "{err}");
-
-        // A state file in the new place but written by an older schema says the same.
         let app = repo.join(APP_DIR);
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(

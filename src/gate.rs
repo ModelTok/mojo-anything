@@ -1,10 +1,10 @@
 //! Step 5: the definition of done for one port.
 //!
-//! fmt, clippy (warnings are errors), cargo tests, no unexplained `unsafe`, every function
-//! ported, the built module exposes the original API, and the recorded behavior replays cleanly.
+//! `mojo format`, every `test_*.mojo` passing, every function ported, no unexplained `abort`,
+//! raw pointer or `external_call`, every failing path of the original recorded, the size against
+//! the original, the build, the exports and the recorded behaviour replaying cleanly.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -25,21 +25,7 @@ pub struct Check {
 /// The fix for a failed check, by its name.
 fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
     let c = crate_dir.display();
-    let manifest = format!("--manifest-path {c}/Cargo.toml");
     Some(match check.name {
-        "fmt" => format!("cargo fmt {manifest}"),
-        "clippy" => {
-            format!("cargo clippy --all-targets {manifest} -- -D warnings, then fix each warning")
-        }
-        "cargo test" => format!("cargo test {manifest}"),
-        "unsafe" => "add a `// SAFETY:` comment above each listed `unsafe`, or remove it".into(),
-        "ported" => {
-            "port the functions still stubbed in src/port.rs, then `mojo-anything gate` again"
-                .into()
-        }
-        "size" if crate_dir.join("Cargo.toml").exists() => {
-            "use the crates `mojo-anything analyze` lists and fold repeated code".into()
-        }
         "size" => {
             "use the Mojo replacements `mojo-anything analyze` lists and fold repeated code".into()
         }
@@ -56,35 +42,20 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
             "remove the entries that no longer happen from {c}/{}",
             crate::recording::KNOWN_DIFFS
         ),
-        "api" if crate_dir.join("port.mojo").is_file() => format!(
+        "api" => format!(
             "define the missing functions in port.mojo, then `mojo-anything refresh {c}` to \
              regenerate index.cjs and the dispatcher"
         ),
-        "api" => {
-            format!("export the missing functions from src/port.rs, then `mojo-anything build {c}`")
-        }
         "java api" => format!(
             "mojo-anything refresh {c} writes the wrappers in java/ again with the original \
              signatures (they are generated: do not edit them by hand)"
         ),
-        "error cases" | "panics" => {
+        "error cases" => {
             format!("mojo-anything diff {c} to see the cases where the port's errors differ")
         }
         _ => return None,
     })
 }
-
-/// Bindings `bridge` writes into `src/`; everything else there is the port.
-const GENERATED: [&str; 8] = [
-    "lib.rs",
-    "js.rs",
-    "pinned.rs",
-    "pyconv.rs",
-    "pynum.rs",
-    "rbconv.rs",
-    "utf16.rs",
-    "wire.rs",
-];
 
 /// How many times the source's lines the port may take before `gate` calls it bloated, plus a
 /// fixed allowance for the imports and signatures every port has.
@@ -230,39 +201,19 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
     if source == 0 {
         return None;
     }
-    let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
-    let rust: usize = if mojo {
-        mojo_port_files(crate_dir)
-            .iter()
-            .filter_map(|p| std::fs::read_to_string(p).ok())
-            .map(|t| code_lines(&t, &["#"]))
-            .sum()
-    } else {
-        files_under(&crate_dir.join("src"), &["rs"])
-            .iter()
-            .filter(|p| {
-                p.file_name()
-                    .is_none_or(|n| !GENERATED.contains(&n.to_string_lossy().as_ref()))
-            })
-            .filter_map(|p| std::fs::read_to_string(p).ok())
-            .map(|t| code_lines(&t, &["//"]))
-            .sum()
-    };
-    let port_language = if mojo { "Mojo" } else { "Rust" };
-    let growth = rust as f64 / source as f64;
-    let passed = !library.is_empty() || rust as f64 <= MAX_GROWTH * source as f64 + ALLOWANCE;
-    let libraries = if mojo {
-        "a library already provides, or a case handled one by one: use the Mojo replacements \
-         `analyze` lists"
-    } else {
-        "a crate already provides, or a case handled one by one: use the crates `analyze` lists"
-    };
+    let port: usize = mojo_port_files(crate_dir)
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .map(|t| code_lines(&t, &["#"]))
+        .sum();
+    let growth = port as f64 / source as f64;
+    let passed = !library.is_empty() || port as f64 <= MAX_GROWTH * source as f64 + ALLOWANCE;
     Some(Check {
         fix: None,
         name: "size",
         passed,
         detail: format!(
-            "{rust} lines of {port_language} for {source} lines of {} ({growth:.1}x){}",
+            "{port} lines of Mojo for {source} lines of {} ({growth:.1}x){}",
             manifest.language.name(),
             if !library.is_empty() {
                 let names: Vec<String> = library.iter().map(|n| format!("`{n}`")).collect();
@@ -275,7 +226,9 @@ fn size_check(crate_dir: &Path, manifest: &Manifest) -> Option<Check> {
                 String::new()
             } else {
                 format!(
-                    "; over {MAX_GROWTH}x usually means code {libraries} and fold repeated code"
+                    "; over {MAX_GROWTH}x usually means code a library already provides, or a \
+                     case handled one by one: use the Mojo replacements `analyze` lists and fold \
+                     repeated code"
                 )
             }
         ),
@@ -293,30 +246,12 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
     if crate::jvm::is_jvm(manifest.language) {
         crate::jvm::require_java()?;
     }
-    let mojo = crate::bridge::mojo_unit(manifest.kind, manifest.language);
-    let mut checks = if mojo {
-        let mut checks = mojo_checks(crate_dir);
-        if manifest.kind == crate::bridge::Kind::CAbi {
-            checks.push(c_pointers_check(crate_dir));
-        }
-        // The recorded error paths apply to any port; the panics check reads Rust only.
-        checks.extend(
-            crate::error_paths::checks(crate_dir, &manifest)
-                .into_iter()
-                .filter(|c| c.name != "panics"),
-        );
-        checks.extend(size_check(crate_dir, &manifest));
-        checks
-    } else {
-        let lockfile = lockfile_check(crate_dir);
-        let mut checks = rust_checks(crate_dir, &crate_dir.join("target"));
-        checks.extend(lockfile);
-        checks.extend(advisories_check(crate_dir));
-        checks.push(ported_check(crate_dir));
-        checks.extend(size_check(crate_dir, &manifest));
-        checks.extend(crate::error_paths::checks(crate_dir, &manifest));
-        checks
-    };
+    let mut checks = mojo_checks(crate_dir);
+    if manifest.kind == crate::bridge::Kind::CAbi {
+        checks.push(c_pointers_check(crate_dir));
+    }
+    checks.push(crate::error_paths::check(crate_dir, &manifest));
+    checks.extend(size_check(crate_dir, &manifest));
     let built = harness::build(crate_dir);
     let built_ok = built.is_ok();
     let library = built.as_ref().ok().cloned();
@@ -465,256 +400,6 @@ pub fn gate(crate_dir: &Path, node_args: &[String]) -> Result<GateOutcome> {
         passed: checks.iter().all(|c| c.passed),
         checks,
     })
-}
-
-fn lockfile_check(crate_dir: &Path) -> Option<Check> {
-    if !crate_dir.join("Cargo.lock").exists() {
-        return Some(Check {
-            fix: None,
-            name: "lockfile",
-            passed: true,
-            detail: "warning: no Cargo.lock yet; keep the one the build writes, so builds are reproducible".into(),
-        });
-    }
-    let mut cmd = Command::new("cargo");
-    cmd.args([
-        "metadata",
-        "--locked",
-        "--offline",
-        "--format-version",
-        "1",
-        "--manifest-path",
-    ])
-    .arg(crate_dir.join("Cargo.toml"));
-    let out = crate::process::output(&mut cmd, crate::process::BUILD).ok()?;
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let stale = !out.status.success() && stderr.contains("--locked");
-    Some(Check {
-        fix: None,
-        name: "lockfile",
-        passed: true,
-        detail: if stale {
-            "warning: Cargo.lock is out of date with Cargo.toml; keep the refreshed one the build wrote".into()
-        } else {
-            "Cargo.lock matches Cargo.toml".into()
-        },
-    })
-}
-
-fn advisories_check(crate_dir: &Path) -> Option<Check> {
-    let manifest = crate_dir.join("Cargo.toml");
-    let attempts: [(&str, Vec<std::ffi::OsString>); 2] = [
-        (
-            "cargo-deny",
-            vec![
-                "deny".into(),
-                "--manifest-path".into(),
-                manifest.clone().into(),
-                "check".into(),
-                "advisories".into(),
-            ],
-        ),
-        (
-            "cargo-audit",
-            vec![
-                "audit".into(),
-                "--file".into(),
-                crate_dir.join("Cargo.lock").into(),
-            ],
-        ),
-    ];
-    for (tool, args) in attempts {
-        if !crate::setup::on_path(tool) {
-            continue;
-        }
-        let mut cmd = Command::new("cargo");
-        cmd.args(&args);
-        let out = crate::process::output(&mut cmd, crate::process::BUILD).ok()?;
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return Some(Check {
-            fix: None,
-            name: "advisories",
-            passed: true,
-            detail: if out.status.success() {
-                format!("no known advisories ({tool})")
-            } else {
-                format!(
-                    "warning: {tool} reports advisories\n{}",
-                    last_lines(&text, 15)
-                )
-            },
-        });
-    }
-    None
-}
-
-/// The checks that hold for any Rust crate, bindings or not: fmt, clippy (warnings are errors),
-/// cargo test, and `unsafe` only with a `// SAFETY:` comment.
-pub fn rust_checks(crate_dir: &Path, target_dir: &Path) -> Vec<Check> {
-    let cargo = |args: &[&str]| -> (bool, String) {
-        let mut cmd = Command::new("cargo");
-        cmd.args(args)
-            .arg("--manifest-path")
-            .arg(crate_dir.join("Cargo.toml"))
-            .env("CARGO_TARGET_DIR", target_dir);
-        // Lint arguments go after `--`, so the manifest path must come before them.
-        match crate::process::output(&mut cmd, crate::process::BUILD) {
-            Ok(o) => (
-                o.status.success(),
-                last_lines(&String::from_utf8_lossy(&o.stderr), 15),
-            ),
-            Err(e) => (false, e.to_string()),
-        }
-    };
-    let mut checks = Vec::new();
-
-    let (ok, out) = cargo(&["fmt", "--check"]);
-    checks.push(Check {
-        fix: None,
-        name: "fmt",
-        passed: ok,
-        detail: if ok {
-            "formatted".into()
-        } else {
-            format!("run `cargo fmt`\n{out}")
-        },
-    });
-
-    let mut clippy = Command::new("cargo");
-    clippy
-        .args(["clippy", "--all-targets", "--manifest-path"])
-        .arg(crate_dir.join("Cargo.toml"))
-        .args(["--", "-D", "warnings"])
-        .env("CARGO_TARGET_DIR", target_dir);
-    let (ok, out) = match crate::process::output(&mut clippy, crate::process::BUILD) {
-        Ok(o) => (
-            o.status.success(),
-            last_lines(&String::from_utf8_lossy(&o.stderr), 15),
-        ),
-        Err(e) => (false, e.to_string()),
-    };
-    checks.push(Check {
-        fix: None,
-        name: "clippy",
-        passed: ok,
-        detail: if ok { "no warnings".into() } else { out },
-    });
-
-    let (ok, out) = cargo(&["test", "--quiet"]);
-    checks.push(Check {
-        fix: None,
-        name: "cargo test",
-        passed: ok,
-        detail: if ok { "passed".into() } else { out },
-    });
-
-    let (unexplained, explained) = unsafe_blocks(&crate_dir.join("src"));
-    checks.push(Check {
-        fix: None,
-        name: "unsafe",
-        passed: unexplained.is_empty(),
-        detail: if unexplained.is_empty() {
-            format!("{explained} unsafe uses, each with a `// SAFETY:` comment")
-        } else {
-            format!(
-                "unsafe without a `// SAFETY:` comment: {}",
-                unexplained.join(", ")
-            )
-        },
-    });
-
-    checks
-}
-
-/// No function in `src/port.rs` is still `unimplemented!`.
-pub fn ported_check(crate_dir: &Path) -> Check {
-    let path = crate_dir.join("src/port.rs");
-    let port = match std::fs::read_to_string(&path) {
-        Ok(port) => port,
-        Err(error) => {
-            return Check {
-                fix: None,
-                name: "ported",
-                passed: false,
-                detail: format!("cannot read {}: {error}", path.display()),
-            };
-        }
-    };
-    let todo = stubs(&port);
-    Check {
-        fix: None,
-        name: "ported",
-        passed: todo == 0,
-        detail: if todo == 0 {
-            "nothing in port.rs is `unimplemented!`, `todo!` or only a `panic!`".into()
-        } else {
-            format!(
-                "{todo} place(s) in port.rs still `unimplemented!`, `todo!` or a function that only panics"
-            )
-        },
-    }
-}
-
-/// Stubs left in a port: `unimplemented!`, `todo!`, and functions whose whole body is a `panic!`.
-fn stubs(port: &str) -> usize {
-    let code: String = port
-        .lines()
-        .map(|l| l.split("//").next().unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let macros = code.matches("unimplemented!(").count() + code.matches("todo!(").count();
-    let panics = regex::Regex::new(r"\bfn\s+\w+[^{;]*\{\s*panic!\([^;{}]*\)\s*;?\s*\}")
-        .map(|re| re.find_iter(&code).count())
-        .unwrap_or(0);
-    macros + panics
-}
-
-/// `unsafe` uses in Rust sources, split into those without and with a `// SAFETY:` comment just above.
-fn unsafe_blocks(src: &Path) -> (Vec<String>, usize) {
-    let mut unexplained = Vec::new();
-    let mut explained = 0;
-    let mut stack = vec![src.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            if path.extension().is_none_or(|e| e != "rs") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            for (i, line) in lines.iter().enumerate() {
-                let code = line.split("//").next().unwrap_or("");
-                let uses_unsafe = code
-                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .any(|word| word == "unsafe");
-                if !uses_unsafe {
-                    continue;
-                }
-                let has_safety = lines[..i]
-                    .iter()
-                    .rev()
-                    .take_while(|l| l.trim_start().starts_with("//"))
-                    .any(|l| l.contains("SAFETY:"));
-                if has_safety {
-                    explained += 1;
-                } else {
-                    unexplained.push(format!("{}:{}", path.display(), i + 1));
-                }
-            }
-        }
-    }
-    (unexplained, explained)
 }
 
 // ---- Mojo ports ------------------------------------------------------------------------------
@@ -1106,8 +791,8 @@ fn last_lines(text: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Check, c_port_pointers, fix_for, missing_exports, mojo_stubs, size_check, stubs,
-        unexplained_unsafe, unsafe_blocks,
+        Check, c_port_pointers, fix_for, missing_exports, mojo_stubs, size_check,
+        unexplained_unsafe,
     };
 
     /// A C unit of one line over `call`, ported to 200 lines of Mojo.
@@ -1246,17 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn counts_every_kind_of_stub() {
-        let port = "pub fn a() -> u8 { todo!() }\n\
-                    pub fn b() -> u8 { unimplemented!(\"later\") }\n\
-                    pub fn c(x: u8) -> u8 {\n    panic!(\"not ported\")\n}\n\
-                    pub fn d(x: u8) -> u8 { if x > 1 { panic!(\"big\") } x }\n\
-                    // todo!() in a comment\n";
-        assert_eq!(stubs(port), 3);
-        assert_eq!(stubs("pub fn ok() -> u8 { 1 }"), 0);
-    }
-
-    #[test]
     fn generated_mojo_names_every_bridge_file() {
         for name in [
             format!("{}.mojo", crate::codegen_mojo_py::NATIVE),
@@ -1285,33 +959,7 @@ mod tests {
             fix_for(&check("behavior", "no recorded cases: run"), dir).as_deref(),
             Some("mojo-anything record port")
         );
-        assert!(fix_for(&check("fmt", ""), dir).is_some_and(|f| f.starts_with("cargo fmt")));
+        assert!(fix_for(&check("api", ""), dir).is_some_and(|f| f.contains("port.mojo")));
         assert_eq!(fix_for(&check("coverage", ""), dir), None);
-    }
-
-    #[test]
-    fn requires_safety_comments() {
-        let dir = std::env::temp_dir().join(format!("mojo-anything-gate-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("a.rs"),
-            "#![forbid(unsafe_code)]\n// SAFETY: checked above\nunsafe { x() }\nlet y = unsafe { z() };\n// unsafe in a comment\n",
-        )
-        .unwrap();
-        let (unexplained, explained) = unsafe_blocks(&dir);
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(explained, 1);
-        assert_eq!(unexplained.len(), 1);
-        assert!(unexplained[0].ends_with("a.rs:4"));
-    }
-
-    #[test]
-    fn missing_port_source_fails_the_ported_check() {
-        let dir = crate::app::temp_dir("gate-port").unwrap();
-        let check = super::ported_check(&dir);
-        std::fs::remove_dir(dir).unwrap();
-        assert!(!check.passed);
-        assert!(check.detail.contains("cannot read"));
-        assert!(check.detail.contains("port.rs"));
     }
 }

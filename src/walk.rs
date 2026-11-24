@@ -188,18 +188,18 @@ mod tests {
     }
 
     #[test]
-    fn bridge_crates_inside_the_project_are_not_source() {
+    fn bridged_units_inside_the_project_are_not_source() {
         let tmp = std::env::temp_dir().join(format!("ra-walk-bridge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join("src")).unwrap();
-        std::fs::create_dir_all(tmp.join("rust/x-rs/java")).unwrap();
+        std::fs::create_dir_all(tmp.join("mojo/x-mojo/java")).unwrap();
         std::fs::write(tmp.join("src/A.java"), "").unwrap();
-        std::fs::write(tmp.join("rust/x-rs/mojo-anything.json"), "{}").unwrap();
-        std::fs::write(tmp.join("rust/x-rs/java/A.java"), "").unwrap();
+        std::fs::write(tmp.join("mojo/x-mojo/mojo-anything.json"), "{}").unwrap();
+        std::fs::write(tmp.join("mojo/x-mojo/java/A.java"), "").unwrap();
         assert_eq!(files(&tmp), ["src/A.java"]);
         assert!(
-            files(&tmp.join("rust/x-rs")).contains(&"java/A.java".to_string()),
-            "a walk of the crate itself still sees its files"
+            files(&tmp.join("mojo/x-mojo")).contains(&"java/A.java".to_string()),
+            "a walk of the unit itself still sees its files"
         );
         std::fs::remove_dir_all(&tmp).unwrap();
     }
