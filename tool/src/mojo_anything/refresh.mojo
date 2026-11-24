@@ -27,6 +27,7 @@ from mojo_anything.codegen_mojo import (
 )
 from mojo_anything.codegen_cpp import cpp_bindings
 from mojo_anything.codegen_mojo_c import c_bindings, c_manifest_reads_alike
+from mojo_anything.codegen_mojo_node import mojo_node_bindings
 from mojo_anything.codegen_mojo_py import mojo_py_bindings
 from mojo_anything.embedded import py_num_mojo
 from mojo_anything.fallback import fallback
@@ -196,6 +197,8 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
         )
     if kind == "c-abi" and (language == "c" or language == "cpp"):
         return _refresh_c(argv, crate_dir, l.manifest, bh)
+    if (kind == "mojo-node" or kind == "mojo-wasm") and language == "ts":
+        return _refresh_node(argv, crate_dir, l.manifest, bh)
     if kind != "mojo-py":
         return fallback(argv)
     var port = bh["read_port"](PythonObject(crate_dir))
@@ -273,6 +276,41 @@ def _refresh_ffi(
     var names = List[String]()
     for f in api.functions:
         names.append(f.js_name)
+    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
+    return 0
+
+
+def _refresh_node(
+    argv: List[String],
+    crate_dir: String,
+    loaded: PythonObject,
+    bh: PythonObject,
+) raises -> Int:
+    """Refresh of a TS/JS unit (`mojo-node`, `mojo-wasm`): bridge.rs
+    `mojo_node_bindings` from the signatures in port.mojo."""
+    var port = bh["read_port"](PythonObject(crate_dir))
+    var ps = String(py=port[0])
+    if ps == "missing":
+        raise Error("reading port.mojo: No such file or directory (os error 2)")
+    if ps != "ok":
+        return fallback(argv)
+    var m = manifest_from_py(loaded)
+    var api = parse_port_mojo(String(py=port[1]))
+    match_export_names(m, api)
+    var paths = List[String]()
+    var texts = List[String]()
+    mojo_node_bindings(m, api, paths, texts)
+    var pp = Python.list()
+    var pt = Python.list()
+    for i in range(len(paths)):
+        pp.append(PythonObject(paths[i]))
+        pt.append(PythonObject(texts[i]))
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
+    var names = List[String]()
+    for f in m.exports:
+        names.append(f.name)
     print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
     return 0
 

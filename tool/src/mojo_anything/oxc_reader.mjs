@@ -703,7 +703,9 @@ function paramParts(p) {
 
 const bindingName = (pattern) => (pattern.type === "Identifier" ? pattern.name : null);
 
-function exportsOf(path, source, program) {
+// exports.rs `functions`: `exported_functions`, or with `declarations` the
+// bodiless declarations `declared_functions` reads from a declaration file.
+function exportsOf(path, source, program, declarations = false) {
   const text = (n) => source.slice(n.start, n.end);
   const lineAt = (off) => source.slice(0, off).split("\n").length;
   const annotation = (ann) => (ann ? text(ann.typeAnnotation) : "unknown");
@@ -766,7 +768,12 @@ function exportsOf(path, source, program) {
     const doc = leadingDoc(source, st.start) ?? EMPTY_DOC;
     if (st.type === "ExportNamedDeclaration" && st.declaration) {
       const d = st.declaration;
-      if (d.type === "FunctionDeclaration" && d.body) {
+      if (declarations) {
+        if (d.type === "TSDeclareFunction") {
+          const e = functionEntry(d, doc, null);
+          if (e) fns.push(e);
+        }
+      } else if (d.type === "FunctionDeclaration" && d.body) {
         const e = functionEntry(d, doc, null);
         if (e) fns.push(e);
       } else if (d.type === "VariableDeclaration") {
@@ -775,6 +782,8 @@ function exportsOf(path, source, program) {
           if (e) fns.push(e);
         }
       }
+    } else if (declarations) {
+      // Only the declarations themselves count.
     } else if (st.type === "ExportNamedDeclaration" && !st.source) {
       if (st.exportKind !== "type") {
         for (const s of st.specifiers) {
@@ -860,10 +869,12 @@ function classesOf(path, source, program) {
     const blockers = [];
     if (cls.superClass) blockers.push("extends another class");
     const methods = [];
+    let constructor = [];
     for (const el of cls.body.body) {
       if (METHOD_TYPES.has(el.type)) {
         const hidden = el.key.type === "PrivateIdentifier" || el.accessibility === "private" || el.accessibility === "protected";
         if (el.kind === "constructor") {
+          constructor = paramsOf(el.value.params);
           const items = formalParams(el.value.params).items;
           if (items.some((r) => {
             const p = paramParts(r);
@@ -883,7 +894,11 @@ function classesOf(path, source, program) {
             continue;
           }
           const f = el.value;
-          methods.push({ name, line: lineAt(el.start), params: paramsOf(f.params), returns: annotation(f.returnType), isAsync: !!f.async, isGenerator: !!f.generator });
+          methods.push({
+            name, line: lineAt(el.start), params: paramsOf(f.params), returns: annotation(f.returnType),
+            isAsync: !!f.async, isGenerator: !!f.generator, typeParams: [],
+            usesInstanceof: splitWords(text(el), "_$").includes("instanceof"),
+          });
         }
       } else if (el.type === "PropertyDefinition" || el.type === "TSAbstractPropertyDefinition") {
         const hidden = el.key.type === "PrivateIdentifier" || el.accessibility === "private" || el.accessibility === "protected";
@@ -903,7 +918,7 @@ function classesOf(path, source, program) {
       if (m.isAsync || m.isGenerator) blockers.push("async or generator method `" + m.name + "`");
       if (splitWords(m.returns, "_").some((w) => w === name || w === "this")) blockers.push("method `" + m.name + "` returns an instance");
     }
-    out.push({ name, line: lineAt(cls.start), blocker: blockers.length ? blockers.join(", ") : null, methods });
+    out.push({ name, line: lineAt(cls.start), blocker: blockers.length ? blockers.join(", ") : null, constructor, methods });
   }
   return out;
 }
@@ -1000,16 +1015,21 @@ function hasFunctions(name, types, seen) {
   return splitWords(t.text, "_$").filter((w) => w.length && w !== name).some((w) => hasFunctions(w, types, seen));
 }
 
+// bridge.rs `js_only_reason`, with its texts.
 function jsOnlyReason(f, types) {
-  if (f.isGenerator) return "generator";
-  if (f.usesInstanceof) return "instanceof";
+  if (f.isGenerator) return "generator: returns a lazy iterator";
+  if (f.usesInstanceof) return "checks `instanceof`: class identity does not survive the bridge";
   const ts = f.params.map((p) => p.tsType).concat([f.returns]);
-  if (ts.some((t) => t.includes("=>"))) return "function";
+  if (ts.some((t) => t.includes("=>"))) return "takes or returns a function";
   for (const t of ts) {
     for (const w of splitWords(t, "_$").filter((w) => w.length)) {
-      if (["RegExp", "Generator", "Iterator", "IterableIterator", "AsyncGenerator", "AsyncIterable", "Function"].includes(w)) return w;
-      if (f.typeParams.includes(w)) return "generic";
-      if (hasFunctions(w, types, [])) return "members";
+      if (w === "RegExp") return "takes or returns a RegExp";
+      if (["Generator", "Iterator", "IterableIterator", "AsyncGenerator", "AsyncIterable"].includes(w)) {
+        return "uses `" + w + "`, a lazy iterator";
+      }
+      if (w === "Function") return "takes or returns a function";
+      if (f.typeParams.includes(w)) return "generic over `" + w + "`: values of any shape, functions included";
+      if (hasFunctions(w, types, [])) return "uses `" + w + "`, which has function members";
     }
   }
   return null;
@@ -1225,6 +1245,93 @@ function scriptOf(path, text) {
   return out;
 }
 
+// ---- bridge.rs `bridge` for a TS/JS unit ------------------------------------------
+
+// jsdoc.rs `declaration_file`: the declaration file beside a JS file.
+function declarationFile(file) {
+  const dot = file.lastIndexOf(".");
+  if (dot < 0) return null;
+  const stem = file.slice(0, dot), ext = file.slice(dot + 1);
+  const own = { mjs: "d.mts", cjs: "d.cts", js: "d.ts", jsx: "d.ts" }[ext];
+  if (own === undefined) return null;
+  return [own, "d.ts", "d.mts", "d.cts"].map((d) => stem + "." + d).find(isFile) ?? null;
+}
+
+// jsdoc.rs `apply_declarations`: the types a declaration file gives a JS
+// function declared there once.
+function applyDeclarations(file, fns) {
+  const declFile = declarationFile(file);
+  if (declFile === null) return;
+  const text = readText(declFile);
+  if (text === null) return;
+  const declared = exportsOf(declFile, text, parse(declFile, text).program, true);
+  for (const f of fns) {
+    const matching = declared.filter((d) => d.name === f.name);
+    if (matching.length !== 1) continue;
+    const d = matching[0];
+    for (let i = 0; i < Math.min(f.params.length, d.params.length); i++) {
+      const p = f.params[i], dp = d.params[i];
+      if (dp.rest !== p.rest) break;
+      if (dp.tsType !== "unknown") p.tsType = dp.tsType;
+      p.optional = p.optional || dp.optional;
+    }
+    if (d.returns !== "unknown") f.returns = d.returns;
+  }
+}
+
+// bridge.rs `substitute_json`: the type parameters `--as-json` names cross as
+// `unknown`.
+function substituteJson(f, names) {
+  const remaining = [];
+  for (const tp of f.typeParams) {
+    const at = tp.indexOf(" extends ");
+    const name = trim(at < 0 ? tp : tp.slice(0, at));
+    if (!names.includes(name)) {
+      remaining.push(tp);
+      continue;
+    }
+    for (const p of f.params) p.tsType = replaceWord(p.tsType, name, "unknown");
+    f.returns = replaceWord(f.returns, name, "unknown");
+  }
+  f.typeParams = remaining;
+}
+
+function bridgeMain() {
+  const files = [];
+  for (const path of req.files) {
+    const text = readText(path);
+    if (text === null) decline("unreadable " + path);
+    const own = parse(path, text);
+    const types = typesInScope(path, text);
+    const classes = classesOf(path, text, own.program).map((c) => {
+      const ctor = {
+        name: c.name + " constructor", params: c.constructor, returns: "void", isAsync: false,
+        isGenerator: false, typeParams: [], usesInstanceof: false,
+      };
+      let methodReason = null;
+      for (const m of [ctor, ...c.methods]) {
+        const r = jsOnlyReason(m, types);
+        if (r !== null) {
+          methodReason = "`" + m.name + "`: " + r;
+          break;
+        }
+      }
+      return { name: c.name, line: c.line, blocker: c.blocker, method_reason: methodReason };
+    });
+    const functions = exportsOf(path, text, own.program);
+    applyDeclarations(path, functions);
+    for (const f of functions) {
+      for (const p of f.params) p.tsType = resolveAliases(p.tsType, types);
+      f.returns = resolveAliases(f.returns, types);
+      substituteConstraints(f, types);
+      substituteJson(f, req.as_json);
+      f.reason = jsOnlyReason(f, types);
+    }
+    files.push({ classes, functions });
+  }
+  return { files };
+}
+
 // ---- the request ---------------------------------------------------------------------
 
 // PathAliases::candidates: the targets of the longest matching pattern (an
@@ -1298,7 +1405,7 @@ function main() {
 
 let answer;
 try {
-  answer = main();
+  answer = req.mode === "bridge" ? bridgeMain() : main();
 } catch (e) {
   if (!(e instanceof Decline)) throw e;
   answer = { decline: e.message };

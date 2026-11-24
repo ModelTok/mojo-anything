@@ -45,8 +45,8 @@ def _node_ok(version):
     major, minor = parts
     return (major == 20 and minor >= 19) or (major == 22 and minor >= 12) or major > 22
 
-def read(repo, source, root, files, packages):
-    # ("ok", [per file]) or ("decline", why).
+def _run(repo, source, request):
+    # ("ok", the reader's answer) or ("decline", why).
     oxc = os.path.join(repo, "tool", "oxc", "node_modules", "oxc-parser")
     try:
         with open(os.path.join(oxc, "package.json"), "rb") as f:
@@ -65,12 +65,7 @@ def read(repo, source, root, files, packages):
         return ("decline", "node does not run")
     if v.returncode != 0 or not _node_ok(v.stdout):
         return ("decline", "node is older than oxc-parser needs")
-    request = {
-        "oxc": os.path.join(oxc, "src-js", "index.js"),
-        "root": root,
-        "files": [{"path": p, "parse_as": a, "exports": bool(e)} for p, a, e in files],
-        "packages": [[n, d] for n, d in packages],
-    }
+    request = dict(request, oxc=os.path.join(oxc, "src-js", "index.js"))
     try:
         p = subprocess.run([node, "--input-type=module", "-e", source], input=json.dumps(request),
                            capture_output=True, text=True, env=env, timeout=1800)
@@ -84,6 +79,18 @@ def read(repo, source, root, files, packages):
         return ("decline", "the reader's answer is not JSON")
     if "decline" in answer:
         return ("decline", answer["decline"])
+    return ("ok", answer)
+
+def read(repo, source, root, files, packages):
+    # ("ok", [per file]) or ("decline", why).
+    r = _run(repo, source, {
+        "root": root,
+        "files": [{"path": p, "parse_as": a, "exports": bool(e)} for p, a, e in files],
+        "packages": [[n, d] for n, d in packages],
+    })
+    if r[0] != "ok":
+        return r
+    answer = r[1]
     out = []
     for f in answer["files"]:
         if f["status"] != "ok":
@@ -96,6 +103,19 @@ def read(repo, source, root, files, packages):
         out.append(("ok", f["loc"], f["parse_errors"], f["imports"],
                     sorted(f["risks"].items()), bits, f["loops"], f["exports"], f["bridgeable"]))
     return ("ok", out)
+
+def bridge(repo, source, root, files, packages, as_json):
+    # ("ok", [{classes, functions} per file]) or ("decline", why).
+    r = _run(repo, source, {
+        "mode": "bridge",
+        "root": root,
+        "files": list(files),
+        "packages": [[n, d] for n, d in packages],
+        "as_json": list(as_json),
+    })
+    if r[0] != "ok":
+        return r
+    return ("ok", r[1]["files"])
 """
 
 
@@ -185,3 +205,43 @@ def read_ts_facts(
         f.bridgeable = Int(py=a[8])
         out.append(f^)
     return out^
+
+
+def read_ts_bridge(
+    root: String,
+    files: List[String],
+    names: List[String],
+    dirs: List[String],
+    as_json: List[String],
+    mut declined: Bool,
+) raises -> PythonObject:
+    """For each root-relative file of a unit, its exported classes (name,
+    line, blocker, the first constructor or method reason) and functions
+    (as exports.rs gives them, the declaration file's types applied,
+    aliases and constraints resolved, `--as-json` type parameters made
+    `unknown`, with their js_only_reason); `declined` is set when the
+    reader declines."""
+    var fs = Python.list()
+    for f in files:
+        fs.append(PythonObject(f))
+    var packages = Python.list()
+    for i in range(len(names)):
+        packages.append(
+            Python.tuple(PythonObject(names[i]), PythonObject(dirs[i]))
+        )
+    var aj = Python.list()
+    for a in as_json:
+        aj.append(PythonObject(a))
+    var repo = dirname(dirname(dirname(own_binary())))
+    var r = ts_helpers()["bridge"](
+        PythonObject(repo),
+        PythonObject(oxc_reader_source()),
+        PythonObject(root),
+        fs,
+        packages,
+        aj,
+    )
+    if String(py=r[0]) != "ok":
+        declined = True
+        return Python.list()
+    return r[1]

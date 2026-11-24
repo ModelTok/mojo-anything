@@ -25,6 +25,10 @@
   parts of a Go unit's cgo wrapper and `exports.mojo` (src/codegen_go.rs).
 - `ruby_codec()`, `ruby_native()`: the fixed parts of a Ruby unit's Fiddle module
   (src/codegen_ruby.rs).
+- `node_shim()`: src/mojo/node_shim.c, the Node-API addon a `mojo-node` unit builds
+  (src/codegen_mojo_node.rs `NODE_SHIM_C`, an `include_str!`).
+- `js_codec()`, `js_call()`, `js_wasm()`: the fixed parts of a TS/JS unit's `index.cjs`
+  (src/codegen_js.rs `CODEC_CJS`, src/codegen_mojo_node.rs `CALL_CJS` and `WASM_CJS`).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
 formatted.
@@ -53,6 +57,10 @@ FILES = [
     ("go_typed_helpers_mojo", os.path.join(REPO, "src", "codegen_go.rs") + "#TYPED_HELPERS_MOJO"),
     ("ruby_codec", os.path.join(REPO, "src", "codegen_ruby.rs") + "#CODEC_RB"),
     ("ruby_native", os.path.join(REPO, "src", "codegen_ruby.rs") + "#NATIVE_RB"),
+    ("node_shim", os.path.join(REPO, "src", "mojo", "node_shim.c")),
+    ("js_codec", os.path.join(REPO, "src", "codegen_js.rs") + "#CODEC_CJS"),
+    ("js_call", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#CALL_CJS"),
+    ("js_wasm", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#WASM_CJS"),
 ]
 
 

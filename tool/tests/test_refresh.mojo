@@ -477,10 +477,11 @@ def test_unanswered_go_to_the_phase1_binary() raises:
     batch.args.append("--batch")
     batch.args.append("scale:x")
     assert_true(_both(t, batch) != "", "--batch did not fall back")
+    # A mojo-node refresh is answered in Mojo now (test_bridge_ts).
     var lib = _case("lib", "tests/fixtures/lib", "ts/src/nums.ts")
     lib.args.append("refresh")
     lib.args.append("mojo/nums-mojo")
-    assert_true(_both(t, lib) != "", "a mojo-node refresh did not fall back")
+    _owned(t, lib)
     # A recording with a TS-only flag (test_record covers the ones Mojo
     # answers).
     var rec = _case("record", "tests/fixtures/python-mojo", "src/mathkit/")

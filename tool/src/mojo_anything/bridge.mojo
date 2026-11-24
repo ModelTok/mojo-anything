@@ -22,6 +22,7 @@ from mojo_anything.analyze import (
     helpers,
     lang_name,
     lang_plan,
+    ts_workspace,
 )
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.codegen_mojo import (
@@ -57,12 +58,14 @@ from mojo_anything.codegen_mojo_py import (
     pixi_toml,
     unit_pixi_toml,
 )
+from mojo_anything.codegen_mojo_node import mojo_node_bindings
 from mojo_anything.codegen_ruby import native as ruby_native
 from mojo_anything.codegen_ruby import wrapper as ruby_wrapper
 from mojo_anything.embedded import json_mojo, py_num_mojo
 from mojo_anything.fallback import fallback
 from mojo_anything.plan import BLOCKED, KEEP, UnitReport
 from mojo_anything.tree_lang import tree_helpers
+from mojo_anything.ts_lang import read_ts_bridge
 
 comptime _PY = """
 import json, os
@@ -675,12 +678,11 @@ struct Flags(Copyable, Movable):
 
 
 def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
-    # `--batch` adds batches to the manifest; `--kind node` bridges a unit
-    # of another language through Node: neither is ported.
+    # `--batch` adds batches to the manifest, which is not ported.
     if p.value("batch"):
         return fallback(argv)
     var kind = p.value("kind")
-    if kind and kind.value() != "wasm":
+    if kind and kind.value() != "wasm" and kind.value() != "node":
         return fallback(argv)
     var keep = p.all("keep")
     for k in keep:
@@ -775,8 +777,15 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
             " record`, `app replay`) and get a Rust front door (`app"
             " front-door`) that hands everything to the original"
         )
+    if lang == "ts":
+        var k = String("mojo-node")
+        if kind and kind.value() == "wasm":
+            k = "mojo-wasm"
+        return _bridge_ts(argv, root, unit, bh, flags, k, p.all("as-json"), py)
     if kind:
-        if lang == "ts":
+        # `--kind node` bridges a unit of another language through Node,
+        # which is not ported.
+        if kind.value() == "node":
             return fallback(argv)
         raise Error(
             String(
@@ -1576,5 +1585,170 @@ def _bridge_cpp(
         if j.reason.startswith("class: "):
             reason = String(j.reason[byte=7:])
         notes.append(String("`", j.name, "` stays in C++: ", reason, "."))
+    _outcome(crate_dir, m.kind, paths, m, notes)
+    return 0
+
+
+def _ts_function(f: PythonObject, file: String) raises -> ExportedFn:
+    """An export oxc_reader.mjs gives in its bridge mode."""
+    var params = List[Param]()
+    var ps = f["params"]
+    for i in range(_len(ps)):
+        var p = ps[i]
+        params.append(
+            Param(
+                String(py=p["name"]),
+                String(py=p["tsType"]),
+                Bool(py=p["optional"]),
+                Bool(py=p["rest"]),
+                None,
+                False,
+                None,
+            )
+        )
+    var tps = List[String]()
+    for i in range(_len(f["typeParams"])):
+        tps.append(String(py=f["typeParams"][i]))
+    return ExportedFn(
+        String(py=f["name"]),
+        file,
+        Int(py=f["line"]),
+        params^,
+        String(py=f["returns"]),
+        Bool(py=f["isAsync"]),
+        Bool(py=f["isGenerator"]),
+        tps^,
+        Bool(py=f["usesInstanceof"]),
+        None,
+        None,
+        None,
+    )
+
+
+def _bridge_ts(
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
+    kind: String,
+    as_json: List[String],
+    py: PythonObject,
+) raises -> Int:
+    """Bridge.rs `bridge` for a TS/JS unit (`bridge_mojo_node`,
+    `mojo_node_bindings`): the exports, their types resolved through the
+    files they import, come from oxc_reader.mjs."""
+    var ws = ts_workspace(root, py)
+    if ws.declined:
+        return fallback(argv)
+    var names = List[String]()
+    var dirs = List[String]()
+    for p in ws.packages:
+        names.append(p.name)
+        dirs.append(p.dir)
+    var files = List[String]()
+    for f in unit.files:
+        if f.endswith(".vue") or f.endswith(".svelte") or f.endswith(".astro"):
+            continue
+        files.append(f)
+    var declined = False
+    var answer = read_ts_bridge(root, files, names, dirs, as_json, declined)
+    if declined:
+        return fallback(argv)
+    var exports = List[ExportedFn]()
+    var classes = List[JsOnly]()
+    var js_only = List[JsOnly]()
+    for i in range(len(files)):
+        var a = answer[i]
+        var cs = a["classes"]
+        for k in range(_len(cs)):
+            var c = cs[k]
+            var name = String(py=c["name"])
+            var line = Int(py=c["line"])
+            var why = keep_reason(flags.keep, name)
+            if not why:
+                why = _opt(c["blocker"])
+            if not why:
+                why = _opt(c["method_reason"])
+            if why:
+                js_only.append(
+                    JsOnly(name, files[i], line, "class: " + why.value())
+                )
+            else:
+                classes.append(
+                    JsOnly(
+                        name, files[i], line, "class: not ported to Mojo yet"
+                    )
+                )
+        var fs = a["functions"]
+        for k in range(_len(fs)):
+            var f = _ts_function(fs[k], files[i])
+            var why = keep_reason(flags.keep, f.name)
+            if not why:
+                why = _opt(fs[k]["reason"])
+            if why:
+                js_only.append(JsOnly(f.name, f.file, f.line, why.value()))
+            else:
+                exports.append(f^)
+    # The checks see the classes as bridge.rs does, before they stay in TS.
+    var seen = List[ExportedClass]()
+    for c in classes:
+        seen.append(
+            ExportedClass(
+                c.name, c.file, c.line, List[Param](), List[ExportedFn](), None
+            )
+        )
+    _check_defined(unit, "ts", exports, seen, js_only)
+    var none = List[ExportedClass]()
+    var all_only = js_only.copy()
+    for c in classes:
+        all_only.append(c.copy())
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
+    if not _free_crate_dir(crate_dir, bh):
+        return fallback(argv)
+    # The Node and wasm bridges have no Mojo classes yet: a class stays in TS.
+    var m = Manifest(
+        root,
+        unit.id,
+        "ts",
+        kind,
+        crate_name,
+        exports^,
+        none^,
+        all_only^,
+    )
+    var port = port_mojo(m)
+    var api = parse_port_mojo(port)
+    match_export_names(m, api)
+    var paths = List[String]()
+    var texts = List[String]()
+    paths.append("port.mojo")
+    texts.append(port)
+    paths.append(".gitignore")
+    texts.append(".pixi/\n.mojo-anything/\n*.node\n*.so\n*.dylib\n*.wasm\n")
+    paths.append("README.md")
+    texts.append(readme(m))
+    paths.append(MANIFEST)
+    texts.append(manifest_json(m))
+    mojo_node_bindings(m, api, paths, texts)
+    _write(crate_dir, paths, texts, bh)
+    var notes = List[String]()
+    notes.append(
+        String(
+            "Port each function in port.mojo, then: mojo-anything record ",
+            crate_dir,
+            " && mojo-anything build ",
+            crate_dir,
+            " && mojo-anything diff ",
+            crate_dir,
+        )
+    )
+    for j in m.js_only:
+        notes.append(
+            String(
+                "`", j.name, "` stays in TypeScript/JavaScript: ", j.reason, "."
+            )
+        )
     _outcome(crate_dir, m.kind, paths, m, notes)
     return 0
