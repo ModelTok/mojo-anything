@@ -14,6 +14,8 @@
   (src/harness_py.rs `DRIVER_PY`, a raw string in the Rust source).
 - `pinned_mojo()`: src/mojo/pinned.mojo, the helper `record --pin-clock` writes beside a Mojo
   port (src/pin.rs `HELPER_MOJO_SRC`, an `include_str!`).
+- `py_hook_head()`, `py_hook_tail()`: the two halves of the `sitecustomize.py` that
+  `record --from-tests` puts on a Python test suite's path (src/from_tests.rs).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
 formatted.
@@ -31,14 +33,16 @@ FILES = [
     ("py_num_mojo", os.path.join(REPO, "src", "mojo", "py_num.mojo")),
     ("driver_py", os.path.join(REPO, "src", "harness_py.rs") + "#DRIVER_PY"),
     ("pinned_mojo", os.path.join(REPO, "src", "mojo", "pinned.mojo")),
+    ("py_hook_head", os.path.join(REPO, "src", "from_tests.rs") + "#PY_HOOK_HEAD"),
+    ("py_hook_tail", os.path.join(REPO, "src", "from_tests.rs") + "#PY_HOOK_TAIL"),
 ]
 
 
 def _rust_raw_const(path, name):
-    """The text of `pub const NAME: &str = r#"..."#;` in a Rust file."""
+    """The text of `[pub] const NAME: &str = r#"..."#;` in a Rust file."""
     with open(path, encoding="utf-8") as f:
         source = f.read()
-    start = source.index("pub const %s: &str = r#\"" % name)
+    start = source.index("const %s: &str = r#\"" % name)
     start = source.index('r#"', start) + 3
     return source[start : source.index('"#;', start)]
 

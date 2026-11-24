@@ -240,8 +240,6 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
             "a command after `--` is the test suite for `--from-tests`; add the"
             " flag"
         )
-    if from_tests:
-        return fallback(argv)
     for name in [
         "module",
         "resolve-from",
@@ -260,5 +258,7 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
         p.value("count").or_else("200"),
         p.value("inputs"),
         1 if p.flag("pin-clock") else (2 if p.flag("no-pin-clock") else 0),
+        from_tests,
+        p.rest,
         argv,
     )

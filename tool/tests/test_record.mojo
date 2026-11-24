@@ -459,9 +459,88 @@ def test_pinned_records_match_the_phase1_binary() raises:
             _both(t, _clock("pin-odd", bad)) != "",
             String("did not fall back: ", bad),
         )
+    # The pin is set before an `--inputs` error.
+    var order = _clock("pin-then-error", "")
+    order.after.append('in.jsonl={"fn": "nope", "args": []}\n')
+    order.args.append("--pin-clock")
+    order.args.append("--inputs")
+    order.args.append("in.jsonl")
+    _owned(t, order)
     var odd_on = _clock("pin-odd-on", '{"now_ms": 1.5, "seed": 2}')
     odd_on.args.append("--pin-clock")
     assert_true(_both(t, odd_on) != "", "--pin-clock on an odd file")
+    _ = t["gone"]()
+
+
+comptime _RUN = """import sys
+
+sys.path.insert(0, "src")
+from mathkit import ops
+
+for x in [1.0, 2.5, -3.0, 2.5]:
+    print(ops.scale(x))
+print(ops.scale(2.0, factor=3.0))
+print(ops.exclaim("hi"), ops.exclaim("ünï"), ops.count_items(["a", "b"]))
+try:
+    ops.safe_div(1.0, 0.0)
+except ValueError as e:
+    print("raised", e)
+print(ops.safe_div(9.0, 3.0), ops.safe_div(10 ** 20, 7))
+sys.exit(int(sys.argv[1]) if len(sys.argv) > 1 else 0)
+"""
+
+
+def _tests(name: String) -> Case:
+    var c = _case(name, "tests/fixtures/python-mojo", "src/mathkit/")
+    c.after.append(String("tests/run.py=", _RUN))
+    _record(c, "mojo/mathkit-mojo", "5")
+    c.args.append("--from-tests")
+    return c^
+
+
+def test_from_tests_match_the_phase1_binary() raises:
+    var t = _py()
+    var ok = _tests("tests-pass")
+    ok.args.append("--")
+    ok.args.append("python3")
+    ok.args.append("tests/run.py")
+    _owned(t, ok)
+    var failing = _tests("tests-fail")
+    failing.args.append("--")
+    failing.args.append("python3")
+    failing.args.append("tests/run.py")
+    failing.args.append("3")
+    _owned(t, failing)
+    var own = _tests("tests-own")
+    own.after.append('in.jsonl={"fn": "exclaim", "args": ["own"]}')
+    own.args.append("--inputs")
+    own.args.append("in.jsonl")
+    own.args.append("--")
+    own.args.append("python3")
+    own.args.append("tests/run.py")
+    _owned(t, own)
+    var bare = _tests("tests-bare")
+    _owned(t, bare)
+    var gone = _tests("tests-gone")
+    gone.args.append("--")
+    gone.args.append("no-such-test-runner")
+    gone.args.append("-q")
+    _owned(t, gone)
+    var own_gone = _tests("tests-own-gone")
+    own_gone.args.append("--inputs")
+    own_gone.args.append("missing.jsonl")
+    own_gone.args.append("--")
+    own_gone.args.append("python3")
+    own_gone.args.append("tests/run.py")
+    _owned(t, own_gone)
+    var lib = _case("lib-tests", "tests/fixtures/lib", "ts/src/nums.ts")
+    _record(lib, "mojo/nums-mojo", "3")
+    lib.args.append("--from-tests")
+    lib.args.append("--")
+    lib.args.append("true")
+    assert_true(
+        _both(t, lib, files=False) != "", "a TS --from-tests did not fall back"
+    )
     _ = t["gone"]()
 
 
@@ -481,5 +560,6 @@ def main() raises:
     test_record_failures_match_the_phase1_binary()
     test_inputs_match_the_phase1_binary()
     test_pinned_records_match_the_phase1_binary()
+    test_from_tests_match_the_phase1_binary()
     test_unanswered_records_go_to_the_phase1_binary()
-    print("test_record: 6 passed")
+    print("test_record: 7 passed")

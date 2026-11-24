@@ -14,7 +14,11 @@
 # back as serde_json writes them, with their `module`. `--pin-clock` and
 # `--no-pin-clock` write and remove `pinned.json` (and `pinned.mojo`) as
 # src/pin.rs `set` does, and a pinned recording runs the driver with the
-# pinned clock and seed.
+# pinned clock and seed. `--from-tests -- <command>` runs the test suite in
+# the original's folder with the Rust tool's import hook on PYTHONPATH
+# (src/from_tests.rs), keeps the calls it makes to the unit's functions in
+# `test-inputs.jsonl` (after the `--inputs` lines, when given) and records
+# them as inputs.
 #
 # Declined before anything is written (the Phase 1 binary records): a type
 # the shape reader (shape.mojo) does not read, a named type in a class's
@@ -29,7 +33,12 @@ from std.os import getenv
 from std.python import Python, PythonObject
 
 from mojo_anything.codegen_mojo import ExportedFn, Manifest, Param, param_rtype
-from mojo_anything.embedded import driver_py, pinned_mojo
+from mojo_anything.embedded import (
+    driver_py,
+    pinned_mojo,
+    py_hook_head,
+    py_hook_tail,
+)
 from mojo_anything.fallback import fallback
 from mojo_anything.harness import (
     GV,
@@ -44,6 +53,8 @@ from mojo_anything.harness import (
 )
 from mojo_anything.js_number import json_number_to_string
 from mojo_anything.json_text import write_string
+from mojo_anything.process import TESTS
+from mojo_anything.process import limit as process_limit
 from mojo_anything.recording import save_fingerprint
 from mojo_anything.shape import DECLINE
 from mojo_anything.tree_lang import tree_helpers
@@ -425,6 +436,123 @@ def set_pin(crate_dir, on, helper_text):
         return ("error", "writing %s: %s" % (helper, _io(e)))
     return ("ok", helper)
 
+def python_hook(driver, head, tail):
+    # from_tests.rs `python_hook`: the hook with the driver's `enc`.
+    start = driver.find("def enc(")
+    end = driver[start:].find("\\ndef dec(") if start >= 0 else -1
+    enc = driver[start : start + end] if end >= 0 else "def enc(v, stack=()):\\n    return v\\n"
+    return head + "\\n" + enc + "\\n" + tail
+
+def canonical(path):
+    try:
+        return os.path.realpath(path, strict=True)
+    except OSError:
+        return None
+
+def capture(crate_dir, root, argv, want, hook_text, exported, limit):
+    # from_tests.rs `capture` for a Python unit, after Manifest::load:
+    # ("ok", inputs path, [(name, n)] by name, tests passed) or ("error",
+    # message).
+    import json
+    try:
+        raw = join(crate_dir, "test-calls.raw.jsonl")
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+        hook = join(join(crate_dir, "target"), "from-tests")
+        _create_dir_all(hook)
+        _write(join(hook, "sitecustomize.py"), hook_text)
+        env = dict(os.environ)
+        env["MOJO_ANYTHING_CAPTURE"] = raw
+        env["CI"] = "1"
+        old = os.environ.get("PYTHONPATH")
+        env["PYTHONPATH"] = ":".join([hook] + (old.split(":") if old is not None else []))
+        env["MOJO_ANYTHING_CAPTURE_FUNCS"] = want
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        shown = " ".join(argv)
+        try:
+            child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=2, cwd=root,
+                                     env=env, process_group=0)
+        except OSError as e:
+            raise Failed("running `%s`: running `%s`: %s" % (shown, shown, _io(e)))
+        try:
+            child.wait(timeout=limit)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.wait()
+            raise Failed(
+                "running `%s`: `%s` was still running after %ds and was stopped (set "
+                "MOJO_ANYTHING_COMMAND_TIMEOUT to allow longer; a test runner in watch mode "
+                "never ends, so run it once, e.g. `vitest run`)" % (shown, shown, int(limit)))
+        passed = child.returncode == 0
+        text = read_text(raw)
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+        seen = set()
+        per = {}
+        out = []
+        for line in _lines(text):
+            try:
+                call = json.loads(line)
+            except (ValueError, RecursionError):
+                continue
+            name = call.get("fn") if isinstance(call, dict) else None
+            if not isinstance(name, str):
+                continue
+            if name not in exported or not isinstance(call.get("args"), list) or line in seen:
+                continue
+            seen.add(line)
+            n = per.get(name, 0)
+            if n >= 1000:
+                continue
+            per[name] = n + 1
+            out.append(line + "\\n")
+        inputs = join(crate_dir, "test-inputs.jsonl")
+        try:
+            with open(inputs, "w", encoding="utf-8", newline="") as f:
+                f.write("".join(out))
+        except OSError as e:
+            raise Failed("writing %s: %s" % (inputs, _io(e)))
+        return ("ok", inputs, sorted(per.items()), passed)
+    except Failed as e:
+        return ("error", str(e))
+
+def with_own_inputs(crate_dir, own, captured):
+    # from_tests.rs `with_own_inputs` with `own` given: ("ok", path) or
+    # ("error", message).
+    try:
+        with open(own, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        return ("error", "reading %s: %s" % (own, _io(e)))
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError:
+        return ("error", "reading %s: stream did not contain valid UTF-8" % own)
+    if text and not text.endswith("\\n"):
+        text += "\\n"
+    try:
+        with open(captured, "rb") as f:
+            text += f.read().decode("utf-8")
+    except OSError as e:
+        return ("error", _io(e))
+    except UnicodeError:
+        return ("error", "stream did not contain valid UTF-8")
+    target = join(crate_dir, "target")
+    combined = join(target, "record-inputs.jsonl")
+    try:
+        _create_dir_all(target)
+        _write(combined, text)
+    except Failed as e:
+        return ("error", str(e))
+    return ("ok", combined)
+
 def kind(v):
     # The JSON kind of a value read_inputs gave.
     if v is None:
@@ -638,7 +766,6 @@ def _generate(
     h: PythonObject,
     mut g: Gen,
     count: Int,
-    inputs: Optional[String],
     mut texts: List[String],
     mut fns: List[String],
     mut shown: List[String],
@@ -698,8 +825,108 @@ def _generate(
             texts.append(s)
             fns.append("?")
             shown.append("null")
-    if inputs:
-        _given(m, h, inputs.value(), texts, fns, shown)
+
+
+def _capture(
+    m: Manifest,
+    h: PythonObject,
+    crate_dir: String,
+    command: List[String],
+    own: Optional[String],
+) raises -> String:
+    """from_tests.rs `capture` and `with_own_inputs` for a Python unit, and
+    what `record` prints of them: the inputs file the recording takes."""
+    var want = Dict[String, List[String]]()
+    var paths = List[String]()
+    for f in m.exports:
+        var path = h["canonical"](
+            h["join"](PythonObject(m.root), PythonObject(f.file))
+        )
+        var key = String(py=path)
+        if key not in want:
+            want[key] = List[String]()
+            paths.append(key)
+        want[key].append(f.name)
+    # serde_json of a BTreeMap: keys in byte order.
+    for i in range(1, len(paths)):
+        var j = i
+        while j > 0 and paths[j] < paths[j - 1]:
+            paths.swap_elements(j, j - 1)
+            j -= 1
+    var json = String("{")
+    for i in range(len(paths)):
+        if i > 0:
+            json += ","
+        json += write_string(paths[i]) + ":["
+        ref names = want[paths[i]]
+        for k in range(len(names)):
+            if k > 0:
+                json += ","
+            json += write_string(names[k])
+        json += "]"
+    json += "}"
+    var argv = Python.list()
+    for a in command:
+        argv.append(PythonObject(a))
+    var exported = Python.list()
+    for f in m.exports:
+        exported.append(PythonObject(f.name))
+    var hook = h["python_hook"](
+        PythonObject(driver_py()),
+        PythonObject(py_hook_head()),
+        PythonObject(py_hook_tail()),
+    )
+    var c = h["capture"](
+        PythonObject(crate_dir),
+        PythonObject(m.root),
+        argv,
+        PythonObject(json),
+        hook,
+        exported,
+        PythonObject(process_limit(TESTS)),
+    )
+    if String(py=c[0]) != "ok":
+        raise Error(String(py=c[1]))
+    var per = c[2]
+    var total = 0
+    for i in range(_len(per)):
+        total += Int(py=per[i][1])
+    var failed = String("")
+    if not Bool(py=c[3]):
+        failed = " (the test command failed; calls made before that are kept)"
+    print(String("Captured ", total, " call(s) from the tests", failed, ":"))
+    for i in range(_len(per)):
+        print(String("  ", String(py=per[i][0]), ": ", Int(py=per[i][1])))
+    var captured = String(py=c[1])
+    if not own:
+        return captured
+    var w = h["with_own_inputs"](
+        PythonObject(crate_dir),
+        PythonObject(own.value()),
+        PythonObject(captured),
+    )
+    if String(py=w[0]) != "ok":
+        raise Error(String(py=w[1]))
+    return String(py=w[1])
+
+
+def _declined_from_tests(
+    m: Manifest, h: PythonObject, crate_dir: String
+) raises -> Bool:
+    """What `capture` would do otherwise or fail on after starting: a file of
+    the unit that does not canonicalize, a crate path holding the PATH
+    separator (join_paths refuses it)."""
+    if crate_dir.find(":") >= 0:
+        return True
+    for f in m.exports:
+        if (
+            h["canonical"](
+                h["join"](PythonObject(m.root), PythonObject(f.file))
+            )
+            is Python.none()
+        ):
+            return True
+    return False
 
 
 def record_python(
@@ -708,10 +935,16 @@ def record_python(
     count_text: String,
     inputs: Optional[String],
     pin_clock: Int,
+    from_tests: Bool,
+    test_command: List[String],
     argv: List[String],
 ) raises -> Int:
     """`record` of a Python unit; `pin_clock` is 1 for `--pin-clock`, 2 for
     `--no-pin-clock`, 0 for neither."""
+    if from_tests and len(test_command) == 0:
+        raise Error(
+            "--from-tests needs the test command after `--`, e.g. `-- npx jest`"
+        )
     var count = _plain_count(count_text)
     var limit = _case_limit()
     if count < 0 or limit < 0.0:
@@ -730,6 +963,12 @@ def record_python(
         var p = h["read_pin"](PythonObject(crate_dir))
         if String(py=p[0]) == "decline":
             return fallback(argv)
+    if inputs:
+        var r = h["read_inputs"](PythonObject(inputs.value()))
+        if String(py=r[0]) == "decline":
+            return fallback(argv)
+    if from_tests and _declined_from_tests(m, h, crate_dir):
+        return fallback(argv)
     if String(py=h["python_name"]()) != "python3":
         return fallback(argv)
     var g = Gen(h["make_loader"](tree_helpers()))
@@ -737,15 +976,17 @@ def record_python(
     var fns = List[String]()
     var shown = List[String]()
     var regex_functions = List[String]()
-    # Rust sets the pin before it generates the cases: an error generating
-    # them comes after `Wrote ...`.
-    var pending = Optional[String](None)
     try:
-        _generate(m, h, g, count, inputs, texts, fns, shown, regex_functions)
+        _generate(m, h, g, count, texts, fns, shown, regex_functions)
     except e:
         if String(e) == DECLINE:
             return fallback(argv)
-        pending = String(e)
+        raise e^
+    # Rust captures the tests and sets the pin before it generates the
+    # cases: an error in the inputs comes after both.
+    var given = inputs
+    if from_tests:
+        given = _capture(m, h, crate_dir, test_command, inputs)
     if pin_clock != 0:
         var s = h["set_pin"](
             PythonObject(crate_dir),
@@ -767,6 +1008,12 @@ def record_python(
                     ),
                 )
             )
+    var pending = Optional[String](None)
+    if given:
+        try:
+            _given(m, h, given.value(), texts, fns, shown)
+        except e:
+            pending = String(e)
     if pending:
         raise Error(pending.value())
     var pin = h["read_pin"](PythonObject(crate_dir))
