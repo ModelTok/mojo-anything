@@ -170,7 +170,9 @@ fn fallback_binary_missing() {
     let tool = mojo_tool();
     let out = run(
         tool,
-        &["analyze", "."],
+        // `--whole-app` still falls back for every language (the repository
+        // itself is now analyzed in Mojo).
+        &["analyze", ".", "--whole-app"],
         &[("MOJO_ANYTHING_FALLBACK", "/nope")],
     );
     assert_ne!(out.status.code(), Some(0));
