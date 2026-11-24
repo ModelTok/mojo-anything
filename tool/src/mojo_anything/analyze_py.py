@@ -751,6 +751,31 @@ def read_package(pyproject, requirements):
     return (r[0], 0 if r[1] is None else 1, r[1] or "", r[2])
 
 
+def toml_as_rust_reads(doc):
+    """False when a document tomllib read holds a value toml_edit refuses: an
+    integer outside i64 (tomllib's are unbounded) or a float that overflows
+    (tomllib gives inf; a literal inf or nan is refused here too, which only
+    sends the case back)."""
+    import math
+
+    todo = [doc]
+    while todo:
+        x = todo.pop()
+        if isinstance(x, dict):
+            todo.extend(x.values())
+        elif isinstance(x, list):
+            todo.extend(x)
+        elif isinstance(x, bool):
+            continue
+        elif isinstance(x, int):
+            if x < -(2**63) or x > 2**63 - 1:
+                return False
+        elif isinstance(x, float):
+            if not math.isfinite(x):
+                return False
+    return True
+
+
 def _read_package(pyproject, requirements):
     name = None
     deps = []
@@ -759,6 +784,8 @@ def _read_package(pyproject, requirements):
         try:
             doc = tomllib.loads(text)
         except (tomllib.TOMLDecodeError, ValueError, RecursionError):
+            return (0, None, [])
+        if not toml_as_rust_reads(doc):
             return (0, None, [])
         project = doc.get("project")
         if isinstance(project, dict):
@@ -937,6 +964,8 @@ def whole_app_facts(root, files):
             doc = tomllib.loads(pyproject)
         except (tomllib.TOMLDecodeError, ValueError, RecursionError):
             raise _WaDecline("a pyproject.toml tomllib refuses")
+        if not toml_as_rust_reads(doc):
+            raise _WaDecline("a pyproject.toml value toml_edit refuses")
         for table in (_wa_table(doc, "project", "scripts"), _wa_table(doc, "tool", "poetry", "scripts")):
             if not isinstance(table, dict):
                 continue

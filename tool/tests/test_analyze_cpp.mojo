@@ -30,6 +30,9 @@ def fixture(side, name, files):
             os.makedirs(p, exist_ok=True)
             continue
         os.makedirs(os.path.dirname(p), exist_ok=True)
+        if text.startswith("link:"):
+            os.symlink(text[5:].rstrip(), p)
+            continue
         if text.startswith("b64:"):
             import base64
             with open(p, "wb") as f:
@@ -428,6 +431,29 @@ def test_what_tree_sitter_may_read_otherwise_goes_to_the_phase1_binary() raises:
             (
                 "CMakeLists.txt=x\n|a.cpp=using T = int;\nT f(T x) { return x;"
                 " }\n|b.hpp=using T = double;\n"
+            ),
+        )
+    )
+    # A symlinked header: cpp.rs reads it for aliases and class names (the
+    # walk yields the link, read_to_string follows it).
+    cases.append(
+        (
+            "symlink-alias",
+            (
+                "CMakeLists.txt=x\n|shared/alias.inc=using Real ="
+                " double;\n|src/alias.hpp=link:../shared/alias.inc\n"
+                '|src/lib.cpp=#include "alias.hpp"\nReal f(Real x) { return'
+                " x; }\n"
+            ),
+        )
+    )
+    cases.append(
+        (
+            "symlink-class",
+            (
+                "CMakeLists.txt=x\n|shared/eng.inc=class Eng;\n"
+                "|src/eng.hpp=link:../shared/eng.inc\n|src/lib.cpp=int"
+                " Eng::run(int x) { return x; }\nint g(int x) { return x; }\n"
             ),
         )
     )

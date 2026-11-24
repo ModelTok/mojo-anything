@@ -30,6 +30,9 @@ def fixture(side, name, files):
             os.makedirs(p, exist_ok=True)
             continue
         os.makedirs(os.path.dirname(p), exist_ok=True)
+        if text.startswith("link:"):
+            os.symlink(text[5:].rstrip(), p)
+            continue
         if text.startswith("b64:"):
             import base64
             with open(p, "wb") as f:
@@ -355,6 +358,18 @@ def test_what_tree_sitter_may_read_otherwise_goes_to_the_phase1_binary() raises:
             (
                 "Makefile=x\n|a.c=typedef int T;\nT f(T x) { return x;"
                 " }\n|b.h=typedef double T;\n"
+            ),
+        )
+    )
+    # A symlinked header: use_typedefs reads it (the walk yields the link,
+    # read_to_string follows it).
+    cases.append(
+        (
+            "symlink-typedef",
+            (
+                "Makefile=x\n|shared/t.inc=typedef double real;\n"
+                '|src/t.h=link:../shared/t.inc\n|src/lib.c=#include "t.h"\n'
+                "real f(real x) { return x; }\n"
             ),
         )
     )

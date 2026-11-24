@@ -589,6 +589,26 @@ def test_what_ast_may_read_otherwise_goes_to_the_phase1_binary() raises:
     cases.append(("union", "a.py=def f(x: int | None) -> int:\n    return 1\n"))
     cases.append(("type-params", "a.py=def f[T](x: T) -> T:\n    return x\n"))
     cases.append(("bad-toml", "pyproject.toml=x\n|a.py=x = 1\n"))
+    # tomllib reads integers past i64 and floats that overflow; toml_edit
+    # refuses the file.
+    cases.append(
+        (
+            "big-int",
+            (
+                "pyproject.toml=[project]\nname = 'x'\n[tool.x]\nn ="
+                " 99999999999999999999\n|a.py=x = 1\n"
+            ),
+        )
+    )
+    cases.append(
+        (
+            "big-float",
+            (
+                "pyproject.toml=[project]\nname = 'x'\n[tool.x]\nf ="
+                " 1e999\n|a.py=x = 1\n"
+            ),
+        )
+    )
     var one_fn = String("\ndef a(x: int) -> int:\n    return x\n")
     cases.append(("all-parens", 'a.py=__all__ = ("a")\n' + one_fn))
     cases.append(("all-list-parens", 'a.py=__all__ = (["a", "b"])\n' + one_fn))

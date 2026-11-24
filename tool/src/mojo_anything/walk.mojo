@@ -463,6 +463,7 @@ def _walk_into(
     require_git: Bool,
     git_above: Bool,
     mut out: List[String],
+    links: Bool = False,
 ):
     var dir = levels[len(levels) - 1].dir
     for name in _entries(dir):
@@ -479,8 +480,11 @@ def _walk_into(
             continue
         if is_dir:
             levels.append(_level(path))
-            _walk_into(levels, outer, keep, require_git, git_above, out)
+            _walk_into(levels, outer, keep, require_git, git_above, out, links)
             _ = levels.pop()
+        elif links:
+            if link:
+                out.append(path)
         elif not link and isfile(path):
             out.append(path)
 
@@ -495,6 +499,21 @@ def walk(
     levels.append(_level(root))
     var out = List[String]()
     _walk_into(levels, _outer(root), keep, require_git, _git_above(root), out)
+    return _sorted(out^)
+
+
+def walk_links(
+    root: String, keep: def(String) thin -> Bool, require_git: Bool = True
+) -> List[String]:
+    """The symlinks `walk` meets and leaves out (the same ignore rules and
+    `keep`, not followed): `walk::builder` yields them as entries, and a
+    reader that opens one follows it."""
+    var levels = List[_Level]()
+    levels.append(_level(root))
+    var out = List[String]()
+    _walk_into(
+        levels, _outer(root), keep, require_git, _git_above(root), out, True
+    )
     return _sorted(out^)
 
 

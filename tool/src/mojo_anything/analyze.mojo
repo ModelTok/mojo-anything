@@ -33,7 +33,7 @@ from mojo_anything.plan import (
 )
 from mojo_anything.python_lang import Facts, py_helpers, read_facts
 from mojo_anything.tree_lang import read_tree_facts, tree_helpers
-from mojo_anything.walk import canonical, walk
+from mojo_anything.walk import canonical, walk, walk_links
 from mojo_anything.whole_app import (
     WholeApp,
     whole_app,
@@ -1643,6 +1643,18 @@ def tree_plan(
             declined = True
             return Report(lang)
     var th = tree_helpers()
+    if lang == "c" or lang == "cpp":
+        # The typedef and alias walks also read the symlinks walk::builder
+        # yields (read_to_string follows them), which `walk` leaves out.
+        for path in walk_links(root, _keep, False):
+            var name = _name_of(_rel(root, path))
+            if (
+                name.endswith(".h")
+                or name.endswith(".c")
+                or (lang == "cpp" and (cpp_source(name) or cpp_header(name)))
+            ):
+                declined = True
+                return Report(lang)
     if lang == "c":
         # use_typedefs: every `.h` and `.c` file the unfiltered walk keeps.
         var rels = Python.list()

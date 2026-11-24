@@ -300,6 +300,22 @@ def test_what_python_may_read_otherwise_goes_to_the_phase1_binary() raises:
     )
     cases.append(("requirements", "requirements.txt=café\n|a.py=x = 1\n"))
     cases.append(("go", "go.mod=module m\n|a.go=package m\n"))
+    # tomllib reads integers past i64 and floats that overflow; toml_edit
+    # refuses the file, so Rust reads no scripts and no dependencies.
+    for big in ["99999999999999999999", "1e999", "-1e999"]:
+        cases.append(
+            (
+                "big-" + big,
+                (
+                    "pyproject.toml=[project]\nname = 'tool'\ndependencies ="
+                    " ['Requests>=2']\n[project.scripts]\ntool ="
+                    " 'tool.cli:main'\n[tool.x]\nn = "
+                    + big
+                    + "\n|tool/__init__.py=|tool/cli.py="
+                    + _CLI
+                ),
+            )
+        )
     for c in cases:
         var spec = List[String]()
         for part in c[1].split("|"):
