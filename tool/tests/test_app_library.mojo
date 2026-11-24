@@ -3,8 +3,8 @@
 # units replay their recorded cases through their bindings with `diff`. The
 # Mojo binary runs next to the Phase 1 binary on copies of the same folder,
 # and the two must agree byte for byte: stdout, stderr, the exit code and the
-# replay report. `diff` is not moved yet, so each unit diffed logs one
-# fallback line of its own (`diff <crate>`) and nothing else may.
+# replay report. The units have no recording, so `diff` answers each with
+# its "no cases.jsonl" error in Mojo, and nothing falls back.
 
 from std.python import Python, PythonObject
 from std.testing import assert_equal, assert_true
@@ -157,8 +157,8 @@ def _done(t: PythonObject, dirs: List[String]) raises:
         _ = t["gone"](PythonObject(d))
 
 
-comptime TEXT = "diff <D>/mojo/app/units/text\n"
-comptime NUM = "diff <D>/mojo/app/units/num\n"
+comptime TEXT = ""
+comptime NUM = ""
 
 
 def test_a_library_replays_through_its_units() raises:

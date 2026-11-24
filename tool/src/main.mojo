@@ -16,6 +16,7 @@ from mojo_anything.refresh import run_record, run_refresh
 from mojo_anything.doctor import run_doctor
 from mojo_anything.map import run_map
 from mojo_anything.setup import run_setup
+from mojo_anything.unit_commands import run_unit_command
 from mojo_anything.app.commands import run_app_record, run_app_replay
 
 
@@ -29,6 +30,11 @@ def owned() -> List[String]:
     out.append("record")
     out.append("setup")
     out.append("doctor")
+    out.append("build")
+    out.append("diff")
+    out.append("gate")
+    out.append("bench")
+    out.append("fuzz")
     out.append("app record")
     out.append("app replay")
     return out^
@@ -52,6 +58,14 @@ def run(p: Parsed, args: List[String]) raises -> Int:
         return run_setup(p, args)
     if p.path() == "doctor":
         return run_doctor(p, args)
+    if (
+        p.path() == "build"
+        or p.path() == "diff"
+        or p.path() == "gate"
+        or p.path() == "bench"
+        or p.path() == "fuzz"
+    ):
+        return run_unit_command(p, args)
     if p.path() == "app record":
         return run_app_record(p, args)
     if p.path() == "app replay":

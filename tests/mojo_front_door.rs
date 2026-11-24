@@ -170,9 +170,8 @@ fn fallback_binary_missing() {
     let tool = mojo_tool();
     let out = run(
         tool,
-        // `--whole-app` still falls back for every language (the repository
-        // itself is now analyzed in Mojo).
-        &["analyze", ".", "--whole-app"],
+        // `shadow` is not ported yet, so it always needs the fallback.
+        &["shadow", "."],
         &[("MOJO_ANYTHING_FALLBACK", "/nope")],
     );
     assert_ne!(out.status.code(), Some(0));
@@ -191,7 +190,8 @@ fn fallback_is_logged_once_per_run() {
     let _ = std::fs::remove_file(&log);
     let out = run(
         tool,
-        &["diff", "/nonexistent"],
+        // `shadow` is not ported yet, so it always falls back.
+        &["shadow", "/nonexistent"],
         &[("MOJO_ANYTHING_FALLBACK_LOG", &log.to_string_lossy())],
     );
     assert_eq!(out.status.code(), Some(2));
