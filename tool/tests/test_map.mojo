@@ -297,6 +297,24 @@ def _c_repo() -> List[String]:
     return spec^
 
 
+def _cpp_repo() -> List[String]:
+    var spec = List[String]()
+    spec.append("CMakeLists.txt=project(p)\n")
+    for i in range(6):
+        var body = String(
+            "#include <string>\nint f", i, "(const std::string &s) {\n"
+        )
+        body += "    int n = 0;\n"
+        for _ in range(i * 2):
+            body += "    n += s.size() / 2;\n"
+        body += "    return n;\n}\n"
+        spec.append(String("p", i, "/f.cpp=") + body)
+    spec.append('tests/test_f1.cpp=#include "../p1/f.hpp"\n')
+    spec.append("p1/f.hpp=int f1(const std::string &s);\n")
+    spec.append("p2/g.hh=class G { int g(); };\n")
+    return spec^
+
+
 def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     """Repositories of the languages read through tree-sitter, with units
     and no port, and ones whose tree has an error (the Phase 1 binary's)."""
@@ -309,6 +327,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     repos.append(("kotlin", _kotlin_repo()))
     repos.append(("php", _php_repo()))
     repos.append(("c", _c_repo()))
+    repos.append(("cpp", _cpp_repo()))
     var flags = List[List[String]]()
     flags.append(["map", "."])
     flags.append(["map", ".", "--json"])
@@ -324,6 +343,7 @@ def test_tree_sitter_maps_without_ports_match_the_phase1_binary() raises:
     bad.append(("kotlin-bad", "build.gradle.kts=\n|A.kt=fun f( {\n"))
     bad.append(("php-bad", "composer.json={}\n|a.php=<?php\nfunction f( {\n"))
     bad.append(("c-bad", "Makefile=x\n|a.c=int f( {\n"))
+    bad.append(("cpp-bad", "CMakeLists.txt=x\n|a.cpp=int f( {\n"))
     bad.append(("go-bad", "go.mod=module b\n|a.go=package b\nfunc F( {\n"))
     for c in bad:
         var spec = List[String]()

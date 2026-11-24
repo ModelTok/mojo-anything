@@ -1511,6 +1511,111 @@ def c_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def _cpp_extension(name: String) -> String:
+    """cpp.rs `extension`: after the last dot, else empty."""
+    var dot = name.rfind(".")
+    if dot < 0:
+        return ""
+    return String(name[byte = dot + 1 :])
+
+
+def cpp_source(name: String) -> Bool:
+    """cpp.rs `is_source`."""
+    var e = _cpp_extension(name)
+    return e == "cpp" or e == "cc" or e == "cxx"
+
+
+def cpp_header(name: String) -> Bool:
+    """cpp.rs `is_header` (`.h` included)."""
+    var e = _cpp_extension(name)
+    return e == "h" or e == "hpp" or e == "hh" or e == "hxx"
+
+
+def cpp_workspace(root: String, py: PythonObject) raises -> Workspace:
+    """cpp.rs `discover`: a package per folder holding a Makefile,
+    CMakeLists.txt or meson.build (its `src` as the source root when there
+    is one), the root's when none is there, and the implementation files and
+    headers the walk keeps, a header whose path without its extension names
+    an implementation file left out (one unit); declined for names outside
+    ASCII, a backslash in a name or ignore files with alternates."""
+    var ws = Workspace()
+    if _file_name(root) in _skip_dirs("cpp"):
+        ws.declined = True
+        return ws^
+    var dirs = List[String]()
+    var found = List[String]()
+    var odd = False
+    for rel in _files("cpp", root):
+        if not _ascii(rel) or "\\" in rel:
+            odd = True
+        var name = _name_of(rel)
+        if (
+            name == "Makefile"
+            or name == "CMakeLists.txt"
+            or name == "meson.build"
+        ):
+            var dir = _dir_of(rel)
+            if not (dir in dirs):
+                dirs.append(dir)
+        elif cpp_source(name) or cpp_header(name):
+            found.append(rel)
+    if len(found) == 0:
+        return ws^
+    if odd or Int(py=py["ignore_files"](PythonObject(root), False)) != 0:
+        ws.declined = True
+        return ws^
+    var has_root = False
+    for dir in dirs:
+        var src_root = dir
+        if isdir(root + "/" + join_dir(dir, "src")):
+            src_root = join_dir(dir, "src")
+        var name = dir
+        if dir.byte_length() == 0:
+            name = _root_name(root)
+            has_root = True
+        ws.packages.append(Package(name, dir, src_root, List[String]()))
+    if not has_root:
+        var src_root = String("")
+        if isdir(root + "/src"):
+            src_root = "src"
+        ws.packages.append(
+            Package(_root_name(root), "", src_root, List[String]())
+        )
+    var sorted = List[Package]()
+    for p in ws.packages:
+        var at = len(sorted)
+        while at > 0 and p.dir < sorted[at - 1].dir:
+            at -= 1
+        sorted.insert(at, p.copy())
+    ws.packages = sorted^
+    var stems = List[String]()
+    for rel in found:
+        if cpp_source(rel):
+            stems.append(String(rel[byte = 0 : rel.rfind(".")]))
+    var kept = List[String]()
+    for rel in found:
+        if cpp_header(rel) and String(rel[byte = 0 : rel.rfind(".")]) in stems:
+            continue
+        kept.append(rel)
+    for rel in _sorted(kept):
+        var best = 0
+        var best_len = -1
+        for k in range(len(ws.packages)):
+            ref d = ws.packages[k].dir
+            if d.byte_length() == 0 or rel.startswith(d + "/"):
+                if d.byte_length() >= best_len:
+                    best = k
+                    best_len = d.byte_length()
+        var name = _name_of(rel)
+        var stem = String(name[byte = 0 : name.rfind(".")])
+        var test = name.startswith("test_") or stem.endswith("_test")
+        for part in rel.split("/"):
+            if part == "tests" or part == "test":
+                test = True
+        ws.files.append(SourceFile(rel, best, test))
+    return ws^
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1540,6 +1645,18 @@ def tree_plan(
             if rel.endswith(".h") or rel.endswith(".c"):
                 rels.append(PythonObject(rel))
         if Int(py=th["c_use_types"](PythonObject(root), rels)) != 1:
+            declined = True
+            return Report(lang)
+    if lang == "cpp":
+        # cpp.rs use_typedefs: every implementation file and header the
+        # unfiltered walk keeps, before any file's exports are read.
+        var rels = Python.list()
+        for path in walk(root, _keep, False):
+            var rel = _rel(root, path)
+            var name = _name_of(rel)
+            if cpp_source(name) or cpp_header(name):
+                rels.append(PythonObject(rel))
+        if Int(py=th["cpp_use_types"](PythonObject(root), rels)) != 1:
             declined = True
             return Report(lang)
     var facts = List[Facts]()
@@ -1654,12 +1771,15 @@ def lang_plan(lang: String, root: String, py: PythonObject) raises -> LangPlan:
         or lang == "kotlin"
         or lang == "php"
         or lang == "c"
+        or lang == "cpp"
     ):
         var ws: Workspace
         if lang == "php":
             ws = php_workspace(root, py)
         elif lang == "c":
             ws = c_workspace(root, py)
+        elif lang == "cpp":
+            ws = cpp_workspace(root, py)
         elif lang == "java":
             ws = java_workspace(root, py)
         elif lang == "go":

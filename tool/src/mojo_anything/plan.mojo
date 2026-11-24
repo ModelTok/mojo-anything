@@ -313,11 +313,15 @@ struct Crates(Movable):
         """analyze::crate_for: the language's lookup (Java keys a Maven
         coordinate by its group)."""
         var key = name
+        # C++ shares C's table (cpp.rs `lookup`).
+        var table = lang
+        if lang == "cpp":
+            table = "c"
         if lang == "java" or lang == "kotlin":
             var colon = name.find(":")
             if colon >= 0:
                 key = String(name[byte=0:colon])
-        var r = self.py["crate_find"](PythonObject(lang), PythonObject(key))
+        var r = self.py["crate_find"](PythonObject(table), PythonObject(key))
         var fit = FIT_UNKNOWN
         if Int(py=r[0]) == 1:
             var f = String(py=r[2])
@@ -551,6 +555,8 @@ def _target(
         return php_resolve(from_path, spec, index, packages)
     if lang == "c":
         return c_resolve(from_path, spec, index, paths, crates)
+    if lang == "cpp":
+        return cpp_resolve(from_path, spec, index, crates)
     return resolve(from_path, spec, index, paths, roots)
 
 
@@ -835,6 +841,62 @@ def c_resolve(
             var impl = (
                 String(header[byte = 0 : header.byte_length() - 2]) + ".c"
             )
+            if impl in index:
+                return Resolution(FILE, index[impl], "")
+        if header in index:
+            return Resolution(FILE, index[header], "")
+    return Resolution(UNRESOLVED, -1, "")
+
+
+def cpp_resolve(
+    from_path: String,
+    spec: String,
+    index: Dict[String, Int],
+    crates: Crates,
+) raises -> Resolution:
+    """cpp.rs `resolve`: a system header is the standard library's (the C
+    table says `std`, a name with no dot or slash, or STANDARD_HEADERS) or a
+    library; a project header relative to the file, the root, include/ or
+    src/, the implementation beside it (`.cpp`, `.cc`, `.cxx`) first."""
+    if spec.startswith("<"):
+        var bytes = spec.as_bytes()
+        var a = 0
+        var b = len(bytes)
+        while a < b and (bytes[a] == 60 or bytes[a] == 62):
+            a += 1
+        while b > a and (bytes[b - 1] == 60 or bytes[b - 1] == 62):
+            b -= 1
+        var bare = String(spec[byte=a:b])
+        var standard = (
+            not ("." in bare) and not ("/" in bare)
+        ) or spec in c_standard_headers()
+        var r = crates.py["crate_find"](PythonObject("c"), PythonObject(spec))
+        if Int(py=r[0]) == 1 and String(py=r[1]) == "std":
+            return Resolution(STDLIB, -1, "")
+        if standard:
+            return Resolution(STDLIB, -1, "")
+        return Resolution(EXTERNAL, -1, spec)
+    var slash = from_path.rfind("/")
+    var dir = String("")
+    if slash >= 0:
+        dir = String(from_path[byte=0:slash])
+    var candidates: List[String] = [
+        join_dir(dir, spec),
+        spec,
+        join_dir("include", spec),
+        join_dir("src", spec),
+    ]
+    for c in candidates:
+        var ok = True
+        var header = _normalize(c, ok)
+        if not ok:
+            continue
+        var stem = header
+        var dot = header.rfind(".")
+        if dot >= 0:
+            stem = String(header[byte=0:dot])
+        for e in ["cpp", "cc", "cxx"]:
+            var impl = stem + "." + e
             if impl in index:
                 return Resolution(FILE, index[impl], "")
         if header in index:
@@ -1425,6 +1487,13 @@ def build(
                     " pointers, structs by value, pointers it cannot pair with"
                     " a length): bridge a wrapper with plain arguments, an API"
                     " change."
+                )
+            elif lang == "cpp":
+                note = (
+                    "No export can cross the C ABI shim (classes, member"
+                    " functions, templates, overloads, state objects, types"
+                    " outside the subset): bridge free functions with plain"
+                    " arguments over them (a facade), an API change."
                 )
             reports[k].notes.insert(0, note)
     for r in reports:

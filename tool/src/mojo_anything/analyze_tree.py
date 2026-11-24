@@ -27,6 +27,7 @@ _GRAMMARS = {
     "kotlin": ("tree_sitter_kotlin", "language"),
     "php": ("tree_sitter_php", "language_php"),
     "c": ("tree_sitter_c", "language"),
+    "cpp": ("tree_sitter_cpp", "language"),
 }
 
 
@@ -2522,6 +2523,463 @@ def _c_exports(root):
     return out
 
 
+# ---- C++ (src/lang/cpp.rs) ---------------------------------------------------------------
+
+_CPP_SOURCES = ("cpp", "cc", "cxx")
+_CPP_HEADERS = ("h", "hpp", "hh", "hxx")
+
+
+def _cpp_extension(name):
+    i = name.rfind(".")
+    return name[i + 1 :] if i >= 0 else ""
+
+
+def cpp_is_source(name):
+    return 1 if _cpp_extension(name) in _CPP_SOURCES else 0
+
+
+def cpp_is_header(name):
+    return 1 if _cpp_extension(name) in _CPP_HEADERS else 0
+
+
+_CPP_POINTER_CALLS = ("malloc", "calloc", "realloc", "free", "memcpy", "memmove")
+_CPP_OFFSET_CALLS = ("strlen", "strcpy", "strcmp", "sprintf", "snprintf", "substr")
+_CPP_EXIT_CALLS = ("setjmp", "longjmp", "exit", "abort", "terminate")
+
+
+def _cpp_scan(root):
+    risks = {}
+    imports = []
+    loops = 0
+
+    def add(risk, node):
+        risks.setdefault(risk, []).append(_line(node))
+
+    # syntax::walk visits anonymous tokens too, so a kind matched here that is
+    # also a token's (`nullptr`) counts for both, as in Rust.
+    for node in _walk(root):
+        kind = node.type
+        if kind == "preproc_include":
+            path = node.child_by_field_name("path")
+            if path is not None:
+                raw = _text(path)
+                if raw.startswith('"'):
+                    imports.append(raw.strip('"'))
+                else:
+                    imports.append("<" + raw.strip("<>") + ">")
+        elif kind in ("pointer_expression", "pointer_declarator", "new_expression", "delete_expression"):
+            add("pointers", node)
+        elif kind in ("throw_statement", "try_statement"):
+            add("exceptions", node)
+        elif kind == "template_declaration":
+            add("dynamic-typing", node)
+        elif kind == "base_class_clause":
+            add("class-inheritance", node)
+        elif kind == "call_expression":
+            f = node.child_by_field_name("function")
+            callee = _text(f) if f is not None else ""
+            bare = callee.split("::")[-1]
+            if bare in _CPP_POINTER_CALLS:
+                add("pointers", node)
+            elif bare in _CPP_OFFSET_CALLS:
+                add("string-offsets", node)
+            elif bare in _CPP_EXIT_CALLS:
+                add("exceptions", node)
+        elif kind in ("qualified_identifier", "qualified_type_identifier"):
+            t = _text(node)
+            if any(t.startswith(p) for p in ("std::thread", "std::mutex", "std::atomic", "std::async")):
+                add("concurrency", node)
+            elif any(t.startswith(p) for p in ("std::unordered_map", "std::unordered_set")):
+                add("unordered-iteration", node)
+        elif kind == "binary_expression":
+            o = node.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            if op in ("/", "%"):
+                add("division-semantics", node)
+        elif kind == "cast_expression":
+            add("integer-semantics", node)
+        elif kind in ("gnu_asm_expression", "ms_declspec_modifier"):
+            add("platform-specific", node)
+        elif kind in ("null", "nullptr"):
+            add("null-references", node)
+        elif kind == "preproc_function_def":
+            add("reflection", node)
+        elif kind in ("for_statement", "for_range_loop", "while_statement", "do_statement"):
+            loops += 1
+    return imports, list(risks.items()), loops
+
+
+def _cpp_scalar_spelling(t):
+    """A scalar type's words with `std::` and `const` dropped."""
+    return " ".join(w[5:] if w.startswith("std::") else w for w in _split_ws(t) if w != "const")
+
+
+# The project's scalar aliases (resolved) and the names of its classes, structs and unions.
+_CPP_TYPES = [{}, set()]
+
+
+def cpp_use_types(root, rels):
+    """use_typedefs over every C++ file the unfiltered walk keeps (`rels`); 1 when read, 0
+    when the result could depend on the walk's order (an alias given two spellings: Rust's
+    map keeps the last one met) or a file's tree has an error."""
+    raw = {}
+    classes = set()
+    try:
+        for rel in rels:
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                data.decode("utf-8")
+            except (OSError, UnicodeError):
+                continue
+            tree = _parse("cpp", data)
+            if tree.root_node.has_error:
+                return 0
+            for node in _walk(tree.root_node):
+                kind = node.type
+                name = ty = None
+                if kind == "alias_declaration":
+                    name = node.child_by_field_name("name")
+                    ty = node.child_by_field_name("type")
+                elif kind == "type_definition":
+                    name = node.child_by_field_name("declarator")
+                    ty = node.child_by_field_name("type")
+                    if name is not None and name.type != "type_identifier":
+                        name = None
+                elif kind in ("class_specifier", "struct_specifier", "union_specifier"):
+                    n = node.child_by_field_name("name")
+                    if n is not None:
+                        classes.add(_text(n))
+                    continue
+                if name is None or ty is None:
+                    continue
+                key = _text(name)
+                value = _cpp_scalar_spelling(_text(ty))
+                if raw.get(key, value) != value:
+                    return 0
+                raw[key] = value
+    except Decline:
+        return 0
+    except RecursionError:
+        return 0
+    aliases = {}
+    for name in raw:
+        ty = raw[name]
+        for _ in range(8):
+            if ty in raw:
+                ty = raw[ty]
+            else:
+                break
+        if c_scalar(ty) is not None:
+            aliases[name] = ty
+    _CPP_TYPES[0] = aliases
+    _CPP_TYPES[1] = classes
+    return 1
+
+
+def _cpp_scalar(s):
+    s = _cpp_scalar_spelling(s)
+    s = _CPP_TYPES[0].get(s, s)
+    d = c_scalar(s)
+    return s if d is not None and d != "void" else None
+
+
+def _cpp_template(t):
+    name = t.child_by_field_name("name")
+    args = t.child_by_field_name("arguments")
+    if name is None or args is None:
+        return None
+    kids = _named(args)
+    if not kids:
+        return None
+    return (_text(name), kids[0])
+
+
+def _cpp_named(node, using_std):
+    """`named`: ("scalar", s), ("str", None), ("vec", s), or ("other", written)."""
+    written = " ".join(_split_ws(_text(node)))
+    other = ("other", written)
+
+    def scalar():
+        s = _cpp_scalar(written)
+        return ("scalar", s) if s is not None else other
+
+    def vector_of(arg):
+        inner = arg.child_by_field_name("type")
+        if inner is None:
+            inner = arg
+        r = _cpp_named(inner, using_std)
+        if r[0] == "scalar" and r[1] != "bool":
+            return ("vec", r[1])
+        return other
+
+    kind = node.type
+    if kind in ("primitive_type", "sized_type_specifier"):
+        return scalar()
+    if kind == "type_identifier":
+        if using_std and written == "string":
+            return ("str", None)
+        return scalar()
+    if kind == "template_type" and using_std:
+        t = _cpp_template(node)
+        if t is not None and t[0] == "vector":
+            return vector_of(t[1])
+        return other
+    if kind in ("qualified_identifier", "qualified_type_identifier"):
+        scope = node.child_by_field_name("scope")
+        scope = _text(scope) if scope is not None else ""
+        name = node.child_by_field_name("name")
+        if name is None or scope != "std":
+            return other
+        if name.type == "type_identifier" and _text(name) == "string":
+            return ("str", None)
+        if name.type == "type_identifier":
+            return scalar()
+        if name.type == "template_type":
+            t = _cpp_template(name)
+            if t is not None and t[0] == "vector":
+                return vector_of(t[1])
+            return other
+        return other
+    return other
+
+
+def _cpp_dialect(named):
+    if named[0] == "scalar":
+        return c_scalar(named[1])
+    if named[0] == "str":
+        return "string"
+    return c_scalar(named[1]) + "[]"
+
+
+def _cpp_unwrap(node):
+    """`unwrap`: how a declarator wraps its name (the outermost wrapping)."""
+    wrap = "value"
+    while node is not None:
+        kind = node.type
+        if kind in ("reference_declarator", "abstract_reference_declarator"):
+            if wrap == "value":
+                wrap = "rref" if _trim_start(_text(node)).startswith("&&") else "ref"
+            kids = _named(node)
+            node = kids[0] if kids else None
+        elif kind in ("pointer_declarator", "abstract_pointer_declarator"):
+            if wrap == "value":
+                wrap = "pointer"
+            node = node.child_by_field_name("declarator")
+        elif kind in ("array_declarator", "abstract_array_declarator"):
+            if wrap == "value":
+                wrap = "array"
+            node = node.child_by_field_name("declarator")
+        elif kind in ("function_declarator", "abstract_function_declarator"):
+            if wrap == "value":
+                wrap = "function"
+            node = node.child_by_field_name("declarator")
+        else:
+            node = None
+    return wrap
+
+
+def _cpp_param(p, using_std):
+    """`param_crossing`: the parameter's dialect type, or None when it cannot cross."""
+    is_const = False
+    other = False
+    for child in _named(p):
+        if child.type == "type_qualifier":
+            if _text(child) == "const":
+                is_const = True
+            else:
+                other = True
+    ty = p.child_by_field_name("type")
+    if ty is None:
+        return None
+    wrap = _cpp_unwrap(p.child_by_field_name("declarator"))
+    if other:
+        return None
+    named = _cpp_named(ty, using_std)
+    if named[0] == "other":
+        return None
+    if wrap == "value" or (wrap == "ref" and is_const):
+        return _cpp_dialect(named)
+    return None
+
+
+def _cpp_function(node, namespaces, using_std, blocked):
+    """`function`: [qualified name, blocked, types] or None (internal linkage, not a
+    function, an operator, `main`)."""
+    for spec in _named(node):
+        word = _text(spec)
+        if spec.type == "storage_class_specifier" and word == "static":
+            return None
+        if spec.type == "storage_class_specifier" and word == "inline":
+            blocked = True
+        elif spec.type == "type_qualifier" and word in ("constexpr", "consteval"):
+            blocked = True
+    function = node.child_by_field_name("declarator")
+    if function is None:
+        return None
+    indirect = False
+    while function.type in ("pointer_declarator", "reference_declarator"):
+        indirect = True
+        inner = function.child_by_field_name("declarator")
+        if inner is None:
+            kids = _named(function)
+            if not kids:
+                return None
+            inner = kids[0]
+        function = inner
+    if function.type != "function_declarator":
+        return None
+    ident = function.child_by_field_name("declarator")
+    if ident is None:
+        return None
+    qualified = list(namespaces)
+    if ident.type == "qualified_identifier":
+        full = "".join(_split_ws(_text(ident)))
+        if "::" not in full:
+            return None
+        scope, name = full.rsplit("::", 1)
+        parts = scope.split("::")
+        member = any(s in _CPP_TYPES[1] for s in parts) or any(
+            c.type == "type_qualifier" for c in _named(function)
+        )
+        qualified.extend(parts)
+        qualified.append(name)
+        if member:
+            return ["::".join(qualified), True, []]
+    elif ident.type == "identifier":
+        qualified.append(_text(ident))
+    else:
+        return None
+    name = "::".join(qualified)
+    if name == "main":
+        return None
+    types = []
+    params = function.child_by_field_name("parameters")
+    if params is not None:
+        if any(c.type in ("...", "variadic_parameter") for c in params.children):
+            blocked = True
+        for p in _named(params):
+            if p.type in ("variadic_parameter_declaration", "variadic_parameter"):
+                blocked = True
+                continue
+            if p.type not in ("parameter_declaration", "optional_parameter_declaration"):
+                continue
+            if trim(_text(p)) == "void":
+                continue
+            d = _cpp_param(p, using_std)
+            if d is None:
+                blocked = True
+                types.append("unknown")
+            else:
+                types.append(d)
+    ret = node.child_by_field_name("type")
+    if ret is None:
+        return None
+    returns = "unknown"
+    if indirect or ret.type == "placeholder_type_specifier":
+        blocked = True
+    elif ret.type == "primitive_type" and _text(ret) == "void":
+        returns = "void"
+    else:
+        named = _cpp_named(ret, using_std)
+        if named[0] == "other":
+            blocked = True
+        else:
+            returns = _cpp_dialect(named)
+    return [name, blocked, types + [returns]]
+
+
+def _cpp_class(node, template):
+    """`class`: whether this class or struct counts (one with member functions, or a
+    template); it is always refused."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return False
+    for m in _named(body):
+        if m.type in ("function_definition", "template_declaration"):
+            return True
+        if m.type in ("field_declaration", "declaration"):
+            d = m.child_by_field_name("declarator")
+            if d is not None and _cpp_unwrap(d) == "function":
+                return True
+    return template
+
+
+def _cpp_visit(node, namespaces, using_std, functions, classes):
+    for child in _named(node):
+        kind = child.type
+        if kind == "namespace_definition":
+            # An anonymous namespace has internal linkage: nothing in it is exported.
+            name = child.child_by_field_name("name")
+            if name is None:
+                continue
+            inner = list(namespaces) + [trim(s) for s in _text(name).split("::") if trim(s)]
+            body = child.child_by_field_name("body")
+            if body is not None:
+                _cpp_visit(body, inner, using_std, functions, classes)
+        elif kind == "function_definition":
+            f = _cpp_function(child, namespaces, using_std, False)
+            if f is not None:
+                functions.append(f)
+        elif kind == "template_declaration":
+            for inner in _named(child):
+                if inner.type == "function_definition":
+                    f = _cpp_function(inner, namespaces, using_std, True)
+                    if f is not None:
+                        functions.append(f)
+                elif inner.type in ("class_specifier", "struct_specifier"):
+                    if _cpp_class(inner, True):
+                        classes.append(True)
+        elif kind == "linkage_specification":
+            body = child.child_by_field_name("body")
+            if body is not None:
+                if body.type == "function_definition":
+                    defs = [body]
+                else:
+                    defs = [n for n in _named(body) if n.type == "function_definition"]
+                for d in defs:
+                    f = _cpp_function(d, namespaces, using_std, True)
+                    if f is not None:
+                        functions.append(f)
+        elif kind in ("class_specifier", "struct_specifier"):
+            if _cpp_class(child, False):
+                classes.append(True)
+        elif kind == "declaration":
+            for inner in _named(child):
+                if inner.type in ("class_specifier", "struct_specifier") and _cpp_class(inner, False):
+                    classes.append(True)
+
+
+def _cpp_exports(root, using_std):
+    """cpp.rs `exports`: free functions (one per name: an overloaded name is refused once,
+    a name its port would share is refused after the first), then the classes, as
+    (blocked, types)."""
+    functions = []
+    classes = []
+    _cpp_visit(root, [], using_std, functions, classes)
+    counts = {}
+    for f in functions:
+        counts[f[0]] = counts.get(f[0], 0) + 1
+    seen = set()
+    kept = []
+    for f in functions:
+        if f[0] not in seen:
+            seen.add(f[0])
+            kept.append(f)
+    ports = {}
+    for f in kept:
+        if counts[f[0]] > 1:
+            f[1] = True
+            continue
+        if not f[1]:
+            port = f[0].split("::")[-1]
+            if port in ports:
+                f[1] = True
+            else:
+                ports[port] = f[0]
+    return [(f[1], f[2]) for f in kept] + [(True, []) for _ in classes]
+
+
 def read_file(lang, path):
     """("unreadable",) when read_to_string would fail; ("decline", why) when the tree has an
     error (error recovery may differ between the cores); else ("ok", loc, imports, risks,
@@ -2556,6 +3014,10 @@ def read_file(lang, path):
         elif lang == "c":
             imports, risks, loops = _c_scan(root)
             exports = _c_exports(root) if path.endswith(".c") else []
+        elif lang == "cpp":
+            imports, risks, loops = _cpp_scan(root)
+            using_std = "using namespace std" in text
+            exports = _cpp_exports(root, using_std) if cpp_is_source(path) else []
         elif lang == "php":
             imports, risks, loops = _php_scan(root)
             # package_of's kebab case and the PSR-4 lookups use Unicode tables.
