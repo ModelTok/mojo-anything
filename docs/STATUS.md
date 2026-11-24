@@ -12,8 +12,10 @@ front door); units cannot be bridged yet.
 **Phase 1 complete, 2026-11-23, on Linux** (x86-64 Ubuntu 24.04 in WSL2, Mojo 1.2.0): every
 source language's fixture loop runs with Mojo ports, the real-world runs below were redone on
 Mojo, and CPython's `quopri` command line is lifted to a pure Mojo binary. **macOS: not run.**
-Nothing has been built, linked or tested on a Mac; the macOS CI job runs for the first time
-after publication (the user, 2026-11-22: "Linux now, macOS later").
+Nothing has been built, linked or tested on a Mac (the user, 2026-11-22: "Linux now, macOS
+later"). The macOS CI job was removed on 2026-11-24, after it failed on `/private/var` temporary
+paths in the front-door tests, until a Mac is available to check fixes (the user: "leave macOS
+path until I have mac machine which will be next year"; "remove the macOS CI for now").
 
 The suite at the release commit: `cargo fmt --all` and `cargo clippy --all-targets -- -D
 warnings` clean; `cargo test` 570 passed, 0 failed over all 46 test targets, run target by target
@@ -133,7 +135,7 @@ Found by the Milestone 7 measurement runs (2026-11-22):
 
 ## Where the tests run
 
-CI (`.github/workflows/ci.yml`) has a Linux and a macOS job, each with pixi (Mojo), Node 24,
+CI (`.github/workflows/ci.yml`) has a Linux job (the macOS job was removed on 2026-11-24, see above) with pixi (Mojo), Node 24,
 Python 3.13, Go, Ruby 3.4 and Java 25, and `MOJO_ANYTHING_REQUIRE` set so that a language suite
 that stops running fails; there is no Windows job. It does not install PHP, .NET, Kotlin or
 mojo-wasm, so the PHP, C#, Kotlin and wasm tests skip there and run only on a machine that has

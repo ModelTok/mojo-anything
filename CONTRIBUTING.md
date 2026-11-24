@@ -118,7 +118,7 @@ cargo test
 - Note anything you couldn't test (another OS, a runtime you don't have).
 - Keep it to one change: two fixes are easier to review as two pull requests.
 
-CI runs on Ubuntu and macOS with every runtime installed. For a first-time contributor, GitHub
+CI runs on Ubuntu with every runtime installed (no macOS job until a Mac is available to check its fixes). For a first-time contributor, GitHub
 waits for a maintainer to approve the CI run, so expect a short delay before the checks start.
 
 Pull requests are merged with their commits kept, so your history stays yours. If a change needs
