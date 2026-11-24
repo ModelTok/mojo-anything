@@ -15,6 +15,7 @@
 from std.python import Python, PythonObject
 
 from mojo_anything.analyze import (
+    c_type_rels,
     detect_lang,
     empty_workspace,
     helpers,
@@ -38,6 +39,7 @@ from mojo_anything.codegen_mojo import (
     port_mojo,
     trim_start_matches,
 )
+from mojo_anything.codegen_mojo_c import BUILD_DIR, c_bindings, port_mojo_c
 from mojo_anything.codegen_mojo_py import (
     GITIGNORE,
     mojo_py_bindings,
@@ -397,6 +399,16 @@ def read_port(crate_dir):
         return ("decline",)
     return ("ok", data.decode("ascii"))
 
+def host():
+    # (plain char is signed, the shared library's extension): c.rs
+    # plain_char_is_signed and harness_mojo_c's `library_name`, for this host.
+    import platform, sys
+    m = platform.machine().lower()
+    unsigned = sys.platform.startswith("linux") and m.startswith(
+        ("aarch64", "arm", "ppc", "powerpc", "riscv", "s390")
+    )
+    return (0 if unsigned else 1, "dylib" if sys.platform == "darwin" else "so")
+
 def readable(root, files):
     # 1 when every file reads as UTF-8 (read_to_string succeeds).
     for rel in files:
@@ -437,6 +449,7 @@ def _params(ps: PythonObject) raises -> List[Param]:
                 False,
                 _opt(p["default"]),
                 Bool(py=p["keyword_only"]),
+                None,
             )
         )
     return out^
@@ -454,6 +467,8 @@ def _function(f: PythonObject) raises -> ExportedFn:
         List[String](),
         False,
         _opt(f["blocker"]),
+        None,
+        None,
     )
 
 
@@ -670,7 +685,9 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
             " record`, `app replay`) and get a Rust front door (`app"
             " front-door`) that hands everything to the original"
         )
-    if lang == "c" or lang == "cpp" or lang == "go" or lang == "ruby":
+    if lang == "c":
+        return _bridge_c(argv, root, unit, bh)
+    if lang == "cpp" or lang == "go" or lang == "ruby":
         # A unit `analyze` counted no exports in (functions and classes,
         # read by the same tree-sitter readers bridge's `lang::exports`
         # uses) has none to bridge, when every file of it reads as UTF-8
@@ -699,6 +716,81 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
     if lang != "python":
         return fallback(argv)
     return _bridge_python(argv, root, unit, bh)
+
+
+def _check_defined(
+    unit: UnitReport,
+    lang: String,
+    exports: List[ExportedFn],
+    classes: List[ExportedClass],
+    js_only: List[JsOnly],
+) raises:
+    """bridge.rs: two definitions of one name, and a unit with nothing
+    to bridge."""
+    # Two definitions of one name: sorted by (name, "file:line"), the first
+    # adjacent pair.
+    var names = List[String]()
+    var ats = List[String]()
+    for f in exports:
+        names.append(f.name)
+        ats.append(String(f.file, ":", f.line))
+    for c in classes:
+        names.append(c.name)
+        ats.append(String(c.file, ":", c.line))
+    for j in js_only:
+        names.append(j.name)
+        ats.append(String(j.file, ":", j.line))
+    for i in range(1, len(names)):
+        var k = i
+        while k > 0 and _less(names[k], ats[k], names[k - 1], ats[k - 1]):
+            names.swap_elements(k, k - 1)
+            ats.swap_elements(k, k - 1)
+            k -= 1
+    for i in range(1, len(names)):
+        if names[i] == names[i - 1]:
+            raise Error(
+                String(
+                    "`",
+                    names[i],
+                    "` is defined twice in `",
+                    unit.id,
+                    "` (",
+                    ats[i - 1],
+                    " and ",
+                    ats[i],
+                    (
+                        "), and the bridge names every export by itself, so one"
+                        " would silently replace the other. Bridge the module"
+                        " you want on its own (`mojo-anything bridge <root>"
+                        " <that file>`), or rename one of them"
+                    ),
+                )
+            )
+    if len(exports) == 0 and len(classes) == 0 and len(js_only) > 0:
+        var parts = List[String]()
+        for j in js_only:
+            parts.append(String(j.name, " (", j.reason, ")"))
+        raise Error(
+            String(
+                "every export of `",
+                unit.id,
+                "` must stay in ",
+                lang_name(lang),
+                ": ",
+                join(parts, ", "),
+            )
+        )
+    if len(exports) == 0 and len(classes) == 0:
+        raise Error(
+            String(
+                "unit `",
+                unit.id,
+                (
+                    "` exports no functions; bridge a unit with an exported"
+                    " function API"
+                ),
+            )
+        )
 
 
 def _bridge_python(
@@ -754,70 +846,7 @@ def _bridge_python(
                 )
             else:
                 classes.append(cls^)
-    # Two definitions of one name: sorted by (name, "file:line"), the first
-    # adjacent pair.
-    var names = List[String]()
-    var ats = List[String]()
-    for f in exports:
-        names.append(f.name)
-        ats.append(String(f.file, ":", f.line))
-    for c in classes:
-        names.append(c.name)
-        ats.append(String(c.file, ":", c.line))
-    for j in js_only:
-        names.append(j.name)
-        ats.append(String(j.file, ":", j.line))
-    for i in range(1, len(names)):
-        var k = i
-        while k > 0 and _less(names[k], ats[k], names[k - 1], ats[k - 1]):
-            names.swap_elements(k, k - 1)
-            ats.swap_elements(k, k - 1)
-            k -= 1
-    for i in range(1, len(names)):
-        if names[i] == names[i - 1]:
-            raise Error(
-                String(
-                    "`",
-                    names[i],
-                    "` is defined twice in `",
-                    unit.id,
-                    "` (",
-                    ats[i - 1],
-                    " and ",
-                    ats[i],
-                    (
-                        "), and the bridge names every export by itself, so one"
-                        " would silently replace the other. Bridge the module"
-                        " you want on its own (`mojo-anything bridge <root>"
-                        " <that file>`), or rename one of them"
-                    ),
-                )
-            )
-    if len(exports) == 0 and len(classes) == 0 and len(js_only) > 0:
-        var parts = List[String]()
-        for j in js_only:
-            parts.append(String(j.name, " (", j.reason, ")"))
-        raise Error(
-            String(
-                "every export of `",
-                unit.id,
-                "` must stay in ",
-                lang_name("python"),
-                ": ",
-                join(parts, ", "),
-            )
-        )
-    if len(exports) == 0 and len(classes) == 0:
-        raise Error(
-            String(
-                "unit `",
-                unit.id,
-                (
-                    "` exports no functions; bridge a unit with an exported"
-                    " function API"
-                ),
-            )
-        )
+    _check_defined(unit, "python", exports, classes, js_only)
     var crate_name = _crate_name(unit.id)
     var crate_dir = root + "/mojo/" + crate_name
     var cs = String(py=bh["crate_state"](PythonObject(crate_dir)))
@@ -915,4 +944,232 @@ def _bridge_python(
         )
     for j in m.js_only:
         print(String("- `", j.name, "` stays in Python: ", j.reason, "."))
+    return 0
+
+
+def _c_function(f: PythonObject) raises -> ExportedFn:
+    var params = List[Param]()
+    var ps = f["params"]
+    for i in range(_len(ps)):
+        var p = ps[i]
+        params.append(
+            Param(
+                String(py=p["name"]),
+                String(py=p["ts_type"]),
+                False,
+                False,
+                None,
+                False,
+                _opt(p["native_type"]),
+            )
+        )
+    return ExportedFn(
+        String(py=f["name"]),
+        String(py=f["file"]),
+        Int(py=f["line"]),
+        params^,
+        String(py=f["returns"]),
+        False,
+        False,
+        List[String](),
+        False,
+        _opt(f["blocker"]),
+        _opt(f["native_return"]),
+        _opt(f["prototype"]),
+    )
+
+
+def readme(m: Manifest) -> String:
+    """Bridge.rs `readme`: every kind but `mojo-py`'s."""
+    var kind = String("the C ABI")
+    if m.kind == "c-abi" and m.language == "cpp":
+        kind = (
+            "a C ABI shim (`cpp/shim.cpp`) and a C++ wrapper with the original"
+            " signatures (`cpp/wrapper.cpp`)"
+        )
+    elif m.kind == "ffi":
+        kind = "a JSON dispatcher"
+    elif m.kind == "mojo-node":
+        kind = "a Node-API addon over the JSON dispatcher"
+    elif m.kind == "mojo-wasm":
+        kind = "a WebAssembly module of the JSON dispatcher"
+    elif m.kind == "mojo-jvm":
+        kind = "Java's Foreign Function & Memory API over the JSON dispatcher"
+    var functions = String("")
+    for f in m.exports:
+        functions += String("- `", f.name, "` (`", f.file, ":", f.line, "`)\n")
+    return String(
+        "# ",
+        m.crate_name,
+        "\n\nMojo port of `",
+        m.unit,
+        "`, bridged with ",
+        kind,
+        ". Generated by mojo-anything.\n\n## Functions\n\n",
+        functions,
+        "\n## Loop\n\n```sh\nmojo-anything record .   # record what the",
+        " original does\nmojo-anything build .    # build ",
+        kind,
+        "\nmojo-anything diff .     # run the recorded cases against the",
+        " port\nmojo-anything shadow .   # run both in the app, log",
+        " mismatches\nmojo-anything gate .     # format, lint, tests, unsafe,",
+        " API, diff\n```\n",
+    )
+
+
+def _free_crate_dir(crate_dir: String, bh: PythonObject) raises -> Bool:
+    """False when the crate folder is declined (not a folder, a link,
+    unreadable); raises bridge's error when it holds entries."""
+    var cs = String(py=bh["crate_state"](PythonObject(crate_dir)))
+    if cs == "other":
+        return False
+    if cs == "full":
+        raise Error(
+            String(
+                crate_dir,
+                (
+                    " already exists and is not empty; mojo-anything never"
+                    " overwrites a port in progress"
+                ),
+            )
+        )
+    return True
+
+
+def _write(
+    crate_dir: String,
+    paths: List[String],
+    texts: List[String],
+    bh: PythonObject,
+) raises:
+    var pp = Python.list()
+    var pt = Python.list()
+    for i in range(len(paths)):
+        pp.append(PythonObject(paths[i]))
+        pt.append(PythonObject(texts[i]))
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
+
+
+def _outcome(
+    crate_dir: String,
+    kind: String,
+    paths: List[String],
+    m: Manifest,
+    notes: List[String],
+):
+    """Main.rs's report of a bridge Outcome."""
+    var exported = List[String]()
+    for f in m.exports:
+        exported.append(f.name)
+    print(
+        String(
+            "Created ",
+            crate_dir,
+            " (",
+            _kind_debug(kind),
+            ") for ",
+            join(exported, ", "),
+        )
+    )
+    for path in paths:
+        print("  " + path)
+    for n in notes:
+        print("- " + n)
+
+
+def _bridge_c(
+    argv: List[String], root: String, unit: UnitReport, bh: PythonObject
+) raises -> Int:
+    """Bridge.rs `bridge` for a C unit (`bridge_c`, `c_bindings`)."""
+    var th = tree_helpers()
+    if Int(py=th["c_use_types"](PythonObject(root), c_type_rels(root))) != 1:
+        return fallback(argv)
+    var files = Python.list()
+    for f in unit.files:
+        files.append(PythonObject(f))
+    var r = th["c_bridge_exports"](PythonObject(root), files)
+    if String(py=r[0]) != "ok":
+        return fallback(argv)
+    var exports = List[ExportedFn]()
+    var classes = List[ExportedClass]()
+    var js_only = List[JsOnly]()
+    var fs = r[1]
+    for i in range(_len(fs)):
+        var f = _c_function(fs[i])
+        var reason = js_only_reason(f)
+        if reason:
+            js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
+        else:
+            exports.append(f^)
+    _check_defined(unit, "c", exports, classes, js_only)
+    var crate_name = _crate_name(unit.id)
+    var crate_dir = root + "/mojo/" + crate_name
+    if not _free_crate_dir(crate_dir, bh):
+        return fallback(argv)
+    var host = bh["host"]()
+    var signed = Int(py=host[0]) == 1
+    var ext = String(py=host[1])
+    var m = Manifest(
+        root,
+        unit.id,
+        "c",
+        "c-abi",
+        crate_name,
+        exports^,
+        classes^,
+        js_only^,
+    )
+    # Everything is generated before anything is written.
+    var port = port_mojo_c(m, signed)
+    var api = parse_port_mojo(port)
+    var paths = List[String]()
+    var texts = List[String]()
+    paths.append("port.mojo")
+    texts.append(port)
+    paths.append("pixi.toml")
+    texts.append(pixi_toml(m))
+    paths.append(".gitignore")
+    texts.append(".mojo-anything/\n.pixi/\n")
+    paths.append("README.md")
+    texts.append(readme(m))
+    paths.append(MANIFEST)
+    texts.append(manifest_json(m))
+    c_bindings(m, api, signed, paths, texts)
+    _write(crate_dir, paths, texts, bh)
+    var notes = List[String]()
+    notes.append(
+        String(
+            "Port each function in port.mojo, then: mojo-anything record ",
+            crate_dir,
+            " && mojo-anything build ",
+            crate_dir,
+            " && mojo-anything diff ",
+            crate_dir,
+        )
+    )
+    notes.append(
+        String(
+            "Link ",
+            BUILD_DIR,
+            "/lib",
+            m.lib_name(),
+            ".",
+            ext,
+            " instead of the C objects; include/",
+            m.lib_name(),
+            ".h has the prototypes.",
+        )
+    )
+    notes.append(
+        "The library is not self-contained yet: once it uses the Mojo standard"
+        " library it needs libKGENCompilerRTShared (.so, or .dylib on macOS)"
+        " from the unit's .pixi/envs/default/lib, and it finds it there through"
+        " an absolute RUNPATH. Ship that file beside it (and set the runpath"
+        " to $ORIGIN) before linking it into a program that runs elsewhere."
+    )
+    for j in m.js_only:
+        notes.append(String("`", j.name, "` stays in C: ", j.reason, "."))
+    _outcome(crate_dir, m.kind, paths, m, notes)
     return 0

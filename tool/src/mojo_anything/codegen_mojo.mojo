@@ -22,6 +22,8 @@ struct Param(Copyable, Movable):
     var rest: Bool
     var default: Optional[String]
     var keyword_only: Bool
+    var native_type: Optional[String]
+    """The exact source type (C: `size_t`)."""
 
 
 @fieldwise_init
@@ -36,6 +38,10 @@ struct ExportedFn(Copyable, Movable):
     var type_params: List[String]
     var uses_instanceof: Bool
     var blocker: Optional[String]
+    var native_return: Optional[String]
+    """The exact source return type (C: `unsigned long`)."""
+    var prototype: Optional[String]
+    """The C declaration as written, whitespace collapsed."""
 
 
 @fieldwise_init
@@ -863,6 +869,10 @@ def _param_json(p: Param, ind: String) -> String:
         out += String(",\n", i2, '"default": ', write_string(p.default.value()))
     if p.keyword_only:
         out += String(",\n", i2, '"keyword_only": true')
+    if p.native_type:
+        out += String(
+            ",\n", i2, '"native_type": ', write_string(p.native_type.value())
+        )
     out += String("\n", ind, "}")
     return out
 
@@ -907,6 +917,17 @@ def _fn_json(f: ExportedFn, ind: String) -> String:
     out += String(i2, '"uses_instanceof": ', _bool(f.uses_instanceof))
     if f.blocker:
         out += String(",\n", i2, '"blocker": ', write_string(f.blocker.value()))
+    if f.native_return:
+        out += String(
+            ",\n",
+            i2,
+            '"native_return": ',
+            write_string(f.native_return.value()),
+        )
+    if f.prototype:
+        out += String(
+            ",\n", i2, '"prototype": ', write_string(f.prototype.value())
+        )
     out += String("\n", ind, "}")
     return out
 

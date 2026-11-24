@@ -2345,18 +2345,20 @@ def _c_is_char_pointer_pointer(c_type):
 
 
 def _c_classify(c_type):
-    """(ok, dialect type or reason)."""
+    """c.rs `classify`: (ok, dialect type or the reason it cannot cross)."""
     if "(fn)" in c_type:
-        return (False, "fn")
+        return (False, "takes a function pointer")
     if "*" in c_type or "[]" in c_type:
-        return (False, "pointer")
+        return (False, "passes a pointer (`%s`): ownership must be designed" % c_type)
     ts = _c_struct_type(c_type)
     if ts is not None:
         return (True, ts)
     d = c_scalar(c_type)
     if d is not None:
         return (True, d)
-    return (False, "type")
+    if c_type.startswith("struct") or c_type.startswith("union"):
+        return (False, "passes `%s` by value, and not all of its fields are scalars" % c_type)
+    return (False, "uses `%s`, which is not a C scalar the bridge knows" % c_type)
 
 
 def _c_classify_params(types):
@@ -2418,7 +2420,15 @@ def _c_classify_params(types):
                 if pj is not None and pj[0] == "char":
                     target = j
                     break
-        out[i] = (True, "outptr:%d" % target) if target is not None else (False, "pp")
+        out[i] = (
+            (True, "outptr:%d" % target)
+            if target is not None
+            else (
+                False,
+                "passes a pointer to a pointer (`%s`) with no `char *` parameter it could point into"
+                % ty,
+            )
+        )
     result = []
     for (ty, _), done in zip(types, out):
         if done is not None:
@@ -2426,9 +2436,9 @@ def _c_classify_params(types):
             continue
         p = _c_pointee(ty)
         if p is not None and p[1] and p[0] in _C_BYTE_TYPES:
-            result.append((False, "no length"))
+            result.append((False, "passes a pointer (`%s`) with no length parameter after it" % ty))
         elif p is not None and not p[1] and p[0] in _C_BYTE_TYPES:
-            result.append((False, "no size"))
+            result.append((False, "writes to a buffer (`%s`) whose size is not a parameter" % ty))
         elif p is not None and not p[1] and c_scalar(p[0]) not in (None, "void"):
             result.append((True, "out"))
         else:
@@ -2446,8 +2456,10 @@ def _c_allocates(body):
     return False
 
 
-def _c_exports(root):
-    """c.rs `exports`: non-static function definitions, as (blocked, types)."""
+def _c_functions(root, path):
+    """c.rs `exports`: the non-static function definitions of a `.c` file, as ExportedFn
+    dicts (name, file, line, params with their C types, returns, native_return, prototype,
+    blocker)."""
     out = []
     for node in _named(root):
         if node.type != "function_definition":
@@ -2472,12 +2484,12 @@ def _c_exports(root):
         name = _text(n) if n is not None else ""
         if name == "main":
             continue
-        blocked = False
+        blocker = None
         declared = []
         params = function.child_by_field_name("parameters")
         for i, p in enumerate(_named(params) if params is not None else []):
             if p.type == "variadic_parameter":
-                blocked = True
+                blocker = "is variadic"
                 continue
             if p.type != "parameter_declaration":
                 continue
@@ -2488,13 +2500,13 @@ def _c_exports(root):
                 continue
             declared.append((_c_resolve_type(c_type), pname if pname is not None else "arg%d" % i))
         kinds = _c_classify_params([(t, nm) for t, nm in declared])
-        types = []
-        for ok, t in kinds:
-            if ok:
-                types.append(t)
-            else:
-                blocked = True
-                types.append("unknown")
+        ps = []
+        for (c_type, pname), (ok, t) in zip(declared, kinds):
+            if not ok:
+                if blocker is None:
+                    blocker = t
+                t = "unknown"
+            ps.append({"name": pname, "ts_type": t, "native_type": c_type})
         r = _c_resolve_type(ret)
         if r == "void":
             returns = "void"
@@ -2502,9 +2514,9 @@ def _c_exports(root):
             into = None
             pr = _c_pointee(r)
             if pr is not None:
-                for k, (t, _) in enumerate(declared):
-                    if types[k] in ("string", "bytes", "buffer"):
-                        pk = _c_pointee(t)
+                for k, p in enumerate(ps):
+                    if p["ts_type"] in ("string", "bytes", "buffer"):
+                        pk = _c_pointee(p["native_type"])
                         if pk is not None and pk[0] == pr[0]:
                             into = k
                             break
@@ -2513,17 +2525,77 @@ def _c_exports(root):
             if into is not None and not allocates:
                 returns = "ptr:%d" % into
             else:
-                blocked = True
+                if blocker is None:
+                    blocker = "returns a pointer (`%s`): who frees it must be designed" % r
                 returns = "unknown"
         else:
             ok, t = _c_classify(r)
             if ok:
                 returns = t
             else:
-                blocked = True
+                if blocker is None:
+                    blocker = t
                 returns = "unknown"
-        out.append((blocked, types + [returns]))
+        out.append(
+            {
+                "name": name,
+                "file": path,
+                "line": _line(node),
+                "params": ps,
+                "returns": returns,
+                "native_return": r,
+                "prototype": " ".join(_split_ws(base + " " + _text(declarator))),
+                "blocker": blocker,
+            }
+        )
     return out
+
+
+def _c_exports(root):
+    """c.rs `exports` for analyze: (blocked, the dialect types) of each function."""
+    return [
+        (f["blocker"] is not None, [p["ts_type"] for p in f["params"]] + [f["returns"]])
+        for f in _c_functions(root, "")
+    ]
+
+
+def c_bridge_exports(root, files):
+    """bridge's reading of a C unit (c.rs `exports` over each file, after `use_types`):
+    ("ok", functions) or ("decline",) when a file does not read as UTF-8 (bridge's
+    `reading <file>` error is not reproduced), a `.c` tree has an error, or any name or type
+    is outside ASCII."""
+    out = []
+    try:
+        for rel in files:
+            if rel.endswith((".vue", ".svelte", ".astro")):
+                continue
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                data.decode("utf-8")
+            except (OSError, UnicodeError):
+                return ("decline",)
+            if not rel.endswith(".c"):
+                continue
+            tree = _parse("c", data)
+            if tree.root_node.has_error:
+                return ("decline",)
+            out.extend(_c_functions(tree.root_node, rel))
+    except (Decline, RecursionError):
+        return ("decline",)
+
+    def ascii(v):
+        if isinstance(v, str):
+            return v.isascii()
+        if isinstance(v, dict):
+            return all(ascii(x) for x in v.values())
+        if isinstance(v, list):
+            return all(ascii(x) for x in v)
+        return True
+
+    if not ascii(out):
+        return ("decline",)
+    return ("ok", out)
 
 
 # ---- C++ (src/lang/cpp.rs) ---------------------------------------------------------------

@@ -68,6 +68,9 @@ def run(binary, args, cwd, log):
                        stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
     out = p.stdout.decode("utf-8", "replace").replace(cwd, "<D>")
     err = p.stderr.decode("utf-8", "replace").replace(cwd, "<D>")
+    # A Rust panic names its thread's id, which differs between runs.
+    import re
+    err = re.sub(r"thread 'main' \\(\\d+\\)", "thread 'main'", err)
     return (p.returncode, out, err)
 
 def log_text(path):
@@ -234,6 +237,100 @@ def test_python_refresh_matches_the_phase1_binary() raises:
     names.args.append("refresh")
     names.args.append("mojo/names-mojo")
     _owned(t, names)
+    _ = t["gone"]()
+
+
+def _c_manifest(params: String, returns: String) -> String:
+    return String(
+        '{"schema": "mojo-anything/bridge@1", "root": "../..", "unit": "u.c",',
+        ' "language": "c", "kind": "c-abi", "crate_name": "u-mojo",',
+        ' "exports": [{"name": "f", "file": "u.c", "line": 3, "params": [',
+        params,
+        '], "returns": "',
+        returns,
+        '", "is_async": false, "native_return": "char *", "prototype":',
+        ' "char *f(char *s, char **end, int *out)"}]}',
+    )
+
+
+def _c_param(name: String, ts: String, native: String) -> String:
+    return String(
+        '{"name": "',
+        name,
+        '", "ts_type": "',
+        ts,
+        '", "optional": false, "rest": false, "native_type": "',
+        native,
+        '"}',
+    )
+
+
+def test_c_refresh_matches_the_phase1_binary() raises:
+    """Refresh of a `c-abi` C unit: exports.mojo, its shadow twin, the
+    header and c_structs.mojo from the manifest."""
+    var t = _py()
+    var c = _case("c", "tests/fixtures/c", "src/checksum.c")
+    c.args.append("refresh")
+    c.args.append("mojo/checksum-mojo")
+    _owned(t, c)
+    # A port function that raises is called in a `try`.
+    var raising = _case("c-raises", "tests/fixtures/c", "src/text.c")
+    raising.files.append(
+        "mojo/text-mojo/port.mojo=def count_words(s:"
+        " Optional[Span[UInt8, ImmutAnyOrigin]]) raises -> UInt:\n    return"
+        " 0\n\n\ndef vowels(s: Optional[Span[UInt8, ImmutAnyOrigin]]) ->"
+        " Int32:\n    return 0\n"
+    )
+    raising.args.append("refresh")
+    raising.args.append("mojo/text-mojo")
+    _owned(t, raising)
+    var params = String(
+        _c_param("s", "buffer", "char*"),
+        ", ",
+        _c_param("end", "outptr:0", "char**"),
+        ", ",
+        _c_param("out", "out", "int*"),
+        ", ",
+        _c_param("n", "len:0", "size_t"),
+        ", ",
+        _c_param("q", "struct:Q:int num,int den", "Q"),
+    )
+    var hand = _case("c-hand", "", "")
+    hand.files.append("mojo/u-mojo/port.mojo=def f():\n    pass\n")
+    hand.files.append(
+        String("mojo/u-mojo/mojo-anything.json=", _c_manifest(params, "ptr:0"))
+    )
+    hand.args.append("refresh")
+    hand.args.append("mojo/u-mojo")
+    _owned(t, hand)
+    var noport = _case("c-noport", "", "")
+    noport.files.append(
+        String("mojo/u-mojo/mojo-anything.json=", _c_manifest("", "int"))
+    )
+    noport.args.append("refresh")
+    noport.args.append("mojo/u-mojo")
+    _owned(t, noport)
+    # Indices Rust's parser reads otherwise, or that point past the
+    # parameters (Rust panics), go to the Phase 1 binary.
+    for ts in ["len:+0", "outptr:7"]:
+        var odd = _case("c-odd", "", "")
+        odd.files.append("mojo/u-mojo/port.mojo=def f():\n    pass\n")
+        odd.files.append(
+            String(
+                "mojo/u-mojo/mojo-anything.json=",
+                _c_manifest(
+                    String(
+                        _c_param("s", "buffer", "char*"),
+                        ", ",
+                        _c_param("n", ts, "size_t"),
+                    ),
+                    "int",
+                ),
+            )
+        )
+        odd.args.append("refresh")
+        odd.args.append("mojo/u-mojo")
+        assert_true(_both(t, odd) != "", String(ts, " did not fall back"))
     _ = t["gone"]()
 
 
@@ -438,4 +535,5 @@ def main() raises:
     test_record_load_errors_match_the_phase1_binary()
     test_unanswered_go_to_the_phase1_binary()
     test_review_findings_match_the_phase1_binary()
-    print("test_refresh: 5 passed")
+    test_c_refresh_matches_the_phase1_binary()
+    print("test_refresh: 6 passed")

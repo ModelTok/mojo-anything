@@ -1622,6 +1622,17 @@ def cpp_workspace(root: String, py: PythonObject) raises -> Workspace:
     return ws^
 
 
+def c_type_rels(root: String) raises -> PythonObject:
+    """use_typedefs' files: every `.h` and `.c` file the unfiltered walk
+    keeps."""
+    var rels = Python.list()
+    for path in walk(root, _keep, False):
+        var rel = _rel(root, path)
+        if rel.endswith(".h") or rel.endswith(".c"):
+            rels.append(PythonObject(rel))
+    return rels
+
+
 def tree_plan(
     lang: String,
     registry: String,
@@ -1656,13 +1667,10 @@ def tree_plan(
                 declined = True
                 return Report(lang)
     if lang == "c":
-        # use_typedefs: every `.h` and `.c` file the unfiltered walk keeps.
-        var rels = Python.list()
-        for path in walk(root, _keep, False):
-            var rel = _rel(root, path)
-            if rel.endswith(".h") or rel.endswith(".c"):
-                rels.append(PythonObject(rel))
-        if Int(py=th["c_use_types"](PythonObject(root), rels)) != 1:
+        if (
+            Int(py=th["c_use_types"](PythonObject(root), c_type_rels(root)))
+            != 1
+        ):
             declined = True
             return Report(lang)
     if lang == "cpp":

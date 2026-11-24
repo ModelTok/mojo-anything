@@ -25,6 +25,7 @@ from mojo_anything.codegen_mojo import (
     match_export_names,
     parse_port_mojo,
 )
+from mojo_anything.codegen_mojo_c import c_bindings, c_manifest_reads_alike
 from mojo_anything.codegen_mojo_py import mojo_py_bindings
 from mojo_anything.embedded import py_num_mojo
 from mojo_anything.fallback import fallback
@@ -53,6 +54,7 @@ def _params(ps: PythonObject) raises -> List[Param]:
                 Bool(py=p["rest"]),
                 _opt(p["default"]),
                 Bool(py=p["keyword_only"]),
+                _opt(p["native_type"]),
             )
         )
     return out^
@@ -73,6 +75,8 @@ def _function(f: PythonObject) raises -> ExportedFn:
         tps^,
         Bool(py=f["uses_instanceof"]),
         _opt(f["blocker"]),
+        _opt(f["native_return"]),
+        _opt(f["prototype"]),
     )
 
 
@@ -187,6 +191,8 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
                 " unit of kind `ffi`: bridge again",
             )
         )
+    if kind == "c-abi" and language == "c":
+        return _refresh_c(argv, crate_dir, l.manifest, bh)
     if kind != "mojo-py":
         return fallback(argv)
     var port = bh["read_port"](PythonObject(crate_dir))
@@ -227,6 +233,43 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
     var names = List[String]()
     for f in api.functions:
         names.append(f.js_name)
+    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
+    return 0
+
+
+def _refresh_c(
+    argv: List[String],
+    crate_dir: String,
+    loaded: PythonObject,
+    bh: PythonObject,
+) raises -> Int:
+    """Refresh of a C unit: bridge.rs `c_bindings` from the manifest's
+    signatures (the port only says which functions raise)."""
+    var port = bh["read_port"](PythonObject(crate_dir))
+    var ps = String(py=port[0])
+    if ps == "missing":
+        raise Error("reading port.mojo: No such file or directory (os error 2)")
+    if ps != "ok":
+        return fallback(argv)
+    var m = manifest_from_py(loaded)
+    if not c_manifest_reads_alike(m):
+        return fallback(argv)
+    var api = parse_port_mojo(String(py=port[1]))
+    var signed = Int(py=bh["host"]()[0]) == 1
+    var paths = List[String]()
+    var texts = List[String]()
+    c_bindings(m, api, signed, paths, texts)
+    var pp = Python.list()
+    var pt = Python.list()
+    for i in range(len(paths)):
+        pp.append(PythonObject(paths[i]))
+        pt.append(PythonObject(texts[i]))
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
+    var names = List[String]()
+    for f in m.exports:
+        names.append(f.name)
     print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
     return 0
 

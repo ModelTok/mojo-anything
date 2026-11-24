@@ -311,17 +311,74 @@ def test_units_without_exports_match_the_phase1_binary() raises:
     cpp.append("CMakeLists.txt=project(k CXX)\n")
     cpp.append("src/k.cpp=static int twice(int x) { return 2 * x; }\n")
     _owned(t, "cpp-static", "", cpp, _args(".", "src/k.cpp"))
-    # A unit with exports still goes to the Phase 1 binary.
-    var log = _both(
-        t, "c-exports", "tests/fixtures/c", none, _args(".", "src/checksum.c")
-    )
-    assert_true(log != "", "a C unit with exports did not fall back")
     # A Go file whose functions are all unexported has none either.
     var bad = List[String]()
     bad.append("go.mod=module example.com/b\n\ngo 1.22\n")
     bad.append("b.go=package b\n\nfunc f() {}\n")
     var t2 = _both(t, "go-private", "", bad, _args(".", "b.go"))
     assert_equal(t2, "", "fell back in go-private")
+    _ = t["gone"]()
+
+
+def test_c_units_are_bridged_in_mojo() raises:
+    """`bridge_c`: port.mojo, exports.mojo and its shadow twin, the header and
+    c_structs.mojo, for every way a C parameter crosses (codegen_c `CKind`)."""
+    var t = _py()
+    var none = List[String]()
+    _owned(t, "c-sum", "tests/fixtures/c", none, _args(".", "src/checksum.c"))
+    _owned(t, "c-text", "tests/fixtures/c", none, _args(".", "src/text.c"))
+    var kinds = List[String]()
+    kinds.append("Makefile=all:\n\tcc -c src/k.c\n")
+    kinds.append(
+        "src/k.h=#include <stdint.h>\n#include <stddef.h>\ntypedef struct {"
+        " int num; int den; } Q;\nstruct point { double x, y; };\ntypedef"
+        " struct point Pt;\ntypedef uint32_t hash_t;\ntypedef enum { RED,"
+        " GREEN } colour;\ntypedef struct { unsigned char tag; char c; int64_t"
+        " n; } Tagged;\n"
+    )
+    kinds.append(
+        'src/k.c=#include "k.h"\n\nQ qmul(Q a, Q b) { Q r = { a.num * b.num,'
+        " a.den * b.den }; return r; }\n\nstruct point mid(struct point a, Pt"
+        " b) { struct point r = { (a.x + b.x) / 2, (a.y + b.y) / 2 }; return"
+        " r; }\n\nTagged tag(Tagged t) { return t; }\n\nsize_t copy_into(char"
+        " *dst, size_t size, const char *src) { size_t i = 0; for (; src[i] &&"
+        " i + 1 < size; i++) dst[i] = src[i]; if (size) dst[i] = 0; return i;"
+        " }\n\nint fill(int count, uint8_t *buf, short cap_unused, size_t len)"
+        " { (void)count; (void)buf; return (int)len; }\n\nint sum_bytes(const"
+        " uint8_t *data, size_t len) { int s = 0; for (size_t i = 0; i < len;"
+        " i++) s += data[i]; return s; }\n\nint parse_int(const char *s, char"
+        " **end, int *out) { *out = 0; *end = (char *)s; return 0; }\n\nconst"
+        " char *skip_ws(const char *s) { while (*s == ' ') s++; return s;"
+        " }\n\nchar *dup(const char *s) { return strdup(s); }\n\nhash_t"
+        " h(hash_t x) { return x * 31u; }\n\nint shade(colour c) { return"
+        " (int)c; }\n\nint sum(int n, ...) { return n; }\n\nstatic int"
+        " hidden(int x) { return x; }\n\nvoid reset(void) {}\n\nlong double"
+        " big(long double x) { return x; }\n\nint apply(int (*f)(int), int x)"
+        " { return f(x); }\n\nint first(const char *s, int n) { return s[0] +"
+        " n; }\n\nint ends(char **p) { return 0; }\n\nint nolen(const uint8_t"
+        " *p) { return p[0]; }\n\nint nosize(char *p) { return 0; }\n\nint"
+        " arr(int xs[]) { return xs[0]; }\n\nstruct big { int a[2]; };\nint"
+        " opaque(struct big b) { return 0; }\n\n_Bool yes(signed char a,"
+        " unsigned short b, unsigned long long c, ssize_t d, float e) { return"
+        " 1; }\n\nint main(void) { return 0; }\n"
+    )
+    _owned(t, "c-kinds", "", kinds, _args(".", "src/k.c"))
+    # Every export stays in C; a function named like a Mojo keyword.
+    var stays = List[String]()
+    stays.append("Makefile=all:\n")
+    stays.append("v.c=int sum(int n, ...) { return n; }\n")
+    _owned(t, "c-stays", "", stays, _args(".", "v.c"))
+    var keyword = List[String]()
+    keyword.append("Makefile=all:\n")
+    keyword.append(
+        "w.c=int fn(int x) { return x; }\nint ok(int y) { return y; }\n"
+    )
+    _owned(t, "c-keyword", "", keyword, _args(".", "w.c"))
+    var taken = List[String]()
+    taken.append("mojo/checksum-mojo/keep.txt=mine\n")
+    _owned(
+        t, "c-taken", "tests/fixtures/c", taken, _args(".", "src/checksum.c")
+    )
     _ = t["gone"]()
 
 
@@ -348,4 +405,5 @@ def main() raises:
     test_unanswered_bridges_go_to_the_phase1_binary()
     test_units_without_exports_match_the_phase1_binary()
     test_failed_writes_match_the_phase1_binary()
-    print("test_bridge: 6 passed")
+    test_c_units_are_bridged_in_mojo()
+    print("test_bridge: 7 passed")
