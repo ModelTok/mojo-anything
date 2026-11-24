@@ -293,7 +293,8 @@ def test_unanswered_bridges_go_to_the_phase1_binary() raises:
     go_batch.append("--batch")
     go_batch.append("Echo:s")
     log = _both(t, "go", "tests/fixtures/go-mojo-ports", none, go_batch)
-    assert_true(log != "", "--batch on a Go unit did not fall back")
+    # Answered in Mojo since --batch was ported (test_batch).
+    assert_equal(log, "", "--batch on a Go unit fell back")
     _ = t["gone"]()
 
 
@@ -562,7 +563,7 @@ def test_bridge_flags_match_the_phase1_binary() raises:
         none,
         _with(_args(".", "src/checksum.c"), batch),
     )
-    assert_true(log != "", "--batch did not fall back")
+    assert_equal(log, "", "--batch on a C unit fell back")
     _ = t["gone"]()
 
 

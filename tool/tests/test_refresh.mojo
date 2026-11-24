@@ -476,7 +476,8 @@ def test_unanswered_go_to_the_phase1_binary() raises:
     batch.args.append(_CRATE)
     batch.args.append("--batch")
     batch.args.append("scale:x")
-    assert_true(_both(t, batch) != "", "--batch did not fall back")
+    # Answered in Mojo since --batch was ported (test_batch).
+    assert_equal(_both(t, batch), "", "--batch fell back")
     # A mojo-node refresh is answered in Mojo now (test_bridge_ts).
     var lib = _case("lib", "tests/fixtures/lib", "ts/src/nums.ts")
     lib.args.append("refresh")

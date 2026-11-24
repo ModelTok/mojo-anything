@@ -5,6 +5,7 @@
 # (NATIVE_FFM, JSON_JAVA, ERROR_JAVA) are embedded from the Rust sources by
 # tool/embedded.py.
 
+from mojo_anything.analyze import lang_name
 from mojo_anything.codegen_ffi import DISPATCHER, dispatcher_mojo
 from mojo_anything.codegen_mojo import (
     ExportedFn,
@@ -349,6 +350,15 @@ def mojo_jvm_bindings(
     """bridge.rs `mojo_jvm_bindings`: `pixi.toml`, `json.mojo`, the
     dispatcher over the unit's exports, the FFM class, the codec, the error
     mapping and the wrappers."""
+    if len(m.batches) > 0:
+        raise Error(
+            "not yet: batches for Java units ported to Mojo come after"
+            " correctness"
+        )
+    if m.language != "java" and m.language != "kotlin":
+        raise Error(
+            String(lang_name(m.language), " units do not bridge through Java")
+        )
     var exported = PortApi()
     for f in api.functions:
         for e in m.exports:

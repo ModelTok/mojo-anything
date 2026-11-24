@@ -1,8 +1,8 @@
 # The JSON dispatcher (port of src/codegen_ffi.rs `dispatcher_mojo`): one
 # Mojo library exporting `mojo_anything_call` (a function name and its
 # arguments as JSON in, `{"ok": ...}`, `{"error": ...}` or `{"panic": ...}`
-# out) and `mojo_anything_free`. Go and Ruby units use it here; `--batch`
-# entries are not written (bridge and refresh decline batches).
+# out) and `mojo_anything_free`, with the `<function>:batch` entries of
+# `--batch` (codegen_ffi.rs `batch_calls`).
 
 from mojo_anything.codegen_mojo import Manifest, PortApi, join
 from mojo_anything.embedded import dispatcher_helpers
@@ -200,9 +200,132 @@ def to_json(mut out: Converters, ty: String) raises -> String:
     return name
 
 
+def _batch_calls(
+    m: Manifest,
+    api: PortApi,
+    mut conv: Converters,
+    mut calls: String,
+    mut arms: String,
+) raises:
+    """The `<function>:batch` entries: the function's arguments with a JSON
+    array of items in the batched parameter's place; the port runs once per
+    item and the answer is the array of results."""
+    for b in m.batches:
+        var spec = String("--batch ", b.function, ":", b.param)
+        var fi = -1
+        for i in range(len(api.functions)):
+            if api.functions[i].js_name == b.function:
+                fi = i
+                break
+        if fi < 0:
+            raise Error(String(spec, ": port.mojo has no `", b.function, "`"))
+        var f = api.functions[fi].copy()
+        var at = -1
+        for e in m.exports:
+            if e.name == b.function:
+                for i in range(len(e.params)):
+                    if e.params[i].name == b.param:
+                        at = i
+                        break
+                break
+        var n = len(f.param_types)
+        if at < 0 or at >= n:
+            raise Error(
+                String(
+                    spec,
+                    ": `",
+                    b.function,
+                    "` has no parameter `",
+                    b.param,
+                    "`",
+                )
+            )
+        var s = String("s")
+        if n == 1:
+            s = ""
+        calls += String(
+            "\n\ndef _batch_",
+            f.rust_name,
+            "(args: Array) -> String:\n    if len(args) != ",
+            n,
+            ':\n        return _panic("',
+            f.js_name,
+            " batch takes ",
+            n,
+            " argument",
+            s,
+            ', got " + String(len(args)))\n',
+        )
+        for i in range(n):
+            if i != at:
+                calls += String("    var a", i, ": ", f.param_types[i], "\n")
+        calls += "    try:\n"
+        calls += String("        json_array(args[", at, "])\n")
+        for i in range(n):
+            if i != at:
+                var from_name: String
+                try:
+                    from_name = from_json(conv, f.param_types[i])
+                except e:
+                    raise Error(String(spec, ": ", String(e)))
+                calls += String(
+                    "        a", i, " = ", from_name, "(args[", i, "])\n"
+                )
+        calls += String(
+            '    except e:\n        return _panic("',
+            f.js_name,
+            ': " + String(e))\n',
+        )
+        var item_t = f.param_types[at]
+        var from_item: String
+        try:
+            from_item = from_json(conv, item_t)
+        except e:
+            raise Error(String(spec, ": ", String(e)))
+        var call_args = List[String]()
+        for i in range(n):
+            if i == at:
+                call_args.append("x")
+            else:
+                call_args.append(String("a", i))
+        var call = String("port.", f.rust_name, "(", join(call_args, ", "), ")")
+        var push: String
+        if f.ret == "None":
+            push = String(call, "\n            out.append(JsonValue())")
+        else:
+            var to: String
+            try:
+                to = to_json(conv, f.ret)
+            except e:
+                raise Error(String(spec, ": ", String(e)))
+            push = String("out.append(", to, "(", call, "))")
+        calls += String(
+            "    var out = Array()\n    var k = 0\n    for item in args[",
+            at,
+            "].array():\n        var x: ",
+            item_t,
+            "\n        try:\n            x = ",
+            from_item,
+            '(item)\n        except e:\n            return _panic("',
+            f.js_name,
+            ': item " + String(k) + ": " + String(e))\n        try:\n',
+            "            ",
+            push,
+            "\n        except e:\n            return _error(String(e))\n",
+            "        k += 1\n    return _ok(JsonValue(out^))\n",
+        )
+        arms += String(
+            '    if name == "',
+            f.js_name,
+            ':batch":\n        return _batch_',
+            f.rust_name,
+            "(a)\n",
+        )
+
+
 def dispatcher_mojo(m: Manifest, api: PortApi) raises -> String:
-    """`dispatcher.mojo` over every port function (codegen_ffi.rs
-    `dispatcher_mojo`, no batches)."""
+    """`dispatcher.mojo` over every port function and `--batch` entry
+    (codegen_ffi.rs `dispatcher_mojo`)."""
     var conv = Converters(m.language)
     var calls = String("")
     var arms = String("")
@@ -270,6 +393,7 @@ def dispatcher_mojo(m: Manifest, api: PortApi) raises -> String:
             f.rust_name,
             "(a)\n",
         )
+    _batch_calls(m, api, conv, calls, arms)
     var refuse = String("False")
     if m.language == "ruby":
         refuse = "True"

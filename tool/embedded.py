@@ -30,7 +30,8 @@
 - `java_native_ffm()`, `java_json()`, `java_error()`: the fixed Java classes of a mojo-jvm
   unit (src/codegen_mojo_jvm.rs `NATIVE_FFM`, src/codegen_java.rs `JSON_JAVA` and
   `ERROR_JAVA`).
-- `js_codec()`, `js_call()`, `js_wasm()`: the fixed parts of a TS/JS unit's `index.cjs`
+- `js_codec()`, `js_call()`, `js_wasm()`, `js_batch()`: the fixed parts of a TS/JS unit's
+  `index.cjs` (`js_batch()` is src/codegen_mojo_node.rs `BATCH_CJS`)
   (src/codegen_js.rs `CODEC_CJS`, src/codegen_mojo_node.rs `CALL_CJS` and `WASM_CJS`).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
@@ -64,6 +65,7 @@ FILES = [
     ("js_codec", os.path.join(REPO, "src", "codegen_js.rs") + "#CODEC_CJS"),
     ("js_call", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#CALL_CJS"),
     ("js_wasm", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#WASM_CJS"),
+    ("js_batch", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#BATCH_CJS"),
     ("java_native_ffm", os.path.join(REPO, "src", "codegen_mojo_jvm.rs") + "#NATIVE_FFM"),
     ("java_json", os.path.join(REPO, "src", "codegen_java.rs") + "#JSON_JAVA"),
     ("java_error", os.path.join(REPO, "src", "codegen_java.rs") + "#ERROR_JAVA"),

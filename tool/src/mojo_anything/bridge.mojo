@@ -26,6 +26,7 @@ from mojo_anything.analyze import (
 )
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.codegen_mojo import (
+    Batch,
     ExportedClass,
     ExportedFn,
     JsOnly,
@@ -398,11 +399,15 @@ def load_manifest(crate_dir):
             "classes": [_class(c) for c in _list(top, "classes", False)],
             "js_only": [_js_only(j) for j in _list(top, "js_only", False)],
         }
-        if _list(top, "batches", False):
-            raise _Bad("batches")
+        # codegen_batch::Batch: both fields strings, other fields ignored.
+        m["batches"] = [
+            [_str(_obj(b), "function"), _str(b, "param")] for b in _list(top, "batches", False)
+        ]
         ft = top.get("float_tolerance")
         if ft is not None and not (_is(ft, float) or _is(ft, int)):
             raise _Bad("float_tolerance")
+        m["float_tolerance"] = ft is not None
+        m["root_written"] = m["root"]
     except _Bad:
         return ("decline",)
     if not _ascii_all(m):
@@ -495,6 +500,26 @@ def require_java():
         if major < 22:
             return ("error", "%s; found %d (%s)" % (need, major, path))
     return ("ok",)
+
+def read_text(path):
+    # ("ok", text), ("missing",) on ENOENT, ("decline",) for another io error
+    # or text that is not UTF-8 (read_to_string's other errors).
+    try:
+        with open(path, "rb") as f:
+            return ("ok", f.read().decode("utf-8"))
+    except FileNotFoundError:
+        return ("missing",)
+    except (OSError, UnicodeError):
+        return ("decline",)
+
+def restore(path, text):
+    # fs::write of `text`; False when it fails.
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        return True
+    except OSError:
+        return False
 
 def readable(root, files):
     # 1 when every file reads as UTF-8 (read_to_string succeeds).
@@ -694,6 +719,22 @@ def _less(a_name: String, a_at: String, b_name: String, b_at: String) -> Bool:
     return a_at < b_at
 
 
+def parse_batches(specs: List[String]) raises -> List[Batch]:
+    """bridge.rs `parse_batches`: `function:param`, each side trimmed."""
+    var out = List[Batch]()
+    for s in specs:
+        var colon = s.find(":")
+        if colon < 0:
+            raise Error(String("`--batch ", s, "`: write it as function:param"))
+        out.append(
+            Batch(
+                trim(String(s[byte=0:colon])),
+                trim(String(s[byte = colon + 1 :])),
+            )
+        )
+    return out^
+
+
 def keep_reason(keep: List[String], name: String) -> Optional[String]:
     """Bridge.rs `keep_reason`: `--keep name` or `--keep "name: reason"`."""
     for k in keep:
@@ -719,6 +760,12 @@ struct Flags(Copyable, Movable):
     var keep: List[String]
     var name: Optional[String]
     var out: Optional[String]
+    var batch: List[String]
+    """The `--batch` specs as given."""
+
+    def batches(self) raises -> List[Batch]:
+        """bridge.rs `parse_batches`."""
+        return parse_batches(self.batch)
 
     def crate_name(self, unit_id: String) -> String:
         if self.name:
@@ -739,9 +786,6 @@ struct Flags(Copyable, Movable):
 
 
 def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
-    # `--batch` adds batches to the manifest, which is not ported.
-    if p.value("batch"):
-        return fallback(argv)
     var kind = p.value("kind")
     if kind and kind.value() != "wasm" and kind.value() != "node":
         return fallback(argv)
@@ -761,7 +805,11 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
         out_dir.value().byte_length() == 0 or not is_ascii(out_dir.value())
     ):
         return fallback(argv)
-    var flags = Flags(keep^, name, out_dir)
+    var batch = p.all("batch")
+    for b in batch:
+        if not is_ascii(b):
+            return fallback(argv)
+    var flags = Flags(keep^, name, out_dir, batch^)
     var force = p.flag("force")
     var root_arg = p.value("ROOT").or_else("")
     var unit_arg = p.value("UNIT").or_else("")
@@ -1032,6 +1080,7 @@ def _bridge_python(
         exports^,
         classes^,
         js_only^,
+        flags.batches(),
     )
     var port = port_mojo(m)
     var api = parse_port_mojo(port)
@@ -1287,6 +1336,7 @@ def _bridge_c(
         exports^,
         classes^,
         js_only^,
+        flags.batches(),
     )
     # Everything is generated before anything is written.
     var port = port_mojo_c(m, signed)
@@ -1386,6 +1436,8 @@ def mojo_ffi_bindings(
     """Bridge.rs `mojo_ffi_bindings`: `pixi.toml`, `json.mojo` when the unit
     needs it, the library source and the language-side wrapper. False when
     the Go sources cannot be read the way the Rust tool reads them."""
+    if len(m.batches) > 0:
+        raise Error("not yet: batches for Go and Ruby come after correctness")
     # Only the unit's exports cross; a public helper stays in the library.
     var exported = PortApi()
     for f in api.functions:
@@ -1490,6 +1542,7 @@ def _bridge_ffi(
         exports^,
         classes^,
         js_only^,
+        flags.batches(),
     )
     # Everything is generated before anything is written.
     var port = port_mojo(m)
@@ -1581,6 +1634,7 @@ def _bridge_jvm(
         exports^,
         classes^,
         js_only^,
+        flags.batches(),
     )
     # Everything is generated before anything is written.
     var port = port_mojo(m)
@@ -1717,6 +1771,7 @@ def _bridge_cpp(
         exports^,
         classes^,
         js_only^,
+        flags.batches(),
     )
     # Everything is generated before anything is written.
     var port = port_mojo_cpp(m, signed)
@@ -1913,6 +1968,7 @@ def _bridge_ts(
         exports^,
         none^,
         all_only^,
+        flags.batches(),
     )
     var port = port_mojo(m)
     var api = parse_port_mojo(port)

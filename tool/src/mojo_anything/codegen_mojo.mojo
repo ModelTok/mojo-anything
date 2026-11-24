@@ -67,6 +67,14 @@ struct JsOnly(Copyable, Movable):
 
 
 @fieldwise_init
+struct Batch(Copyable, Movable):
+    """`--batch function:param` (codegen_batch.rs `Batch`)."""
+
+    var function: String
+    var param: String
+
+
+@fieldwise_init
 struct Manifest(Copyable, Movable):
     var root: String
     var unit: String
@@ -77,6 +85,7 @@ struct Manifest(Copyable, Movable):
     var exports: List[ExportedFn]
     var classes: List[ExportedClass]
     var js_only: List[JsOnly]
+    var batches: List[Batch]
 
     def lib_name(self) -> String:
         return self.crate_name.replace("-", "_")
@@ -1149,8 +1158,8 @@ def _class_json(c: ExportedClass, ind: String) -> String:
 
 
 def manifest_json(m: Manifest) -> String:
-    """`serde_json::to_string_pretty(m) + "\\n"` (no batches, no float
-    tolerance: `bridge` writes neither)."""
+    """`serde_json::to_string_pretty(m) + "\\n"` (no float tolerance:
+    `bridge` writes none, and `refresh --batch` declines one)."""
     var i1 = String("  ")
     var out = String("{\n")
     out += String(i1, '"schema": ', write_string(SCHEMA), ",\n")
@@ -1169,8 +1178,11 @@ def manifest_json(m: Manifest) -> String:
                 out += ",\n"
             out += _class_json(m.classes[i], i1 + "  ")
         out += String("\n", i1, "],\n")
+    var tail = String("\n")
+    if len(m.batches) > 0:
+        tail = ",\n"
     if len(m.js_only) == 0:
-        out += String(i1, '"js_only": []\n')
+        out += String(i1, '"js_only": []', tail)
     else:
         out += String(i1, '"js_only": [\n')
         for i in range(len(m.js_only)):
@@ -1190,6 +1202,19 @@ def manifest_json(m: Manifest) -> String:
                 ",\n",
                 '      "reason": ',
                 write_string(j.reason),
+                "\n    }",
+            )
+        out += String("\n", i1, "]", tail)
+    if len(m.batches) > 0:
+        out += String(i1, '"batches": [\n')
+        for i in range(len(m.batches)):
+            if i > 0:
+                out += ",\n"
+            out += String(
+                '    {\n      "function": ',
+                write_string(m.batches[i].function),
+                ',\n      "param": ',
+                write_string(m.batches[i].param),
                 "\n    }",
             )
         out += String("\n", i1, "]\n")

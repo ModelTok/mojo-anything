@@ -8,6 +8,7 @@ from mojo_anything.codegen_mojo import Manifest, PortApi, join
 from mojo_anything.codegen_ffi import DISPATCHER, dispatcher_mojo
 from mojo_anything.codegen_mojo_py import unit_pixi_toml
 from mojo_anything.embedded import (
+    js_batch,
     js_call,
     js_codec,
     js_wasm,
@@ -66,11 +67,47 @@ def _bool(b: Bool) -> String:
     return "false"
 
 
+def pascal(name: String) -> String:
+    """codegen_batch.rs `pascal`: `fuzzy_score` and `fuzzyScore` give
+    `FuzzyScore` (the names are ASCII here)."""
+    var out = String("")
+    var up = True
+    for b in name.as_bytes():
+        if b == UInt8(ord("_")) or b == UInt8(ord("-")):
+            up = True
+        elif up:
+            out += String(chr(Int(b))).upper()
+            up = False
+        else:
+            out += chr(Int(b))
+    return out
+
+
+def _item_kind(mojo: String) -> String:
+    """The JS `typeof` a batch item of this Mojo type must have, or ""."""
+    var t = String(mojo.strip())
+    if (
+        t == "Float64"
+        or t == "Float32"
+        or t == "Int"
+        or t == "Int64"
+        or t == "Int32"
+        or t == "UInt64"
+        or t == "UInt32"
+    ):
+        return "number"
+    if t == "String":
+        return "string"
+    if t == "Bool":
+        return "boolean"
+    return ""
+
+
 def index_cjs_mojo(m: Manifest, api: PortApi) -> String:
     """`index.cjs` of a `mojo-node` or `mojo-wasm` unit: each export encodes
     its arguments with the JS codec, calls the dispatcher through the addon
-    or the module and decodes the answer (no batches: `bridge --batch` is
-    the Phase 1 binary's)."""
+    or the module and decodes the answer; each `--batch` adds a batch
+    class."""
     var ports = List[String]()
     for f in api.functions:
         var is_async = False
@@ -102,6 +139,51 @@ def index_cjs_mojo(m: Manifest, api: PortApi) -> String:
                 "],",
             )
         )
+    var batches = List[String]()
+    for b in m.batches:
+        var fi = -1
+        for i in range(len(api.functions)):
+            if api.functions[i].js_name == b.function:
+                fi = i
+                break
+        if fi < 0:
+            continue
+        var at = -1
+        for e in m.exports:
+            if e.name == b.function:
+                for i in range(len(e.params)):
+                    if e.params[i].name == b.param:
+                        at = i
+                        break
+                break
+        if at < 0 or at >= len(api.functions[fi].param_types):
+            continue
+        batches.append(
+            String(
+                "  ",
+                pascal(api.functions[fi].js_name),
+                "Batch: ['",
+                api.functions[fi].js_name,
+                "', ",
+                at,
+                ", ",
+                len(api.functions[fi].param_types),
+                ", '",
+                _item_kind(api.functions[fi].param_types[at]),
+                "', ",
+                _bool(_item_kind(api.functions[fi].ret) == "number"),
+                "],",
+            )
+        )
+    var batch_js = String("")
+    if len(batches) > 0:
+        batch_js = String(
+            "// Batches: [function, item position, parameter count, item type,",
+            " numeric results].\nconst batches = {\n",
+            join(batches, "\n"),
+            "\n}\n",
+            js_batch(),
+        )
     var over: String
     var native: String
     if m.kind == "mojo-wasm":
@@ -128,6 +210,7 @@ def index_cjs_mojo(m: Manifest, api: PortApi) -> String:
         join(ports, "\n"),
         "\n}\n",
         js_call(),
+        batch_js,
     )
 
 

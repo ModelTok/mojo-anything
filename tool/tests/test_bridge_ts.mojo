@@ -8,7 +8,7 @@
 # one.
 
 from std.python import Python, PythonObject
-from std.testing import assert_equal, assert_true
+from std.testing import assert_equal
 
 comptime FALLBACK = "tool/fallback/mojo-anything"
 comptime MOJO = "tool/build/mojo-anything"
@@ -459,7 +459,8 @@ def test_refresh_regenerates_ts_bindings() raises:
 
 
 def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
-    """`--batch` of a TS unit."""
+    """`--batch` of a TS unit, answered in Mojo since --batch was ported
+    (test_batch)."""
     var t = _py()
     var log = _both(
         t,
@@ -468,7 +469,7 @@ def test_what_is_not_ported_goes_to_the_phase1_binary() raises:
         List[String](),
         _with(_args(".", "ts/src/nums.ts"), "--batch", "clamp:x"),
     )
-    assert_true(log != "", "--batch did not fall back")
+    assert_equal(log, "", "--batch fell back")
 
 
 def test_review_findings_go_to_the_phase1_binary() raises:
