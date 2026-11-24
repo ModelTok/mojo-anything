@@ -42,6 +42,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Python workspaces with source files (read through CPython's `ast`), `map` of Python repositories with no port | 524 | 524 | 53.6% (281/524), [log](measurements/2026-11-23-phase2-replay-8.md) |
 | 2026-11-23, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Java, Go, Ruby and C# workspaces with source files (read through tree-sitter's Python bindings), `map` of those repositories with no port | 524 | 524 | 44.8% (235/524), [log](measurements/2026-11-23-phase2-replay-9.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Kotlin, PHP and C workspaces with source files, `map` of those repositories with no port | 524 | 524 | 38.4% (201/524), [log](measurements/2026-11-24-phase2-replay-10.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of C++ workspaces, `map` of repositories whose bridge crates name another root, Python `analyze --whole-app` | 524 | 524 | 31.5% (165/524), [log](measurements/2026-11-24-phase2-replay-11.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -165,6 +166,37 @@ reads, and a Kotlin, Java or C# file outside every package folder when there is 
 `test_analyze_php.mojo`, `test_analyze_c.mojo` and `test_map.mojo` run both binaries on copies
 of the same projects (`pixi run check-tool`: 26 test files, 157 tests). TS (read by oxc in the
 Rust tool), C++, `--whole-app`, and `map` with ports still fall back.
+
+The eleventh row adds C++, `map` with foreign bridge crates, and Python `--whole-app`.
+
+- **C++.** C++ reads every implementation file and header for the project's aliases and class
+  names. Only each export's blocked state and types are kept, which is all the report counts.
+  An alias with two spellings, a tree with an error, or a symlinked source or header in the
+  files that walk reads goes to the Phase 1 binary.
+- **`map` with foreign bridge crates.** A `mojo-anything.json` whose `root` names no path that
+  resolves to the repository is no port of it, so the repository gets the no-port map. A
+  manifest that might be a port, or that does not parse, goes to the Phase 1 binary. Real ports
+  (with stale units and last diffs) still fall back, because no recorded case has one.
+- **`--whole-app`.** For a Python plan, `--whole-app` adds four things in Markdown and JSON:
+  - the entry points, from the pyproject scripts, a server start or a `__main__` guard;
+  - every dependency imported or declared, including requirements files and their includes;
+  - the pieces in port order;
+  - the decisions.
+
+  The following go to the Phase 1 binary:
+  - a `package.json`;
+  - a `pyproject.toml` that tomllib refuses;
+  - a `pyproject.toml` with an integer outside i64 or a float that overflows (toml_edit refuses
+    the file);
+  - a character that Python's `\s` takes and Rust's does not;
+  - text outside ASCII next to the entry patterns;
+  - `--whole-app` of any other language.
+
+`analyze` now falls back in 40 of its 147 cases and `map` in 28 of 137
+([log](measurements/2026-11-24-phase2-replay-11.md)). `tool/tests/test_analyze_cpp.mojo`,
+`test_analyze_whole_app.mojo` and `test_map.mojo` run both binaries on copies of the same
+projects (`pixi run check-tool`: 28 test files, 164 tests). TS, `--whole-app` of other
+languages, `map` with real ports, `bridge`, `refresh` and `record` still fall back.
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
