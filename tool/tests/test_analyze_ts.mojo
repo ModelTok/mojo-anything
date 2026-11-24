@@ -56,11 +56,14 @@ def tree(d):
     out.sort()
     return repr(out)
 
-def run(binary, args, cwd, log, path=None):
+def run(binary, args, cwd, log, path=None, extra=()):
     env = dict(os.environ)
     env.pop("MOJO_ANYTHING_FALLBACK_LOG", None)
     if path is not None:
         env = {"PATH": path, "HOME": os.environ.get("HOME", "/")}
+    for kv in extra:
+        k, v = kv.split("=", 1)
+        env[k] = v
     if log:
         if os.path.exists(log):
             os.remove(log)
@@ -108,9 +111,11 @@ def _both(
     spec: List[String],
     args: List[String],
     path: String = "",
+    env: List[String] = [],
 ) raises -> String:
     """Runs both binaries on fresh copies of the project; returns the Mojo
-    run's fallback log. A `path` runs the Mojo binary with only that PATH."""
+    run's fallback log. A `path` runs the Mojo binary with only that PATH;
+    `env` (`K=V` strings) is added to the Mojo binary's environment."""
     var files = _files(spec)
     var old = String(
         py=t["fixture"](PythonObject("old"), PythonObject(name), files)
@@ -130,8 +135,16 @@ def _both(
     var p = PythonObject(None)
     if path != "":
         p = PythonObject(path)
+    var extra = Python.list()
+    for e in env:
+        extra.append(PythonObject(e))
     var n = t["run"](
-        PythonObject(MOJO), pargs, PythonObject(new), PythonObject(log), p
+        PythonObject(MOJO),
+        pargs,
+        PythonObject(new),
+        PythonObject(log),
+        p,
+        extra,
     )
     assert_equal(String(py=n[1]), String(py=o[1]), "stdout of" + shown)
     assert_equal(String(py=n[2]), String(py=o[2]), "stderr of" + shown)
@@ -548,6 +561,40 @@ def test_an_older_node_leaves_it_to_the_phase1_binary() raises:
     assert_equal(log, "analyze .\n", "fallback with an older node")
 
 
+def test_the_reader_runs_the_same_in_any_locale_and_environment() raises:
+    """The reader's source and answer are UTF-8 whatever the locale says
+    (under an ASCII locale with Python's UTF-8 mode off, encoding the source
+    as an argument failed), and `NAPI_RS_*` variables, which can make
+    oxc-parser load another binding, are dropped before it runs."""
+    var t = _py()
+    var spec: List[String] = [
+        'package.json={"name": "proj"}\n',
+        (
+            "src/a.ts=// café\nexport function add(a: number, b:"
+            " number): number { return a + b; }\n"
+        ),
+    ]
+    var ascii: List[String] = [
+        "LC_ALL=C",
+        "PYTHONUTF8=0",
+        "PYTHONCOERCECLOCALE=0",
+    ]
+    assert_equal(
+        _both(t, "locale", spec, ["analyze", "."], env=ascii),
+        "",
+        "fell back in locale",
+    )
+    var napi: List[String] = [
+        "NAPI_RS_NATIVE_LIBRARY_PATH=/nonexistent/binding.node",
+        "NAPI_RS_FORCE_WASI=1",
+    ]
+    assert_equal(
+        _both(t, "napi", spec, ["analyze", "."], env=napi),
+        "",
+        "fell back in napi",
+    )
+
+
 def test_review_findings_match_the_phase1_binary() raises:
     """Review of 8a5790e..f7e2382: names in a dotted namespace and an
     import type's qualifier are not references, an interface's heritage is
@@ -596,5 +643,6 @@ def main() raises:
     test_ts_maps_match_the_phase1_binary()
     test_what_the_reader_cannot_vouch_for_goes_to_the_phase1_binary()
     test_an_older_node_leaves_it_to_the_phase1_binary()
+    test_the_reader_runs_the_same_in_any_locale_and_environment()
     _ = _py()["gone"]()
-    print("test_analyze_ts: 6 passed")
+    print("test_analyze_ts: 7 passed")

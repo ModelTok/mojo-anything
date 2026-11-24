@@ -57,19 +57,27 @@ def _run(repo, source, request):
     node = shutil.which("node")
     if node is None:
         return ("decline", "no node")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("NODE_")}
+    # NODE_* and NAPI_RS_* (NAPI_RS_NATIVE_LIBRARY_PATH, NAPI_RS_FORCE_WASI)
+    # can change what Node runs or which binding oxc-parser loads.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("NODE_") and not k.startswith("NAPI_RS_")}
     try:
-        v = subprocess.run([node, "--version"], capture_output=True, text=True, env=env,
-                           stdin=subprocess.DEVNULL, timeout=120)
-    except (OSError, subprocess.SubprocessError):
+        v = subprocess.run([node, "--version"], capture_output=True, encoding="utf-8",
+                           env=env, stdin=subprocess.DEVNULL, timeout=120)
+    except (OSError, subprocess.SubprocessError, ValueError):
         return ("decline", "node does not run")
     if v.returncode != 0 or not _node_ok(v.stdout):
         return ("decline", "node is older than oxc-parser needs")
     request = dict(request, oxc=os.path.join(oxc, "src-js", "index.js"))
+    # The source and the answer are UTF-8 whatever the locale says: the
+    # source goes as bytes (the locale's codec may not hold it), the answer
+    # is decoded as UTF-8 (UnicodeDecodeError is a ValueError).
     try:
-        p = subprocess.run([node, "--input-type=module", "-e", source], input=json.dumps(request),
-                           capture_output=True, text=True, env=env, timeout=1800)
-    except (OSError, subprocess.SubprocessError):
+        p = subprocess.run([os.fsencode(node), b"--input-type=module", b"-e",
+                            source.encode("utf-8")],
+                           input=json.dumps(request), capture_output=True, encoding="utf-8",
+                           env=env, timeout=1800)
+    except (OSError, subprocess.SubprocessError, ValueError):
         return ("decline", "the reader did not run")
     if p.returncode != 0:
         return ("decline", "the reader failed: " + p.stderr[-2000:])
