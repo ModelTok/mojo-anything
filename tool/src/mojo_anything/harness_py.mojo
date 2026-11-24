@@ -11,21 +11,25 @@
 #
 # `--inputs` lines are read by Python's json behind a screen (no NaN,
 # infinities, `-0`, integers past 64 bits or lone surrogates) and written
-# back as serde_json writes them, with their `module`.
+# back as serde_json writes them, with their `module`. `--pin-clock` and
+# `--no-pin-clock` write and remove `pinned.json` (and `pinned.mojo`) as
+# src/pin.rs `set` does, and a pinned recording runs the driver with the
+# pinned clock and seed.
 #
 # Declined before anything is written (the Phase 1 binary records): a type
 # the shape reader (shape.mojo) does not read, a named type in a class's
 # parameters (Rust reads a class's file with the TS type reader), a dataclass
-# file whose tree has an error, a C pointer parameter, `pinned.json`, a
-# per-case limit Rust may read otherwise, a `python3` that does not run, and
-# a `--count` other than plain digits.
+# file whose tree has an error, a C pointer parameter, a `pinned.json`
+# serde_json would refuse or may read otherwise, a per-case limit Rust may
+# read otherwise, a `python3` that does not run, and a `--count` other than
+# plain digits.
 
 from std.collections import Dict, Set
 from std.os import getenv
 from std.python import Python, PythonObject
 
 from mojo_anything.codegen_mojo import ExportedFn, Manifest, Param, param_rtype
-from mojo_anything.embedded import driver_py
+from mojo_anything.embedded import driver_py, pinned_mojo
 from mojo_anything.fallback import fallback
 from mojo_anything.harness import (
     GV,
@@ -153,7 +157,7 @@ def _started(progress):
         return None
     return int(last)
 
-def record(texts, crate_dir, driver_text, limit):
+def record(texts, crate_dir, driver_text, limit, pin):
     # harness.rs `record` from removing the last run's leftovers to writing
     # cases.jsonl: ("ok", [indices left out]) or ("error", message).
     try:
@@ -185,8 +189,15 @@ def record(texts, crate_dir, driver_text, limit):
             env = dict(os.environ)
             env["PYTHONHASHSEED"] = "0"
             env["PYTHONDONTWRITEBYTECODE"] = "1"
-            for key in ("MOJO_ANYTHING_NOW_MS", "MOJO_ANYTHING_SEED", "MOJO_ANYTHING_CASE"):
-                env.pop(key, None)
+            # pin::apply: the pinned clock and seed, or none of them.
+            if pin is None:
+                for key in ("MOJO_ANYTHING_NOW_MS", "MOJO_ANYTHING_SEED", "MOJO_ANYTHING_CASE"):
+                    env.pop(key, None)
+            else:
+                env["MOJO_ANYTHING_NOW_MS"] = str(pin[0])
+                env["MOJO_ANYTHING_SEED"] = str(pin[1])
+                env["TZ"] = "UTC"
+                env.pop("MOJO_ANYTHING_CASE", None)
             env["MOJO_ANYTHING_PROGRESS"] = progress
             argv = [python_name(), driver, "record", inputs, part]
             try:
@@ -350,6 +361,69 @@ def read_inputs(path):
             return ("decline",)
         out.append((i + 1, v))
     return ("ok", out)
+
+def read_pin(crate_dir):
+    # pin::load: ("none",) when pinned.json does not read as text, ("ok",
+    # now_ms, seed), or ("decline",) where serde_json would refuse it (the
+    # Rust tool stops after writing the driver) or may read it otherwise.
+    import json
+    try:
+        with open(join(crate_dir, "pinned.json"), "rb") as f:
+            text = f.read().decode("utf-8")
+    except (OSError, UnicodeError):
+        return ("none",)
+
+    def pairs(items):
+        keys = [k for k, _ in items]
+        if len(keys) != len(set(keys)):
+            raise _Odd()
+        return dict(items)
+
+    try:
+        v = json.loads(text, parse_int=_int, parse_float=_float,
+                       parse_constant=_constant, object_pairs_hook=pairs)
+    except (ValueError, _Odd, RecursionError):
+        return ("decline",)
+    if not isinstance(v, dict) or not _plain(v):
+        return ("decline",)
+    now, seed = v.get("now_ms"), v.get("seed")
+    if type(now) is not int or type(seed) is not int:
+        return ("decline",)
+    if not (-(2 ** 63) <= now < 2 ** 63) or not (0 <= seed < 2 ** 32):
+        return ("decline",)
+    return ("ok", now, seed)
+
+def set_pin(crate_dir, on, helper_text):
+    # pin::set after Manifest::load: ("ok", the helper's path when it was
+    # written, else ""), or ("error", message).
+    path = join(crate_dir, "pinned.json")
+    if not on:
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError as e:
+                return ("error", "removing %s: %s" % (path, _io(e)))
+        return ("ok", "")
+    p = read_pin(crate_dir)
+    now, seed = (p[1], p[2]) if p[0] == "ok" else (1700000000000, 1)
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write('{\\n  "now_ms": %d,\\n  "seed": %d\\n}\\n' % (now, seed))
+    except OSError as e:
+        return ("error", "writing %s: %s" % (path, _io(e)))
+    helper = join(crate_dir, "pinned.mojo")
+    if os.path.exists(helper):
+        return ("ok", "")
+    try:
+        _create_dir_all(os.path.dirname(helper) or crate_dir)
+    except Failed as e:
+        return ("error", str(e))
+    try:
+        with open(helper, "w", encoding="utf-8", newline="") as f:
+            f.write(helper_text)
+    except OSError as e:
+        return ("error", "writing %s: %s" % (helper, _io(e)))
+    return ("ok", helper)
 
 def kind(v):
     # The JSON kind of a value read_inputs gave.
@@ -633,9 +707,11 @@ def record_python(
     crate_dir: String,
     count_text: String,
     inputs: Optional[String],
+    pin_clock: Int,
     argv: List[String],
 ) raises -> Int:
-    """`record` of a Python unit."""
+    """`record` of a Python unit; `pin_clock` is 1 for `--pin-clock`, 2 for
+    `--no-pin-clock`, 0 for neither."""
     var count = _plain_count(count_text)
     var limit = _case_limit()
     if count < 0 or limit < 0.0:
@@ -650,9 +726,10 @@ def record_python(
             if _c_pointers(f.params):
                 return fallback(argv)
     var h = _helpers()
-    var pinned = h["join"](PythonObject(crate_dir), PythonObject("pinned.json"))
-    if Bool(py=h["lexists"](pinned)):
-        return fallback(argv)
+    if pin_clock != 2:
+        var p = h["read_pin"](PythonObject(crate_dir))
+        if String(py=p[0]) == "decline":
+            return fallback(argv)
     if String(py=h["python_name"]()) != "python3":
         return fallback(argv)
     var g = Gen(h["make_loader"](tree_helpers()))
@@ -660,12 +737,43 @@ def record_python(
     var fns = List[String]()
     var shown = List[String]()
     var regex_functions = List[String]()
+    # Rust sets the pin before it generates the cases: an error generating
+    # them comes after `Wrote ...`.
+    var pending = Optional[String](None)
     try:
         _generate(m, h, g, count, inputs, texts, fns, shown, regex_functions)
     except e:
         if String(e) == DECLINE:
             return fallback(argv)
-        raise e^
+        pending = String(e)
+    if pin_clock != 0:
+        var s = h["set_pin"](
+            PythonObject(crate_dir),
+            PythonObject(pin_clock == 1),
+            PythonObject(pinned_mojo()),
+        )
+        if String(py=s[0]) != "ok":
+            raise Error(String(py=s[1]))
+        var helper = String(py=s[1])
+        if helper != "":
+            print(
+                String(
+                    "Wrote ",
+                    helper,
+                    (
+                        ": import it in port.mojo (`from pinned import now_ms,"
+                        " random`) and call `now_ms()` and `random()` where"
+                        " the original reads the clock or draws a number"
+                    ),
+                )
+            )
+    if pending:
+        raise Error(pending.value())
+    var pin = h["read_pin"](PythonObject(crate_dir))
+    var pinned = String(py=pin[0]) == "ok"
+    var pin_arg = Python.none()
+    if pinned:
+        pin_arg = Python.tuple(pin[1], pin[2])
     var pt = Python.list()
     for t in texts:
         pt.append(PythonObject(t))
@@ -674,6 +782,7 @@ def record_python(
         PythonObject(crate_dir),
         PythonObject(driver_py()),
         PythonObject(limit),
+        pin_arg,
     )
     if String(py=r[0]) != "ok":
         raise Error(String(py=r[1]))
@@ -696,6 +805,19 @@ def record_python(
     var per = s[2]
     for i in range(_len(per)):
         print(String("  ", String(py=per[i][0]), ": ", Int(py=per[i][1])))
+    # outcome.pinned: pinned.json as it is after the recording.
+    var after = h["read_pin"](PythonObject(crate_dir))
+    if String(py=after[0]) == "ok":
+        var builtins = Python.import_module("builtins")
+        print(
+            String(
+                "Clock pinned at ",
+                String(py=builtins.str(after[1])),
+                " ms (UTC), random numbers from seed ",
+                String(py=builtins.str(after[2])),
+                " (pinned.json)",
+            )
+        )
     if len(regex_functions) > 0:
         var joined = String("")
         for i in range(len(regex_functions)):

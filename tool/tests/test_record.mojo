@@ -389,14 +389,84 @@ def test_inputs_match_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+comptime _CLOCK = """import random
+import time
+from datetime import datetime
+
+
+def roll(sides: int) -> float:
+    return random.random() * (sides % 7) + random.randint(1, 6)
+
+
+def stamp(label: str) -> str:
+    return label + str(time.time()) + datetime.now().isoformat()
+"""
+
+
+def _clock(name: String, pinned: String, reads_clock: Bool = True) -> Case:
+    """A unit that reads the clock and draws numbers, or (for runs that are
+    not pinned, whose clock differs between the two runs) one that does
+    not."""
+    var c = _case(name, "", "clock.py")
+    if reads_clock:
+        c.before.append(String("clock.py=", _CLOCK))
+    else:
+        c.before.append(
+            "clock.py=def twice(n: int) -> int:\n    return n * 2\n"
+        )
+    if pinned != "":
+        c.after.append(String("mojo/clock-mojo/pinned.json=", pinned))
+    _record(c, "mojo/clock-mojo", "20")
+    return c^
+
+
+def test_pinned_records_match_the_phase1_binary() raises:
+    var t = _py()
+    _owned(t, _clock("pinned", '{"now_ms": 5, "seed": 2, "note": [1]}\n'))
+    var on = _clock("pin-on", "")
+    on.args.append("--pin-clock")
+    _owned(t, on)
+    var again = _clock("pin-again", '{"now_ms": -77, "seed": 4294967295}')
+    again.after.append("mojo/clock-mojo/pinned.mojo=# kept\n")
+    again.args.append("--pin-clock")
+    _owned(t, again)
+    var off = _clock("pin-off", '{"now_ms": 5, "seed": 2}\n', False)
+    off.args.append("--no-pin-clock")
+    _owned(t, off)
+    var off_none = _clock("pin-off-none", "", False)
+    off_none.args.append("--no-pin-clock")
+    _owned(t, off_none)
+    # A pinned.json that does not read as text is no pin; removing a folder
+    # of that name fails.
+    var folder = _clock("pin-folder", "", False)
+    folder.after.append("mojo/clock-mojo/pinned.json/x=1\n")
+    _owned(t, folder)
+    var folder_off = _clock("pin-folder-off", "", False)
+    folder_off.after.append("mojo/clock-mojo/pinned.json/x=1\n")
+    folder_off.args.append("--no-pin-clock")
+    _owned(t, folder_off)
+    # serde_json refuses these or may read them otherwise.
+    for bad in [
+        "[5, 2]",
+        '{"now_ms": 5.0, "seed": 2}',
+        '{"now_ms": 5, "seed": -1}',
+        '{"now_ms": 5}',
+        '{"now_ms": 5, "seed": 2, "seed": 3}',
+        '{"now_ms": 99999999999999999999, "seed": 2}',
+        "not json",
+    ]:
+        assert_true(
+            _both(t, _clock("pin-odd", bad)) != "",
+            String("did not fall back: ", bad),
+        )
+    var odd_on = _clock("pin-odd-on", '{"now_ms": 1.5, "seed": 2}')
+    odd_on.args.append("--pin-clock")
+    assert_true(_both(t, odd_on) != "", "--pin-clock on an odd file")
+    _ = t["gone"]()
+
+
 def test_unanswered_records_go_to_the_phase1_binary() raises:
     var t = _py()
-    var pinned = _case("pinned", "tests/fixtures/python-mojo", "src/mathkit/")
-    pinned.after.append(
-        'mojo/mathkit-mojo/pinned.json={"now_ms": 5, "seed": 2}\n'
-    )
-    _record(pinned, "mojo/mathkit-mojo", "3")
-    assert_true(_both(t, pinned) != "", "a pinned recording did not fall back")
     var lib = _case("lib", "tests/fixtures/lib", "ts/src/nums.ts")
     _record(lib, "mojo/nums-mojo", "3")
     assert_true(
@@ -410,5 +480,6 @@ def main() raises:
     test_structured_parameters_match_the_phase1_binary()
     test_record_failures_match_the_phase1_binary()
     test_inputs_match_the_phase1_binary()
+    test_pinned_records_match_the_phase1_binary()
     test_unanswered_records_go_to_the_phase1_binary()
-    print("test_record: 5 passed")
+    print("test_record: 6 passed")

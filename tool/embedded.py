@@ -12,6 +12,8 @@
   (src/codegen_mojo_py.rs `PY_NUM_MOJO`, an `include_str!`).
 - `driver_py()`: the Python driver `record` writes to `.mojo-anything/driver.py`
   (src/harness_py.rs `DRIVER_PY`, a raw string in the Rust source).
+- `pinned_mojo()`: src/mojo/pinned.mojo, the helper `record --pin-clock` writes beside a Mojo
+  port (src/pin.rs `HELPER_MOJO_SRC`, an `include_str!`).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
 formatted.
@@ -28,6 +30,7 @@ FILES = [
     ("replacements_toml", os.path.join(REPO, "src", "replacements.toml")),
     ("py_num_mojo", os.path.join(REPO, "src", "mojo", "py_num.mojo")),
     ("driver_py", os.path.join(REPO, "src", "harness_py.rs") + "#DRIVER_PY"),
+    ("pinned_mojo", os.path.join(REPO, "src", "mojo", "pinned.mojo")),
 ]
 
 
