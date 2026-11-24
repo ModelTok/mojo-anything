@@ -364,7 +364,9 @@ def test_unanswered_go_to_the_phase1_binary() raises:
     lib.args.append("refresh")
     lib.args.append("mojo/nums-mojo")
     assert_true(_both(t, lib) != "", "a mojo-node refresh did not fall back")
+    # A pinned recording (test_record covers the ones Mojo answers).
     var rec = _case("record", "tests/fixtures/python-mojo", "src/mathkit/")
+    rec.files.append(String(_CRATE, '/pinned.json={"now_ms": 1, "seed": 1}\n'))
     rec.args.append("record")
     rec.args.append(_CRATE)
     rec.args.append("--count")

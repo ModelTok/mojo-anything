@@ -28,6 +28,7 @@ from mojo_anything.codegen_mojo import (
 from mojo_anything.codegen_mojo_py import mojo_py_bindings
 from mojo_anything.embedded import py_num_mojo
 from mojo_anything.fallback import fallback
+from mojo_anything.harness_py import record_python
 
 
 def _len(x: PythonObject) raises -> Int:
@@ -231,8 +232,8 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
 
 
 def run_record(p: Parsed, argv: List[String]) raises -> Int:
-    """`record`: only `Manifest::load`'s errors so far; every recording goes
-    to the Phase 1 binary."""
+    """`record`: `Manifest::load`'s errors, and recordings of Python units
+    (harness_py.mojo); other languages go to the Phase 1 binary."""
     var from_tests = p.flag("from-tests")
     if len(p.rest) > 0 and not from_tests:
         raise Error(
@@ -252,5 +253,11 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
             return fallback(argv)
     var bh = bridge_helpers()
     var l = load(bh, p.value("CRATE_DIR").or_else("."))
-    _ = l.crate_dir
-    return fallback(argv)
+    if l.declined or String(py=l.manifest["language"]) != "python":
+        return fallback(argv)
+    return record_python(
+        manifest_from_py(l.manifest),
+        l.crate_dir,
+        p.value("count").or_else("200"),
+        argv,
+    )

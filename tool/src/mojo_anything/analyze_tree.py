@@ -3465,3 +3465,55 @@ def python_exports(path, rel):
     except Exception as e:  # noqa: BLE001 - any failure of the bindings sends the case back
         return ("decline", "the bindings failed: " + type(e).__name__)
     return ("ok", functions, classes)
+
+
+def python_dataclass_types(path):
+    """python.rs `dataclass_types` of the file at `path`, for `record`: ("ok", [(name, text)]),
+    ("unreadable",) when read_to_string fails, or ("decline", why) when the tree has an error,
+    a field's target is not a name, or text is outside ASCII."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return ("unreadable",)
+    try:
+        root = _parse("python", data).root_node
+        if root.has_error:
+            raise Decline("a syntax error")
+        out = []
+        for item in _named(root):
+            decorators, definition = _py_unwrap_decorated(item)
+            if definition.type != "class_definition" or not any("dataclass" in d for d in decorators):
+                continue
+            name = _field(definition, "name")
+            if name is None:
+                continue
+            fields = []
+            body = _field(definition, "body")
+            if body is not None:
+                for statement in _named(body):
+                    assignment = next((n for n in _named(statement) if n.type == "assignment"), None)
+                    if assignment is None:
+                        continue
+                    left, ty = _field(assignment, "left"), _field(assignment, "type")
+                    if left is None or ty is None:
+                        continue
+                    hint = _text(ty)
+                    if hint.startswith("ClassVar") or hint.startswith("typing.ClassVar"):
+                        continue
+                    if left.type != "identifier":
+                        raise Decline("a field that is not a name")
+                    optional = "?" if _field(assignment, "right") is not None else ""
+                    fields.append("%s%s: %s" % (_text(left), optional, py_to_ts_type(hint)))
+            n = _text(name)
+            out.append((n, '{ $object: "%s"; attrs: { %s } }' % (n, "; ".join(fields))))
+        if not all(n.isascii() and t.isascii() and '"' not in n for n, t in out):
+            raise Decline("text outside ASCII")
+    except Decline as e:
+        return ("decline", str(e))
+    except RecursionError:
+        return ("decline", "too deep")
+    except Exception as e:  # noqa: BLE001 - any failure of the bindings sends the case back
+        return ("decline", "the bindings failed: " + type(e).__name__)
+    return ("ok", out)

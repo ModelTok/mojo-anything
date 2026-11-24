@@ -61,7 +61,14 @@ def fingerprint(root: String, unit: String) -> Optional[Tuple[String, Int]]:
     if isfile(path):
         files.append(path)
     elif isdir(path):
-        files = walk(path, _keep_source)
+        # Path::join and strip_prefix work on components: a unit written
+        # with a trailing slash (`src/mathkit/`) gives `src/mathkit/ops.py`,
+        # not `src/mathkit//ops.py`.
+        var folder = path
+        while folder.endswith("/") and folder.byte_length() > 1:
+            var _t = String(folder[byte = 0 : folder.byte_length() - 1])
+            folder = _t^
+        files = walk(folder, _keep_source)
     else:
         return None
     for i in range(1, len(files)):
