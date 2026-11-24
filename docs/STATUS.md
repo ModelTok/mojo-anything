@@ -46,6 +46,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` of Python units and the errors of every planned unit, `refresh` of Python units, the manifest's errors in `refresh` and `record` | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-12.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Python units (generated cases, `--inputs`, `--pin-clock` and pinned recordings, `--from-tests`) | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-13.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of C and C++ units, `bridge`'s `--keep`, `--name`, `--out`, `--as-json` and `--kind wasm` | 524 | 524 | 27.5% (144/524), [log](measurements/2026-11-24-phase2-replay-14.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Go and Ruby units | 524 | 524 | 27.1% (142/524), [log](measurements/2026-11-24-phase2-replay-15.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -296,6 +297,30 @@ flags. `tool/tests/test_bridge.mojo` and `test_refresh.mojo` bridge and refresh 
 C and C++ fixtures, and units written to reach each refusal, with both binaries. They compare
 stdout, stderr, the exit code and every written file (`pixi run check-tool`: 31 test files,
 186 tests).
+
+The fifteenth row adds `bridge` and `refresh` of Go and Ruby units (kind `ffi`).
+
+- **Go.** go.rs `exports` is read through tree-sitter-go with the Rust tool's reasons (generic,
+  variadic, pointers, functions, channels, `any`, fixed arrays, `error` parameters, other
+  packages' and unexported types), struct types from their JSON field names, and every result.
+  `port.mojo`, `exports.mojo` (a typed cgo call per scalar or string function, and the JSON
+  dispatcher for the rest), `json.mojo` when needed, `go/go.mod` and the cgo wrapper with the
+  package's own `type` declarations are written as `codegen_go.rs` writes them
+  (`codegen_go.mojo`, `codegen_ffi.mojo`); the wrapper then goes through `gofmt -w`, as the
+  Rust tool runs it.
+- **Ruby.** ruby.rs `exports` is read through tree-sitter-ruby: module functions (`def self.`,
+  `module_function`, `class << self`, `private_class_method`), YARD types, literal defaults and
+  numbers inferred from arithmetic. The dispatcher, `ruby/<lib>_native.rb` and the wrapper are
+  written as `codegen_ruby.rs` writes them (`codegen_ruby.mojo`).
+- **`refresh`** regenerates the same layers from `port.mojo`.
+
+A Go or Ruby file that is not UTF-8, a tree with an error, text outside ASCII, a Go package
+folder with a name outside ASCII, and `--batch` go to the Phase 1 binary before anything is
+written. `bridge` now falls back in 14 of its 38 cases and `refresh` in 1 of 7
+([log](measurements/2026-11-24-phase2-replay-15.md)). `tool/tests/test_bridge.mojo` and
+`test_refresh.mojo` bridge and refresh the Go and Ruby fixtures and units written to reach each
+reason with both binaries, and now compare the folders each run leaves as well as the files
+(`pixi run check-tool`: 31 test files, 188 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
