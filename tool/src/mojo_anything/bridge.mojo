@@ -360,6 +360,10 @@ def load_manifest(crate_dir):
         text = data.decode("utf-8")
     except UnicodeError:
         return ("decline",)
+    return parse_manifest(crate_dir, path, text)
+
+def parse_manifest(crate_dir, path, text):
+    # Manifest::load's reading of `text` as the manifest at `path`.
     if not text.isascii() or "\\\\u" in text or len(text) > 50000000:
         return ("decline",)
     depth = 0

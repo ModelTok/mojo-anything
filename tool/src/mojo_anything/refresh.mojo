@@ -33,6 +33,7 @@ from mojo_anything.codegen_mojo import (
     join,
     match_export_names,
     parse_port_mojo,
+    PortApi,
 )
 from mojo_anything.codegen_cpp import cpp_bindings
 from mojo_anything.codegen_mojo_c import c_bindings, c_manifest_reads_alike
@@ -175,14 +176,36 @@ def load(bh: PythonObject, arg: String) raises -> Loaded:
     return Loaded(False, crate_dir, r[1])
 
 
-def _fall(
-    argv: List[String], bh: PythonObject, undo: List[String]
-) raises -> Int:
-    """The Phase 1 binary answers, after `undo` (a manifest path and its
-    text before `refresh --batch` rewrote it) is put back."""
-    if len(undo) == 2:
-        _ = bh["restore"](PythonObject(undo[0]), PythonObject(undo[1]))
-    return fallback(argv)
+struct Prepared(Movable):
+    """What a refresh would write (`paths`, `texts`) and print (`names`),
+    found before anything is written; `declined` hands the command to the
+    Phase 1 binary instead."""
+
+    var declined: Bool
+    var paths: List[String]
+    var texts: List[String]
+    var names: List[String]
+    var gofmt: Bool
+
+    def __init__(out self):
+        self.declined = True
+        self.paths = List[String]()
+        self.texts = List[String]()
+        self.names = List[String]()
+        self.gofmt = False
+
+    def __init__(
+        out self,
+        var paths: List[String],
+        var texts: List[String],
+        var names: List[String],
+        gofmt: Bool,
+    ):
+        self.declined = False
+        self.paths = paths^
+        self.texts = texts^
+        self.names = names^
+        self.gofmt = gofmt
 
 
 def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
@@ -193,7 +216,34 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
     var l = load(bh, p.value("CRATE_DIR").or_else("."))
     if l.declined:
         return fallback(argv)
-    return _refresh_loaded(argv, bh, l.crate_dir, l.manifest, List[String]())
+    var prep = _prepare(bh, l.crate_dir, l.manifest)
+    if prep.declined:
+        return fallback(argv)
+    _write(bh, l.crate_dir, prep)
+    return 0
+
+
+def _write(bh: PythonObject, crate_dir: String, prep: Prepared) raises:
+    """Writes the prepared files (raising the first write's error), runs
+    gofmt where the kind needs it, and prints what was regenerated."""
+    var pp = Python.list()
+    var pt = Python.list()
+    for i in range(len(prep.paths)):
+        pp.append(PythonObject(prep.paths[i]))
+        pt.append(PythonObject(prep.texts[i]))
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
+    if prep.gofmt:
+        _ = bh["gofmt"](PythonObject(crate_dir))
+    print(
+        String(
+            "Regenerated ",
+            join(prep.paths, ", "),
+            " for ",
+            join(prep.names, ", "),
+        )
+    )
 
 
 def _add_batches(
@@ -201,14 +251,20 @@ def _add_batches(
 ) raises -> Int:
     """bridge.rs `add_batches`: the manifest gains each batch once (its
     relative root written back as it was), then `refresh`; a refresh that
-    fails puts the manifest back as it was."""
+    fails puts the manifest back as it was. The refresh is prepared from
+    the new manifest in memory first, so a decline hands over before
+    anything is written."""
     for s in specs:
         if not is_ascii(s):
             return fallback(argv)
     var abs = bh["absolute"](PythonObject(arg))
     if abs is Python.none():
         return fallback(argv)
-    var path = String(py=abs) + "/" + MANIFEST
+    # Path::join adds no separator after a trailing slash.
+    var crate = String(py=abs)
+    var path = crate + MANIFEST if crate.endswith("/") else String(
+        crate, "/", MANIFEST
+    )
     var before = bh["read_text"](PythonObject(path))
     var bs = String(py=before[0])
     if bs == "missing":
@@ -234,51 +290,78 @@ def _add_batches(
         if not known:
             m.batches.append(b.copy())
     m.root = String(py=l.manifest["root_written"])
-    var undo: List[String] = [path, String(py=before[1])]
-    if not Bool(
-        py=bh["restore"](PythonObject(path), PythonObject(manifest_json(m)))
-    ):
-        return _fall(argv, bh, undo)
+    var text = manifest_json(m)
+    # `refresh` loads the manifest just written: read from the text instead.
+    var r = bh["parse_manifest"](
+        PythonObject(l.crate_dir), PythonObject(path), PythonObject(text)
+    )
+    var state = String(py=r[0])
+    if state == "error":
+        raise Error(String(py=r[1]))
+    if state != "ok":
+        return fallback(argv)
+    var prep = _prepare(bh, l.crate_dir, r[1])
+    if prep.declined:
+        return fallback(argv)
+    if not Bool(py=bh["restore"](PythonObject(path), PythonObject(text))):
+        # A failed write may have left part of the text: put it back first.
+        _ = bh["restore"](PythonObject(path), before[1])
+        return fallback(argv)
     try:
-        var again = load(bh, arg)
-        if again.declined:
-            return _fall(argv, bh, undo)
-        return _refresh_loaded(argv, bh, again.crate_dir, again.manifest, undo)
+        _write(bh, l.crate_dir, prep)
     except e:
-        _ = bh["restore"](PythonObject(undo[0]), PythonObject(undo[1]))
+        _ = bh["restore"](PythonObject(path), before[1])
         raise e^
+    return 0
 
 
-def _refresh_loaded(
-    argv: List[String],
-    bh: PythonObject,
-    crate_dir: String,
-    manifest: PythonObject,
-    undo: List[String],
-) raises -> Int:
-    """bridge.rs `refresh` of a loaded manifest."""
+def _port_text(bh: PythonObject, crate_dir: String) raises -> Optional[String]:
+    """port.mojo's text; None declines; raises read_to_string's ENOENT."""
+    var port = bh["read_port"](PythonObject(crate_dir))
+    var ps = String(py=port[0])
+    if ps == "missing":
+        raise Error("reading port.mojo: No such file or directory (os error 2)")
+    if ps != "ok":
+        return None
+    return String(py=port[1])
+
+
+def _fn_names(api: PortApi) -> List[String]:
+    var names = List[String]()
+    for f in api.functions:
+        names.append(f.js_name)
+    return names^
+
+
+def _export_names(m: Manifest) -> List[String]:
+    var names = List[String]()
+    for f in m.exports:
+        names.append(f.name)
+    return names^
+
+
+def _prepare(
+    bh: PythonObject, crate_dir: String, manifest: PythonObject
+) raises -> Prepared:
+    """bridge.rs `refresh` of a loaded manifest, up to the writes."""
     var kind = String(py=manifest["kind"])
     var language = String(py=manifest["language"])
     var cargo = (
         Int(py=bh["exists"](PythonObject(crate_dir + "/Cargo.toml"))) == 1
     )
-    if kind == "mojo-jvm" or (
-        kind == "ffi" and (language == "go" or language == "ruby")
-    ):
-        if cargo:
-            raise Error(
-                String(
-                    crate_dir,
-                    (
-                        " is a Rust port from before mojo-anything targeted"
-                        " Mojo: bridge again to get a Mojo port (port.mojo)"
-                    ),
-                )
+    var jvm = kind == "mojo-jvm"
+    var go_rb = kind == "ffi" and (language == "go" or language == "ruby")
+    if (jvm or go_rb) and cargo:
+        raise Error(
+            String(
+                crate_dir,
+                (
+                    " is a Rust port from before mojo-anything targeted"
+                    " Mojo: bridge again to get a Mojo port (port.mojo)"
+                ),
             )
-        if kind == "ffi":
-            return _refresh_ffi(argv, crate_dir, manifest, bh, undo)
-        return _refresh_jvm(argv, crate_dir, manifest, bh, undo)
-    if kind == "ffi":
+        )
+    if kind == "ffi" and not go_rb:
         raise Error(
             String(
                 "`refresh` has no bindings for a ",
@@ -286,28 +369,49 @@ def _refresh_loaded(
                 " unit of kind `ffi`: bridge again",
             )
         )
-    if kind == "c-abi" and (language == "c" or language == "cpp"):
-        return _refresh_c(argv, crate_dir, manifest, bh, undo)
-    if (kind == "mojo-node" or kind == "mojo-wasm") and language == "ts":
-        return _refresh_node(argv, crate_dir, manifest, bh, undo)
-    if kind != "mojo-py":
-        return _fall(argv, bh, undo)
-    var port = bh["read_port"](PythonObject(crate_dir))
-    var ps = String(py=port[0])
-    if ps == "missing":
-        raise Error("reading port.mojo: No such file or directory (os error 2)")
-    if ps != "ok":
-        return _fall(argv, bh, undo)
+    var c = kind == "c-abi" and (language == "c" or language == "cpp")
+    var node = (kind == "mojo-node" or kind == "mojo-wasm") and language == "ts"
+    if not (jvm or go_rb or c or node or kind == "mojo-py"):
+        return Prepared()
+    var text = _port_text(bh, crate_dir)
+    if not text:
+        return Prepared()
     var m = manifest_from_py(manifest)
-    var api = parse_port_mojo(String(py=port[1]))
+    var paths = List[String]()
+    var texts = List[String]()
+    if c:
+        # c.rs reads the manifest's signatures; the port only says which
+        # functions raise.
+        if m.language == "c" and not c_manifest_reads_alike(m):
+            return Prepared()
+        var capi = parse_port_mojo(text.value())
+        var signed = Int(py=bh["host"]()[0]) == 1
+        if m.language == "cpp":
+            cpp_bindings(m, capi, signed, paths, texts)
+        else:
+            c_bindings(m, capi, signed, paths, texts)
+        return Prepared(paths^, texts^, _export_names(m), False)
+    var api = parse_port_mojo(text.value())
     match_export_names(m, api)
+    if node:
+        mojo_node_bindings(m, api, paths, texts)
+        return Prepared(paths^, texts^, _export_names(m), False)
+    if go_rb:
+        if not mojo_ffi_bindings(m, api, paths, texts):
+            return Prepared()
+        return Prepared(paths^, texts^, _fn_names(api), True)
+    if jvm:
+        mojo_jvm_bindings(m, api, paths, texts)
+        return Prepared(paths^, texts^, _fn_names(api), False)
     if len(api.functions) == 0:
         raise Error("port.mojo has no public `def`: nothing to bind")
     var kept_modules = List[String]()
-    for c in m.classes:
+    for cl in m.classes:
         kept_modules.append(
             String(
-                py=bh["module_path"](PythonObject(m.root), PythonObject(c.file))
+                py=bh["module_path"](
+                    PythonObject(m.root), PythonObject(cl.file)
+                )
             )
         )
     for j in m.js_only:
@@ -316,173 +420,8 @@ def _refresh_loaded(
                 py=bh["module_path"](PythonObject(m.root), PythonObject(j.file))
             )
         )
-    var paths = List[String]()
-    var texts = List[String]()
     mojo_py_bindings(m, api, kept_modules, py_num_mojo(), paths, texts)
-    var pp = Python.list()
-    var pt = Python.list()
-    for i in range(len(paths)):
-        pp.append(PythonObject(paths[i]))
-        pt.append(PythonObject(texts[i]))
-    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
-    if failed.byte_length() > 0:
-        raise Error(failed)
-    var names = List[String]()
-    for f in api.functions:
-        names.append(f.js_name)
-    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
-    return 0
-
-
-def _refresh_ffi(
-    argv: List[String],
-    crate_dir: String,
-    loaded: PythonObject,
-    bh: PythonObject,
-    undo: List[String],
-) raises -> Int:
-    """Refresh of a Go or Ruby unit: bridge.rs `mojo_ffi_bindings` from the
-    signatures in port.mojo, then gofmt."""
-    var port = bh["read_port"](PythonObject(crate_dir))
-    var ps = String(py=port[0])
-    if ps == "missing":
-        raise Error("reading port.mojo: No such file or directory (os error 2)")
-    if ps != "ok":
-        return _fall(argv, bh, undo)
-    var m = manifest_from_py(loaded)
-    var api = parse_port_mojo(String(py=port[1]))
-    match_export_names(m, api)
-    var paths = List[String]()
-    var texts = List[String]()
-    if not mojo_ffi_bindings(m, api, paths, texts):
-        return _fall(argv, bh, undo)
-    var pp = Python.list()
-    var pt = Python.list()
-    for i in range(len(paths)):
-        pp.append(PythonObject(paths[i]))
-        pt.append(PythonObject(texts[i]))
-    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
-    if failed.byte_length() > 0:
-        raise Error(failed)
-    _ = bh["gofmt"](PythonObject(crate_dir))
-    var names = List[String]()
-    for f in api.functions:
-        names.append(f.js_name)
-    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
-    return 0
-
-
-def _refresh_jvm(
-    argv: List[String],
-    crate_dir: String,
-    loaded: PythonObject,
-    bh: PythonObject,
-    undo: List[String],
-) raises -> Int:
-    """Refresh of a Java or Kotlin unit (`mojo-jvm`): bridge.rs
-    `mojo_jvm_bindings` from the signatures in port.mojo."""
-    var port = bh["read_port"](PythonObject(crate_dir))
-    var ps = String(py=port[0])
-    if ps == "missing":
-        raise Error("reading port.mojo: No such file or directory (os error 2)")
-    if ps != "ok":
-        return _fall(argv, bh, undo)
-    var m = manifest_from_py(loaded)
-    var api = parse_port_mojo(String(py=port[1]))
-    match_export_names(m, api)
-    var paths = List[String]()
-    var texts = List[String]()
-    mojo_jvm_bindings(m, api, paths, texts)
-    var pp = Python.list()
-    var pt = Python.list()
-    for i in range(len(paths)):
-        pp.append(PythonObject(paths[i]))
-        pt.append(PythonObject(texts[i]))
-    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
-    if failed.byte_length() > 0:
-        raise Error(failed)
-    var names = List[String]()
-    for f in api.functions:
-        names.append(f.js_name)
-    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
-    return 0
-
-
-def _refresh_node(
-    argv: List[String],
-    crate_dir: String,
-    loaded: PythonObject,
-    bh: PythonObject,
-    undo: List[String],
-) raises -> Int:
-    """Refresh of a TS/JS unit (`mojo-node`, `mojo-wasm`): bridge.rs
-    `mojo_node_bindings` from the signatures in port.mojo."""
-    var port = bh["read_port"](PythonObject(crate_dir))
-    var ps = String(py=port[0])
-    if ps == "missing":
-        raise Error("reading port.mojo: No such file or directory (os error 2)")
-    if ps != "ok":
-        return _fall(argv, bh, undo)
-    var m = manifest_from_py(loaded)
-    var api = parse_port_mojo(String(py=port[1]))
-    match_export_names(m, api)
-    var paths = List[String]()
-    var texts = List[String]()
-    mojo_node_bindings(m, api, paths, texts)
-    var pp = Python.list()
-    var pt = Python.list()
-    for i in range(len(paths)):
-        pp.append(PythonObject(paths[i]))
-        pt.append(PythonObject(texts[i]))
-    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
-    if failed.byte_length() > 0:
-        raise Error(failed)
-    var names = List[String]()
-    for f in m.exports:
-        names.append(f.name)
-    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
-    return 0
-
-
-def _refresh_c(
-    argv: List[String],
-    crate_dir: String,
-    loaded: PythonObject,
-    bh: PythonObject,
-    undo: List[String],
-) raises -> Int:
-    """Refresh of a C unit: bridge.rs `c_bindings` from the manifest's
-    signatures (the port only says which functions raise)."""
-    var port = bh["read_port"](PythonObject(crate_dir))
-    var ps = String(py=port[0])
-    if ps == "missing":
-        raise Error("reading port.mojo: No such file or directory (os error 2)")
-    if ps != "ok":
-        return _fall(argv, bh, undo)
-    var m = manifest_from_py(loaded)
-    if m.language == "c" and not c_manifest_reads_alike(m):
-        return _fall(argv, bh, undo)
-    var api = parse_port_mojo(String(py=port[1]))
-    var signed = Int(py=bh["host"]()[0]) == 1
-    var paths = List[String]()
-    var texts = List[String]()
-    if m.language == "cpp":
-        cpp_bindings(m, api, signed, paths, texts)
-    else:
-        c_bindings(m, api, signed, paths, texts)
-    var pp = Python.list()
-    var pt = Python.list()
-    for i in range(len(paths)):
-        pp.append(PythonObject(paths[i]))
-        pt.append(PythonObject(texts[i]))
-    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
-    if failed.byte_length() > 0:
-        raise Error(failed)
-    var names = List[String]()
-    for f in m.exports:
-        names.append(f.name)
-    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
-    return 0
+    return Prepared(paths^, texts^, _fn_names(api), False)
 
 
 def run_record(p: Parsed, argv: List[String]) raises -> Int:

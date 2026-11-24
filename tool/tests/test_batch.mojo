@@ -114,6 +114,34 @@ def both(name, source, files, bridge, port, cwd, args, path):
         return "nothing was bridged%s" % shown
     return ""
 
+def untouched(name, source, bridge, crate, args):
+    # A `refresh --batch` the Mojo tool declines must hand over before it
+    # writes the manifest: the Phase 1 binary it starts (a wrapper) sees the
+    # manifest's mtime as the fixture set it. port.mojo outside ASCII is a
+    # decline found after the manifest is read.
+    d = _fixture("new", name, source, [], bridge, [])
+    with open(os.path.join(d, crate, "port.mojo"), "a", encoding="utf-8") as f:
+        f.write("# \\u00e9\\n")
+    m = os.path.join(d, crate, "mojo-anything.json")
+    os.utime(m, (1000000000, 1000000000))
+    seen = os.path.join(BASE, name + ".seen")
+    wrap = os.path.join(BASE, name + ".sh")
+    with open(wrap, "w") as f:
+        f.write('#!/bin/sh\\nstat -c %%Y "%s" > "%s"\\nexec "%s" "$@"\\n' % (m, seen, PHASE1))
+    os.chmod(wrap, 0o755)
+    env = dict(os.environ)
+    env["MOJO_ANYTHING_FALLBACK"] = wrap
+    subprocess.run([MOJO] + list(args), cwd=d, env=env, stdin=subprocess.DEVNULL,
+                   capture_output=True, timeout=600)
+    try:
+        with open(seen) as f:
+            got = f.read().strip()
+    except OSError:
+        return "did not fall back in %s" % name
+    if got != "1000000000":
+        return "manifest written before the decline in %s (mtime %s)" % (name, got)
+    return ""
+
 def gone():
     shutil.rmtree(BASE, ignore_errors=True)
 """,
@@ -357,6 +385,66 @@ def test_refresh_batches_match_the_phase1_binary() raises:
     ]
     _check(t, plain^)
     _check(t, _case("r-missing", "", ["refresh", "nowhere", "--batch", "a:b"]))
+    _check(
+        t,
+        _case("r-missing-slash", "", ["refresh", "nowhere/", "--batch", "a:b"]),
+    )
+    var slash = one.copy()
+    slash.name = "r-ts-slash"
+    slash.args = ["refresh", crate + "/", "--batch", "shout:s"]
+    _check(t, slash^)
+    _check(
+        t,
+        _refresh(
+            "r-classes",
+            "tests/fixtures/classes",
+            "src/stats.ts",
+            "mojo/stats-mojo",
+            ["nope:x"],
+        ),
+    )
+    _check(
+        t,
+        _refresh(
+            "r-c",
+            "tests/fixtures/c",
+            "src/checksum.c",
+            "mojo/checksum-mojo",
+            ["clamp:value"],
+        ),
+    )
+    _check(
+        t,
+        _refresh(
+            "r-cpp",
+            "tests/fixtures/cpp",
+            "src/kit.cpp",
+            "mojo/kit-mojo",
+            ["scale:xs"],
+        ),
+    )
+    var kt = _refresh(
+        "r-kotlin",
+        "tests/fixtures/kotlin-owners",
+        "src/main/kotlin/com/example/owners/",
+        "mojo/owners-mojo",
+        ["sign:n"],
+    )
+    _check(t, kt^)
+    assert_equal(
+        String(
+            py=t["untouched"](
+                "r-py-decline",
+                "tests/fixtures/python-mojo",
+                "src/mathkit/",
+                "mojo/mathkit-mojo",
+                Python.list(
+                    "refresh", "mojo/mathkit-mojo", "--batch", "scale:x"
+                ),
+            )
+        ),
+        "",
+    )
     _check(
         t,
         _refresh(
