@@ -325,10 +325,27 @@ def test_units_without_exports_match_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+def test_failed_writes_match_the_phase1_binary() raises:
+    """Review of 069c8e8..ba4490e: `mojo` is a file, so create_dir_all
+    fails, and the error is the Rust tool's text."""
+    var t = _py()
+    var files = List[String]()
+    files.append("mojo=not a folder\n")
+    _owned(
+        t,
+        "mojo-file",
+        "tests/fixtures/python-mojo-bytes",
+        files,
+        _args(".", "flip.py"),
+    )
+    _ = t["gone"]()
+
+
 def main() raises:
     test_python_fixtures_are_bridged_in_mojo()
     test_python_shapes_match_the_phase1_binary()
     test_bridge_errors_match_the_phase1_binary()
     test_unanswered_bridges_go_to_the_phase1_binary()
     test_units_without_exports_match_the_phase1_binary()
-    print("test_bridge: 5 passed")
+    test_failed_writes_match_the_phase1_binary()
+    print("test_bridge: 6 passed")

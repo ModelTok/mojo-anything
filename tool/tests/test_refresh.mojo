@@ -32,13 +32,16 @@ def fixture(side, name, source, bridge, files, remove):
         p = subprocess.run([PHASE1, "bridge", ".", bridge], cwd=d, capture_output=True,
                            stdin=subprocess.DEVNULL, timeout=300)
         assert p.returncode == 0, p.stderr
+    for rel in remove:
+        if rel.endswith("/"):
+            shutil.rmtree(os.path.join(d, rel))
+        else:
+            os.remove(os.path.join(d, rel))
     for rel, text in files:
         p = os.path.join(d, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", newline="") as f:
             f.write(text)
-    for rel in remove:
-        os.remove(os.path.join(d, rel))
     return d
 
 def gone():
@@ -370,9 +373,66 @@ def test_unanswered_go_to_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+def test_review_findings_match_the_phase1_binary() raises:
+    """Review of 069c8e8..ba4490e: a write that fails gets the Rust tool's
+    error text, and numbers serde_json refuses send the case back."""
+    var t = _py()
+    # The wrapper package's folder is a file: create_dir_all fails.
+    var file = _case("pkg-file", "tests/fixtures/python-mojo", "src/mathkit/")
+    file.remove.append(String(_CRATE, "/python/mathkit_mojo/"))
+    file.files.append(String(_CRATE, "/python/mathkit_mojo=not a folder\n"))
+    file.args.append("refresh")
+    file.args.append(_CRATE)
+    _owned(t, file)
+    # `_native.mojo` is a folder: fs::write fails with `writing <path>`.
+    var native = _case(
+        "native-dir", "tests/fixtures/python-mojo", "src/mathkit/"
+    )
+    native.remove.append(String(_CRATE, "/_native.mojo"))
+    native.files.append(String(_CRATE, "/_native.mojo/x=\n"))
+    native.args.append("refresh")
+    native.args.append(_CRATE)
+    _owned(t, native)
+    var base = String(
+        '{"schema": "mojo-anything/bridge@1", "root": "..", "unit": "u.py",'
+        ' "language": "python", "kind": "mojo-py", "crate_name": "u-mojo",'
+        ' "exports": ['
+    )
+    var port = String(
+        "c/port.mojo=def f(x: Int) raises -> Int:\n    return x\n"
+    )
+    var numbers = List[String]()
+    numbers.append(String(base, '], "float_tolerance": 1e400}'))
+    var zeros = String("")
+    for _ in range(400):
+        zeros += "0"
+    numbers.append(String(base, '], "float_tolerance": 1', zeros, "}"))
+    numbers.append(
+        String(
+            base,
+            (
+                '{"name": "f", "file": "u.py", "line": -0, "params": [],'
+                ' "returns": "int", "is_async": false}]}'
+            ),
+        )
+    )
+    numbers.append('{"kind": "pyo3", "float_tolerance": 1e400}')
+    for i in range(len(numbers)):
+        var c = _case(String("number-", i), "", "")
+        c.files.append(port)
+        c.files.append(String("c/mojo-anything.json=", numbers[i]))
+        c.args.append("refresh")
+        c.args.append("c")
+        assert_true(
+            _both(t, c) != "", String("number ", i, " did not fall back")
+        )
+    _ = t["gone"]()
+
+
 def main() raises:
     test_python_refresh_matches_the_phase1_binary()
     test_refresh_errors_match_the_phase1_binary()
     test_record_load_errors_match_the_phase1_binary()
     test_unanswered_go_to_the_phase1_binary()
-    print("test_refresh: 4 passed")
+    test_review_findings_match_the_phase1_binary()
+    print("test_refresh: 5 passed")

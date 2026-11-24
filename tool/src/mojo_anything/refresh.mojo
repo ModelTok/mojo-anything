@@ -220,7 +220,9 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
     for i in range(len(paths)):
         pp.append(PythonObject(paths[i]))
         pt.append(PythonObject(texts[i]))
-    _ = bh["write_files"](PythonObject(crate_dir), pp, pt)
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
     var names = List[String]()
     for f in api.functions:
         names.append(f.js_name)

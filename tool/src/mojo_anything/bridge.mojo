@@ -98,12 +98,50 @@ def module_path(root, unit):
         start = 1 if (parts and parts[0] in ("src", "lib") and len(parts) > 1) else 0
     return ".".join(parts[start:])
 
+def _io(e):
+    # io::Error's Display: strerror and the errno.
+    return "%s (os error %d)" % (os.strerror(e.errno), e.errno)
+
+def _create_dir_all(path):
+    # std::fs::create_dir_all.
+    if path == "":
+        return
+    try:
+        os.mkdir(path)
+        return
+    except FileNotFoundError:
+        pass
+    except OSError:
+        if os.path.isdir(path):
+            return
+        raise
+    parent = os.path.dirname(path)
+    if parent == path:
+        raise OSError(0, "failed to create whole tree")
+    _create_dir_all(parent)
+    try:
+        os.mkdir(path)
+    except OSError:
+        if not os.path.isdir(path):
+            raise
+
 def write_files(base, paths, texts):
+    # bridge.rs `write_files`: "" when every file was written, else the
+    # error it stops with (create_dir_all's bare, fs::write's with the path).
     for rel, text in zip(paths, texts):
         target = os.path.join(base, rel)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8", newline="") as f:
-            f.write(text)
+        try:
+            _create_dir_all(os.path.dirname(target))
+        except OSError as e:
+            if not e.errno:
+                return "failed to create whole tree"
+            return _io(e)
+        try:
+            with open(target, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+        except OSError as e:
+            return "writing %s: %s" % (target, _io(e))
+    return ""
 
 def absolute(arg):
     # std::path::absolute on Unix: `.` components dropped, `..` kept, a
@@ -138,6 +176,23 @@ def _pairs(pairs):
 
 def _const(name):
     raise _Bad(name)
+
+def _float(text):
+    # serde_json refuses a number that overflows f64 (out of range).
+    v = float(text)
+    if v in (float("inf"), float("-inf")):
+        raise _Bad("out of range")
+    return v
+
+def _int(text):
+    # serde_json reads `-0` as the float -0.0, and an integer beyond u64 or
+    # i64 as f64 (out of range past f64's largest).
+    if text == "-0":
+        raise _Bad("-0")
+    v = int(text)
+    if v >= 2**64 or v < -(2**63):
+        return _float(text)
+    return v
 
 def _is(v, t):
     return type(v) is t
@@ -276,7 +331,9 @@ def load_manifest(crate_dir):
         elif c in "]}":
             depth -= 1
     try:
-        top = json.loads(text, object_pairs_hook=_pairs, parse_constant=_const)
+        top = json.loads(
+            text, object_pairs_hook=_pairs, parse_constant=_const, parse_float=_float, parse_int=_int
+        )
     except (ValueError, _Bad, RecursionError):
         return ("decline",)
     if not _is(top, dict):
@@ -820,7 +877,9 @@ def _bridge_python(
     for i in range(len(paths)):
         pp.append(PythonObject(paths[i]))
         pt.append(PythonObject(texts[i]))
-    _ = bh["write_files"](PythonObject(crate_dir), pp, pt)
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
     var exported = List[String]()
     for f in m.exports:
         exported.append(f.name)

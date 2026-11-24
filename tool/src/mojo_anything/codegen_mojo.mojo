@@ -171,10 +171,8 @@ def lines(text: String) -> List[String]:
             out.append(String(text[byte=start:end]))
             start = i + 1
     if start < len(bytes):
-        var end = len(bytes)
-        if bytes[end - 1] == 13:
-            end -= 1
-        out.append(String(text[byte=start:end]))
+        # A last line with no `\n` keeps a `\r` it ends with.
+        out.append(String(text[byte=start:]))
     return out^
 
 
