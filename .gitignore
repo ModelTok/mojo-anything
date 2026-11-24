@@ -15,6 +15,8 @@ website/.wrangler/
 tool/fallback/
 tool/build/
 tool/record/chunks/
+# oxc's parser for the TS/JS reader: npm ci in tool/oxc (tool/build.sh)
+tool/oxc/node_modules/
 mojo/app-cases/replay-report.md
 # copied from src/mojo/json.mojo by tool/build.sh
 tool/src/mojo_anything/json.mojo

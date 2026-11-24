@@ -1,0 +1,9 @@
+{
+  "name": "mojo-anything-oxc",
+  "private": true,
+  "description": "oxc's parser for the Mojo tool's TypeScript and JavaScript reader, at the oxc release Cargo.lock pins (DECISIONS.md F20).",
+  "license": "MIT",
+  "dependencies": {
+    "oxc-parser": "0.158.0"
+  }
+}
