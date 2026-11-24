@@ -58,6 +58,7 @@ from mojo_anything.codegen_mojo_py import (
     pixi_toml,
     unit_pixi_toml,
 )
+from mojo_anything.codegen_mojo_jvm import mojo_jvm_bindings
 from mojo_anything.codegen_mojo_node import mojo_node_bindings
 from mojo_anything.codegen_ruby import native as ruby_native
 from mojo_anything.codegen_ruby import wrapper as ruby_wrapper
@@ -288,9 +289,17 @@ def _function(f):
     tps = _list(f, "type_params", False)
     if not all(_is(t, str) for t in tps):
         raise _Bad("type_params")
-    if f.get("jvm_holder") is not None:
+    # jvm::Holder: "object", or {"companion": name}; any other shape (serde
+    # may read some, as {"object": null}) declines.
+    holder = f.get("jvm_holder")
+    if holder == "object":
+        pass
+    elif _is(holder, dict) and list(holder) == ["companion"] and _is(holder["companion"], str):
+        holder = "companion:" + holder["companion"]
+    elif holder is not None:
         raise _Bad("jvm_holder")
     return {
+        "jvm_holder": holder,
         "name": _str(f, "name"),
         "file": _str(f, "file"),
         "line": _u32(f, "line"),
@@ -437,6 +446,56 @@ def host():
     )
     return (0 if unsigned else 1, "dylib" if sys.platform == "darwin" else "so")
 
+def _java_major(text):
+    # jvm.rs `java_major`: the first word (split at whitespace and `"`) that
+    # starts with digits; `1.x` is the old scheme.
+    import re
+    for word in re.split(r'[\\s"]', text):
+        m = re.match(r"[0-9]*", word).group(0)
+        if not m:
+            continue
+        if int(m) != 1:
+            return int(m)
+        if not word.startswith("1."):
+            continue
+        d = re.match(r"[0-9]*", word[2:]).group(0)
+        if d:
+            return int(d)
+    return None
+
+def require_java():
+    # jvm.rs `require_java`: ("ok",), ("error", message), or ("decline",)
+    # where the probe could differ (a command timeout set by the user, a
+    # version past u32, text outside ASCII).
+    import subprocess
+    if os.environ.get("MOJO_ANYTHING_COMMAND_TIMEOUT") is not None:
+        return ("decline",)
+    need = "Java 22 or newer is needed for Java and Kotlin units"
+    for program in ("java", "javac"):
+        path = program
+        for d in os.environ.get("PATH", "").split(":"):
+            p = os.path.join(d, program)
+            if os.path.isfile(p):
+                path = p
+                break
+        try:
+            r = subprocess.run([program, "-version"], stdin=subprocess.DEVNULL,
+                               capture_output=True, timeout=60, start_new_session=True)
+        except (OSError, subprocess.SubprocessError):
+            return ("error", "%s; `%s` was not found on PATH" % (need, program))
+        text = r.stdout.decode("utf-8", "replace") + "\\n" + r.stderr.decode("utf-8", "replace")
+        # Python's \\s also splits at \\x1c-\\x1f, Rust's is_whitespace does not.
+        if not text.isascii() or not path.isascii() or any(c in text for c in "\\x1c\\x1d\\x1e\\x1f"):
+            return ("decline",)
+        major = _java_major(text)
+        if major is not None and major > 4294967295:
+            return ("decline",)
+        if major is None:
+            return ("error", "%s; `%s -version` printed no version (%s)" % (need, program, path))
+        if major < 22:
+            return ("error", "%s; found %d (%s)" % (need, major, path))
+    return ("ok",)
+
 def readable(root, files):
     # 1 when every file reads as UTF-8 (read_to_string succeeds).
     for rel in files:
@@ -497,6 +556,8 @@ def _function(f: PythonObject) raises -> ExportedFn:
         _opt(f["blocker"]),
         None,
         None,
+        None,
+        False,
     )
 
 
@@ -724,8 +785,13 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
     var root = String(py=c[1])
     var lang = detect_lang(root)
     if lang == "java" or lang == "kotlin":
-        # require_java runs first; its probe is not ported.
-        return fallback(argv)
+        # jvm::require_java runs before the plan.
+        var rj = bh["require_java"]()
+        var rs = String(py=rj[0])
+        if rs == "error":
+            raise Error(String(py=rj[1]))
+        if rs != "ok":
+            return fallback(argv)
     var py = helpers()
     var lp = lang_plan(lang, root, py)
     if lp.declined:
@@ -800,6 +866,8 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
         return _bridge_cpp(argv, root, unit, bh, flags)
     if lang == "go" or lang == "ruby":
         return _bridge_ffi(argv, root, unit, bh, flags, lang)
+    if lang == "java" or lang == "kotlin":
+        return _bridge_jvm(argv, root, unit, bh, flags, lang)
     if lang != "python":
         return fallback(argv)
     return _bridge_python(argv, root, unit, bh, flags)
@@ -1069,6 +1137,8 @@ def _c_function(f: PythonObject) raises -> ExportedFn:
         _opt(f["blocker"]),
         _opt(f["native_return"]),
         _opt(f["prototype"]),
+        None,
+        False,
     )
 
 
@@ -1302,6 +1372,8 @@ def _ffi_function(f: PythonObject) raises -> ExportedFn:
         _opt(f["blocker"]),
         _opt(f["native_return"]),
         _opt(f["prototype"]),
+        None,
+        False,
     )
 
 
@@ -1454,6 +1526,128 @@ def _bridge_ffi(
                 "`", j.name, "` stays in ", lang_name(lang), ": ", j.reason, "."
             )
         )
+    _outcome(crate_dir, m.kind, paths, m, notes)
+    return 0
+
+
+def _jvm_function(f: PythonObject) raises -> ExportedFn:
+    """An export analyze_tree.py's Java or Kotlin reader gives."""
+    var e = _ffi_function(f)
+    e.jvm_holder = _opt(f["jvm_holder"])
+    e.jvm_constructor = Bool(py=f["jvm_constructor"])
+    return e^
+
+
+def _bridge_jvm(
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
+    lang: String,
+) raises -> Int:
+    """Bridge.rs `bridge` for a Java or Kotlin unit (`bridge_mojo_jvm`)."""
+    var th = tree_helpers()
+    var files = Python.list()
+    for f in unit.files:
+        files.append(PythonObject(f))
+    var r = th["jvm_bridge_exports"](
+        PythonObject(lang), PythonObject(root), files
+    )
+    if String(py=r[0]) != "ok":
+        return fallback(argv)
+    var exports = List[ExportedFn]()
+    var classes = List[ExportedClass]()
+    var js_only = List[JsOnly]()
+    var fs = r[1]
+    for i in range(_len(fs)):
+        var f = _jvm_function(fs[i])
+        var reason = flags.why(f)
+        if reason:
+            js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
+        else:
+            exports.append(f^)
+    _check_defined(unit, lang, exports, classes, js_only)
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
+    if not _free_crate_dir(crate_dir, bh):
+        return fallback(argv)
+    var m = Manifest(
+        root,
+        unit.id,
+        lang,
+        "mojo-jvm",
+        crate_name,
+        exports^,
+        classes^,
+        js_only^,
+    )
+    # Everything is generated before anything is written.
+    var port = port_mojo(m)
+    var api = parse_port_mojo(port)
+    match_export_names(m, api)
+    var paths = List[String]()
+    var texts = List[String]()
+    paths.append("port.mojo")
+    texts.append(port)
+    paths.append(".gitignore")
+    texts.append(".pixi/\n.mojo-anything/\n")
+    paths.append("README.md")
+    texts.append(readme(m))
+    paths.append(MANIFEST)
+    texts.append(manifest_json(m))
+    mojo_jvm_bindings(m, api, paths, texts)
+    _write(crate_dir, paths, texts, bh)
+    var notes = List[String]()
+    notes.append(
+        String(
+            "Port each function in port.mojo, then: mojo-anything record ",
+            crate_dir,
+            " && mojo-anything build ",
+            crate_dir,
+            " && mojo-anything diff ",
+            crate_dir,
+        )
+    )
+    notes.append(
+        "Callers compile the classes in java/ and load the library `build`"
+        " writes (system property mojo-anything.lib.<name>,"
+        " MOJO_ANYTHING_LIB, or next to the classes); run the JVM with"
+        " --enable-native-access=ALL-UNNAMED (Java 22+)."
+    )
+    for j in m.js_only:
+        var replaced = False
+        for f in m.exports:
+            if f.file == j.file:
+                replaced = True
+                break
+        if replaced:
+            notes.append(
+                String(
+                    "`",
+                    j.name,
+                    "` is not ported (",
+                    j.reason,
+                    "), but the wrappers in java/ replace the classes of ",
+                    j.file,
+                    (
+                        ": `gate`'s `java api` check fails until it is ported"
+                        " or moved to a class the unit does not replace."
+                    ),
+                )
+            )
+        else:
+            notes.append(
+                String(
+                    "`",
+                    j.name,
+                    "` stays in ",
+                    lang_name(lang),
+                    ": ",
+                    j.reason,
+                    ".",
+                )
+            )
     _outcome(crate_dir, m.kind, paths, m, notes)
     return 0
 
@@ -1622,6 +1816,8 @@ def _ts_function(f: PythonObject, file: String) raises -> ExportedFn:
         None,
         None,
         None,
+        None,
+        False,
     )
 
 

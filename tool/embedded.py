@@ -27,6 +27,9 @@
   (src/codegen_ruby.rs).
 - `node_shim()`: src/mojo/node_shim.c, the Node-API addon a `mojo-node` unit builds
   (src/codegen_mojo_node.rs `NODE_SHIM_C`, an `include_str!`).
+- `java_native_ffm()`, `java_json()`, `java_error()`: the fixed Java classes of a mojo-jvm
+  unit (src/codegen_mojo_jvm.rs `NATIVE_FFM`, src/codegen_java.rs `JSON_JAVA` and
+  `ERROR_JAVA`).
 - `js_codec()`, `js_call()`, `js_wasm()`: the fixed parts of a TS/JS unit's `index.cjs`
   (src/codegen_js.rs `CODEC_CJS`, src/codegen_mojo_node.rs `CALL_CJS` and `WASM_CJS`).
 
@@ -61,6 +64,9 @@ FILES = [
     ("js_codec", os.path.join(REPO, "src", "codegen_js.rs") + "#CODEC_CJS"),
     ("js_call", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#CALL_CJS"),
     ("js_wasm", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#WASM_CJS"),
+    ("java_native_ffm", os.path.join(REPO, "src", "codegen_mojo_jvm.rs") + "#NATIVE_FFM"),
+    ("java_json", os.path.join(REPO, "src", "codegen_java.rs") + "#JSON_JAVA"),
+    ("java_error", os.path.join(REPO, "src", "codegen_java.rs") + "#ERROR_JAVA"),
 ]
 
 

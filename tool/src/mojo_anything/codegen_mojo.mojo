@@ -42,6 +42,10 @@ struct ExportedFn(Copyable, Movable):
     """The exact source return type (C: `unsigned long`)."""
     var prototype: Optional[String]
     """The C declaration as written, whitespace collapsed."""
+    var jvm_holder: Optional[String]
+    """Kotlin: `object`, or `companion:<name>` (jvm::Holder)."""
+    var jvm_constructor: Bool
+    """Java and Kotlin: the class keeps a public no-arg constructor."""
 
 
 @fieldwise_init
@@ -700,9 +704,67 @@ def _go_ret_mojo(native: String) -> Optional[String]:
     return String("JsonValue")
 
 
+def java_mojo_type(java: String) -> Optional[String]:
+    """The Mojo type of a Java type whose width matters (`int` is `Int32`),
+    lists and arrays of them lists; None for the rest."""
+    var t = trim(java)
+    if t.endswith("[]"):
+        var item = java_mojo_type(String(t[byte = 0 : t.byte_length() - 2]))
+        if item:
+            return "List[" + item.value() + "]"
+        return None
+    var lt = t.find("<")
+    if lt >= 0:
+        var whole = trim(String(t[byte=0:lt]))
+        var dot = whole.rfind(".")
+        var head = whole
+        if dot >= 0:
+            head = String(whole[byte = dot + 1 :])
+        var rest = String(t[byte = lt + 1 :])
+        if (
+            head == "List"
+            or head == "ArrayList"
+            or head == "Collection"
+            or head == "Iterable"
+            or head == "LinkedList"
+        ) and rest.endswith(">"):
+            var item = java_mojo_type(
+                String(rest[byte = 0 : rest.byte_length() - 1])
+            )
+            if item:
+                return "List[" + item.value() + "]"
+        return None
+    if t == "int" or t == "Integer":
+        return String("Int32")
+    if t == "long" or t == "Long":
+        return String("Int64")
+    if t == "short" or t == "Short":
+        return String("Int16")
+    if t == "byte" or t == "Byte":
+        return String("Int8")
+    if t == "double" or t == "Double":
+        return String("Float64")
+    if t == "float" or t == "Float":
+        return String("Float32")
+    if t == "boolean" or t == "Boolean":
+        return String("Bool")
+    if t == "String" or t == "CharSequence":
+        return String("String")
+    return None
+
+
+def _is_jvm(lang: String) -> Bool:
+    return lang == "java" or lang == "kotlin"
+
+
 def _param_mojo(m: Manifest, p: Param) -> String:
     if m.language == "go" and p.native_type:
         return go_mojo_type(p.native_type.value())
+    # A Kotlin export carries the Java types the JVM sees (`Int` is `int`).
+    if _is_jvm(m.language) and p.native_type:
+        var j = java_mojo_type(p.native_type.value())
+        if j:
+            return j.value()
     var t: String
     if has_literal_default(p):
         t = rtype_from_ts(p.ts_type)
@@ -724,6 +786,12 @@ def port_mojo(m: Manifest) -> String:
             var g = _go_ret_mojo(f.native_return.value())
             if g:
                 ret = " -> " + g.value()
+        elif (
+            _is_jvm(m.language)
+            and f.native_return
+            and java_mojo_type(f.native_return.value())
+        ):
+            ret = " -> " + java_mojo_type(f.native_return.value()).value()
         else:
             var r = rtype_from_ts(f.returns)
             if r != "Unit":
@@ -1030,6 +1098,24 @@ def _fn_json(f: ExportedFn, ind: String) -> String:
         out += String(
             ",\n", i2, '"prototype": ', write_string(f.prototype.value())
         )
+    if f.jvm_holder:
+        var h = f.jvm_holder.value()
+        if h.startswith("companion:"):
+            out += String(
+                ",\n",
+                i2,
+                '"jvm_holder": {\n',
+                i2,
+                '  "companion": ',
+                write_string(String(h[byte=10:])),
+                "\n",
+                i2,
+                "}",
+            )
+        else:
+            out += String(",\n", i2, '"jvm_holder": "object"')
+    if f.jvm_constructor:
+        out += String(",\n", i2, '"jvm_constructor": true')
     out += String("\n", ind, "}")
     return out
 

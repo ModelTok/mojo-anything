@@ -337,7 +337,7 @@ def java_to_ts(t):
 
     def arg(k):
         if k >= len(args):
-            raise _NotBridgeable("raw")
+            raise _NotBridgeable("raw `%s`" % head)
         return java_to_ts(args[k])
 
     if head in ("String", "CharSequence"):
@@ -355,7 +355,7 @@ def java_to_ts(t):
         return "(" + inner + ")[]" if " " in inner else inner + "[]"
     if head in ("Map", "LinkedHashMap", "TreeMap", "HashMap"):
         if arg(0) != "string":
-            raise _NotBridgeable("keys")
+            raise _NotBridgeable("`%s`: JSON object keys are strings" % t)
         return "Record<string, " + arg(1) + ">"
     if head == "Optional":
         return arg(0) + " | undefined"
@@ -363,7 +363,16 @@ def java_to_ts(t):
         return "int | undefined"
     if head == "OptionalDouble":
         return "number | undefined"
-    raise _NotBridgeable(head)
+    if head in ("char", "Character"):
+        raise _NotBridgeable("uses `char`, a UTF-16 code unit")
+    if head == "Object":
+        raise _NotBridgeable("takes or returns `Object`: values of any type")
+    if head in ("Function", "BiFunction", "Supplier", "Consumer", "Predicate", "Runnable",
+                "Callable", "Comparator"):
+        raise _NotBridgeable("takes or returns a function")
+    if head in ("Stream", "Iterator", "IntStream"):
+        raise _NotBridgeable("uses `%s`, a lazy sequence" % head)
+    raise _NotBridgeable("uses the class `%s`" % head)
 
 
 def _modifiers(node):
@@ -1948,7 +1957,7 @@ def kotlin_to_ts(t):
 
     def arg(k):
         if k >= len(args):
-            raise _NotBridgeable("raw")
+            raise _NotBridgeable("raw `%s`" % head)
         return kotlin_to_ts(args[k])
 
     if head in ("String", "CharSequence"):
@@ -1967,9 +1976,22 @@ def kotlin_to_ts(t):
         return "(" + inner + ")[]" if " " in inner else inner + "[]"
     if head in ("Map", "MutableMap", "LinkedHashMap"):
         if arg(0) != "string":
-            raise _NotBridgeable("keys")
+            raise _NotBridgeable("`%s`: JSON object keys are strings" % t)
         return "Record<string, " + arg(1) + ">"
-    raise _NotBridgeable(head)
+    # kotlin.rs's other arms, in its order (`Any?` and ` suspend ` cannot be a head here).
+    if head == "Char":
+        raise _NotBridgeable("uses `Char`, a UTF-16 code unit")
+    if head in ("Any", "Any?"):
+        raise _NotBridgeable("takes or returns `Any`: values of any type")
+    if head in ("Set", "MutableSet", "HashSet"):
+        raise _NotBridgeable("uses `%s`, an unordered collection" % head)
+    if head in ("Sequence", "Iterator"):
+        raise _NotBridgeable("uses `%s`, a lazy sequence" % head)
+    if head in ("Pair", "Triple"):
+        raise _NotBridgeable("uses `%s`, no tuple in the dialect" % head)
+    if head in ("Function0", "Function1", "Function2", " suspend ") or " -> " in head:
+        raise _NotBridgeable("takes or returns a function")
+    raise _NotBridgeable("uses the class `%s`" % head)
 
 
 _KT_BOXED = {
@@ -2240,6 +2262,369 @@ def _kt_exports(root, data, path):
         if not _kt_java_identifier(cls.split(".")[-1]):
             f[1] = True
     return [(f[1], f[2]) for f in out]
+
+
+# ---- Java and Kotlin exports for `bridge` (java.rs and kotlin.rs `exports`) -------------
+
+
+def _get_or(blocker, reason):
+    """Option::get_or_insert: the first reason wins."""
+    return reason if blocker is None else blocker
+
+
+def _jvm_export(name, path, line, params, returns, blocker, native, prototype, holder, ctor):
+    e = _export(name, path, line, params, returns, blocker, native, prototype)
+    e["jvm_holder"] = holder
+    e["jvm_constructor"] = ctor
+    return e
+
+
+def _overloads(out):
+    """Every export sharing a name is blocked, not only the later one."""
+    names = [f["name"] for f in out]
+    for f in out:
+        if names.count(f["name"]) > 1:
+            f["blocker"] = "overloaded: one name, several signatures"
+
+
+def _jvm_receiver(f):
+    """java.rs `receiver`: (class, method) from the prototype's head."""
+    proto = f["prototype"] if f["prototype"] is not None else f["name"]
+    head = proto.split("(")[0]
+    if "." in head:
+        cls, name = head.rsplit(".", 1)
+        return (cls, name)
+    return ("", f["name"])
+
+
+def _java_package(root):
+    for decl in _named(root):
+        if decl.type != "package_declaration":
+            continue
+        for n in _named(decl):
+            if n.type in ("identifier", "scoped_identifier"):
+                return ".".join(_text(x) for x in _walk(n) if x.type == "identifier")
+        return None
+    return None
+
+
+def _java_full_exports(root, path):
+    """java.rs `exports` with Rust's reasons, native types, prototypes and constructors."""
+    package = _java_package(root)
+    out = []
+    for cls in _named(root):
+        if cls.type != "class_declaration":
+            continue
+        if "public" not in _split_ws(_modifiers(cls)):
+            continue
+        n = cls.child_by_field_name("name")
+        if n is None:
+            continue
+        class_name = _text(n)
+        qualified = package + "." + class_name if package is not None else class_name
+        body = cls.child_by_field_name("body")
+        if body is None:
+            continue
+        ctors = [c for c in _named(body) if c.type == "constructor_declaration"]
+
+        def public_no_arg(c):
+            ps = c.child_by_field_name("parameters")
+            return "public" in _split_ws(_modifiers(c)) and ps is not None and not _named(ps)
+
+        constructor = "abstract" not in _split_ws(_modifiers(cls)) and (
+            not ctors or any(public_no_arg(c) for c in ctors)
+        )
+        for method in _named(body):
+            if method.type != "method_declaration":
+                continue
+            words = _split_ws(_modifiers(method))
+            if not ("public" in words and "static" in words):
+                continue
+            nn = method.child_by_field_name("name")
+            if nn is None:
+                continue
+            name = _text(nn)
+            blocker = None
+            if method.child_by_field_name("type_parameters") is not None:
+                blocker = "generic: erased types cannot be recovered"
+            params, signature = [], []
+            plist = method.child_by_field_name("parameters")
+            for p in _named(plist) if plist is not None else []:
+                if p.type == "formal_parameter":
+                    t = p.child_by_field_name("type")
+                    ty = _text(t) if t is not None else ""
+                    pn = p.child_by_field_name("name")
+                    pname = _text(pn) if pn is not None else ""
+                elif p.type == "spread_parameter":
+                    blocker = _get_or(blocker, "is variadic")
+                    continue
+                else:
+                    continue
+                try:
+                    ts = java_to_ts(ty)
+                except _NotBridgeable as e:
+                    blocker = _get_or(blocker, str(e))
+                    ts = "unknown"
+                signature.append(ty + " " + pname)
+                params.append(_param(pname, ts, native_type=ty))
+            r = method.child_by_field_name("type")
+            ret = _text(r) if r is not None else "void"
+            try:
+                returns = java_to_ts(ret)
+            except _NotBridgeable as e:
+                blocker = _get_or(blocker, str(e))
+                returns = "unknown"
+            if any(f["name"] == name for f in out):
+                blocker = "overloaded: one name, several signatures"
+            proto = "%s.%s(%s)" % (qualified, name, ", ".join(signature))
+            out.append(
+                _jvm_export(name, path, _line(method), params, returns, blocker, ret, proto, None,
+                            constructor)
+            )
+    _overloads(out)
+    return out
+
+
+def _kt_full_collect(container, data, owner, path, default_static, holder, out):
+    """kotlin.rs `collect` with Rust's reasons, Java types and prototypes."""
+    if container.type == "function_declaration":
+        candidates = [container]
+    else:
+        candidates = [
+            m
+            for n in _named(container)
+            if n.type == "class_body"
+            for m in _named(n)
+            if m.type == "function_declaration"
+        ]
+    for function in candidates:
+        mods = _kt_modifiers(function)
+        words = _kt_modifier_words(mods)
+        if "private" in words or "protected" in words or "internal" in words:
+            continue
+        if not default_static and "@JvmStatic" not in words:
+            continue
+        name_node = function.child_by_field_name("name")
+        if name_node is None:
+            continue
+        name = _text(name_node)
+        blocker = None
+        head = data[function.start_byte : name_node.start_byte].decode("utf-8")
+        if trim(head).endswith("."):
+            blocker = "extension functions need a receiver"
+        split = _split_ws(mods)
+        if "suspend" in split:
+            blocker = "suspend functions keep their continuation in Kotlin"
+        if "inline" in split:
+            blocker = _get_or(blocker, "inline functions are copied into their callers")
+        if "JvmName" in mods:
+            blocker = _get_or(blocker, "renames the JVM method with `@JvmName`")
+        if any(n.type == "type_parameters" for n in _named(function)):
+            blocker = _get_or(blocker, "generic: erased types cannot be recovered")
+        params, signature = [], []
+        for child in _named(function):
+            if child.type != "function_value_parameters":
+                continue
+            for p in _named(child):
+                if p.type != "parameter":
+                    continue
+                pch = _named(p)
+                pname = next((_text(n) for n in pch if n.type == "identifier"), "")
+                pmods = _kt_modifiers(p)
+                if "vararg" in pmods or "noinline" in pmods:
+                    blocker = _get_or(blocker, "is variadic or takes an inline function")
+                found = [n for n in pch if n.type in _KT_TYPE_KINDS]
+                ptype = _kt_type_text(found[0]) if found else "Any"
+                try:
+                    ts = kotlin_to_ts(ptype)
+                except _NotBridgeable as e:
+                    blocker = _get_or(blocker, str(e))
+                    ts = "unknown"
+                java = kotlin_to_java(ptype)
+                if java is None:
+                    blocker = _get_or(blocker, "`%s` has no Java counterpart for the wrapper" % ptype)
+                    java = "Object"
+                signature.append(ptype + " " + pname)
+                params.append(_param(pname, ts, native_type=java))
+        found = [
+            n
+            for n in _named(function)
+            if n.start_byte > name_node.end_byte and n.type in _KT_TYPE_KINDS
+        ]
+        if found:
+            ret = _kt_type_text(found[0])
+        else:
+            rest = data[name_node.end_byte : function.end_byte].decode("utf-8")
+            if trim(rest).startswith("="):
+                blocker = _get_or(blocker, "expression body has no explicit return type")
+            ret = "Unit"
+        try:
+            returns = kotlin_to_ts(ret)
+        except _NotBridgeable as e:
+            blocker = _get_or(blocker, str(e))
+            returns = "unknown"
+        native = kotlin_to_java(ret)
+        if native is None:
+            blocker = _get_or(blocker, "`%s` has no Java counterpart for the wrapper" % ret)
+            native = "Object"
+        if any(f["name"] == name for f in out):
+            blocker = "overloaded: one name, several signatures"
+        proto = "%s.%s(%s)" % (owner, name, ", ".join(signature))
+        out.append(
+            _jvm_export(name, path, _line(function), params, returns, blocker, native, proto,
+                        holder, False)
+        )
+
+
+_KT_RESTRICTED = ("private", "protected", "internal", "abstract", "sealed", "enum", "annotation")
+
+
+def _kt_public_no_arg_constructor(cls):
+    """kotlin.rs `public_no_arg_constructor`."""
+    if any(c.type == "interface" for c in cls.children):
+        return False
+
+    def restricted(mods):
+        return any(w in _KT_RESTRICTED for w in _kt_modifier_words(mods))
+
+    if restricted(_kt_modifiers(cls)):
+        return False
+
+    def public_no_arg(ctor, kind):
+        return not restricted(_kt_modifiers(ctor)) and all(
+            not _named(p) for p in _named(ctor) if p.type == kind
+        )
+
+    primary = next((n for n in _named(cls) if n.type == "primary_constructor"), None)
+    secondary = [
+        s
+        for b in _named(cls)
+        if b.type == "class_body"
+        for s in _named(b)
+        if s.type == "secondary_constructor"
+    ]
+    if primary is not None:
+        return public_no_arg(primary, "class_parameters") or any(
+            public_no_arg(s, "function_value_parameters") for s in secondary
+        )
+    if not secondary:
+        return True
+    return any(public_no_arg(s, "function_value_parameters") for s in secondary)
+
+
+def _kt_full_exports(root, data, path):
+    """kotlin.rs `exports` with Rust's reasons, holders and constructors."""
+    package = None
+    for n in _named(root):
+        if n.type == "package_header":
+            for q in _named(n):
+                if q.type == "qualified_identifier":
+                    package = _text(q).replace(" ", "")
+                    break
+            break
+    stem = _trim_end_matches(path.split("/")[-1], ".kt")
+    top = None
+    for n in _named(root):
+        if n.type != "file_annotation":
+            continue
+        t = _text(n)
+        at = t.find("JvmName")
+        if at < 0:
+            continue
+        rest = t[at:]
+        start = rest.find('"')
+        if start < 0:
+            continue
+        end = rest.find('"', start + 1)
+        if end < 0:
+            continue
+        top = rest[start + 1 : end]
+        break
+    if top is None:
+        if stem and not stem[0].isascii():
+            raise Decline("a file name outside ASCII")
+        top = stem[:1].upper() + stem[1:] + "Kt"
+
+    def owner(cls):
+        return package + "." + cls if package is not None else cls
+
+    out = []
+    for child in _named(root):
+        if child.type == "function_declaration":
+            _kt_full_collect(child, data, owner(top), path, True, None, out)
+        elif child.type == "object_declaration":
+            n = child.child_by_field_name("name")
+            if n is not None:
+                _kt_full_collect(child, data, owner(_text(n)), path, False, "object", out)
+        elif child.type == "class_declaration":
+            n = child.child_by_field_name("name")
+            if n is None:
+                continue
+            class_owner = owner(_text(n))
+            constructor = _kt_public_no_arg_constructor(child)
+            for member in _named(child):
+                if member.type != "class_body":
+                    continue
+                for decl in _named(member):
+                    if decl.type == "object_declaration":
+                        nested = decl.child_by_field_name("name")
+                        if nested is not None:
+                            _kt_full_collect(decl, data, class_owner + "$" + _text(nested), path,
+                                             False, "object", out)
+                    elif decl.type == "companion_object":
+                        cname = next(
+                            (
+                                _text(x)
+                                for x in _named(decl)
+                                if x.type in ("identifier", "type_identifier", "simple_identifier")
+                            ),
+                            "Companion",
+                        )
+                        first = len(out)
+                        _kt_full_collect(decl, data, class_owner, path, False, "companion:" + cname,
+                                         out)
+                        for f in out[first:]:
+                            f["jvm_constructor"] = constructor
+    _overloads(out)
+    for f in out:
+        cls = _jvm_receiver(f)[0]
+        if not _kt_java_identifier(cls.split(".")[-1]):
+            f["blocker"] = _get_or(
+                f["blocker"], "JVM class `%s` is not a valid Java name; add `@file:JvmName`" % cls
+            )
+    return out
+
+
+def jvm_bridge_exports(lang, root, files):
+    """bridge's reading of a Java or Kotlin unit: ("ok", functions) or ("decline",) when a file
+    does not read as UTF-8 (bridge's `reading <file>` error is not reproduced), a tree has an
+    error, or any name, type or prototype is outside ASCII."""
+    ext = ".java" if lang == "java" else ".kt"
+    out = []
+    try:
+        for rel in files:
+            if rel.endswith((".vue", ".svelte", ".astro")):
+                continue
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                data.decode("utf-8")
+            except (OSError, UnicodeError):
+                return ("decline",)
+            if not rel.endswith(ext):
+                continue
+            tree = _parse(lang, data)
+            if tree.root_node.has_error:
+                return ("decline",)
+            if lang == "java":
+                out.extend(_java_full_exports(tree.root_node, rel))
+            else:
+                out.extend(_kt_full_exports(tree.root_node, data, rel))
+    except (Decline, RecursionError, ValueError):
+        return ("decline",)
+    if not _ascii_tree(out):
+        return ("decline",)
+    return ("ok", out)
 
 
 # ---- the entry point ---------------------------------------------------------------------
