@@ -339,6 +339,16 @@ def read_port(crate_dir):
     if not data.isascii():
         return ("decline",)
     return ("ok", data.decode("ascii"))
+
+def readable(root, files):
+    # 1 when every file reads as UTF-8 (read_to_string succeeds).
+    for rel in files:
+        try:
+            with open(os.path.join(root, rel), "rb") as f:
+                f.read().decode("utf-8")
+        except (OSError, UnicodeError):
+            return 0
+    return 1
 """
 
 
@@ -603,6 +613,32 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
             " record`, `app replay`) and get a Rust front door (`app"
             " front-door`) that hands everything to the original"
         )
+    if lang == "c" or lang == "cpp" or lang == "go" or lang == "ruby":
+        # A unit `analyze` counted no exports in (functions and classes,
+        # read by the same tree-sitter readers bridge's `lang::exports`
+        # uses) has none to bridge, when every file of it reads as UTF-8
+        # (an unreadable file is skipped by analyze, an error in bridge).
+        # A unit with exports is not ported yet.
+        var files = Python.list()
+        for f in unit.files:
+            files.append(PythonObject(f))
+        if (
+            unit.exports == 0
+            and unit.status != KEEP
+            and unit.status != BLOCKED
+            and Int(py=bh["readable"](PythonObject(root), files)) == 1
+        ):
+            raise Error(
+                String(
+                    "unit `",
+                    unit.id,
+                    (
+                        "` exports no functions; bridge a unit with an exported"
+                        " function API"
+                    ),
+                )
+            )
+        return fallback(argv)
     if lang != "python":
         return fallback(argv)
     return _bridge_python(argv, root, unit, bh)

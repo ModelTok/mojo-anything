@@ -279,8 +279,49 @@ def test_unanswered_bridges_go_to_the_phase1_binary() raises:
     # analyze declines a syntax error, so bridge does too.
     log = _both(t, "broken", "", broken, _args(".", "b.py"))
     assert_true(log != "", "a syntax error did not fall back")
-    log = _both(t, "go", "tests/fixtures/go", none, _args(".", "cmd/strkit/"))
+    log = _both(
+        t,
+        "go",
+        "tests/fixtures/go-mojo-ports",
+        none,
+        _args(".", "textkit/textkit.go"),
+    )
     assert_true(log != "", "a Go unit did not fall back")
+    _ = t["gone"]()
+
+
+def test_units_without_exports_match_the_phase1_binary() raises:
+    var t = _py()
+    var none = List[String]()
+    _owned(t, "go-cmd", "tests/fixtures/go", none, _args(".", "cmd/strkit/"))
+    _owned(
+        t, "ruby-lib", "tests/fixtures/ruby", none, _args(".", "lib/textkit.rb")
+    )
+    _owned(
+        t, "c-probe", "tests/fixtures/mojo-c-probe", none, _args(".", "probe.c")
+    )
+    _owned(
+        t,
+        "c-caller",
+        "tests/fixtures/mojo-dispatcher",
+        none,
+        _args(".", "caller.c"),
+    )
+    var cpp = List[String]()
+    cpp.append("CMakeLists.txt=project(k CXX)\n")
+    cpp.append("src/k.cpp=static int twice(int x) { return 2 * x; }\n")
+    _owned(t, "cpp-static", "", cpp, _args(".", "src/k.cpp"))
+    # A unit with exports still goes to the Phase 1 binary.
+    var log = _both(
+        t, "c-exports", "tests/fixtures/c", none, _args(".", "src/checksum.c")
+    )
+    assert_true(log != "", "a C unit with exports did not fall back")
+    # A Go file whose functions are all unexported has none either.
+    var bad = List[String]()
+    bad.append("go.mod=module example.com/b\n\ngo 1.22\n")
+    bad.append("b.go=package b\n\nfunc f() {}\n")
+    var t2 = _both(t, "go-private", "", bad, _args(".", "b.go"))
+    assert_equal(t2, "", "fell back in go-private")
     _ = t["gone"]()
 
 
@@ -289,4 +330,5 @@ def main() raises:
     test_python_shapes_match_the_phase1_binary()
     test_bridge_errors_match_the_phase1_binary()
     test_unanswered_bridges_go_to_the_phase1_binary()
-    print("test_bridge: 4 passed")
+    test_units_without_exports_match_the_phase1_binary()
+    print("test_bridge: 5 passed")
