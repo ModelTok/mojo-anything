@@ -48,6 +48,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of C and C++ units, `bridge`'s `--keep`, `--name`, `--out`, `--as-json` and `--kind wasm` | 524 | 524 | 27.5% (144/524), [log](measurements/2026-11-24-phase2-replay-14.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Go and Ruby units | 524 | 524 | 27.1% (142/524), [log](measurements/2026-11-24-phase2-replay-15.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` and `map` of TypeScript and JavaScript workspaces (read through oxc's own parser on Node), `bridge` and `refresh` of TS/JS units | 524 | 524 | 14.9% (78/524), [log](measurements/2026-11-24-phase2-replay-16.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Java and Kotlin units, `bridge --batch` and `refresh --batch` | 524 | 524 | 13.9% (73/524), [log](measurements/2026-11-24-phase2-replay-17.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -355,6 +356,29 @@ its 147 cases (the whole-app ones of every language), `map` in none of 137, `bri
 copies of the TS fixtures and projects written to reach each rule and each refusal with both
 binaries, comparing stdout, stderr, the exit code, every written file and every folder
 (`pixi run check-tool`: 33 test files, 200 tests).
+
+The seventeenth row adds `bridge` and `refresh` of Java and Kotlin units, and `--batch` of both
+commands.
+
+- **Java and Kotlin.** java.rs and kotlin.rs `exports` are read over tree-sitter-java and
+  tree-sitter-kotlin with Rust's refusal texts, native types, prototypes, Kotlin holders
+  (`object` and companion objects) and kept no-arg constructors. jvm.rs `require_java` (java and
+  javac on `PATH`, Java 22 or newer) runs before the plan. `bridge` writes the mojo-jvm unit
+  (dispatcher, FFM native class, codec, error mapping and wrapper classes) and `refresh`
+  regenerates it from `port.mojo`.
+- **Batches.** `bridge --batch function:param` adds the manifest's `batches`, the dispatcher's
+  batch calls and, for Node and wasm units, a batch class in `index.cjs`; Go, Ruby and Java units
+  ported to Mojo give Rust's "not yet" text. `refresh --batch` adds batches to the manifest and
+  regenerates, putting the manifest back when it fails.
+
+A Java or Kotlin file that is not UTF-8 or does not parse cleanly, names or types outside
+ASCII, a set `MOJO_ANYTHING_COMMAND_TIMEOUT` or an odd `java -version`, a `--batch` spec outside
+ASCII, and `refresh --batch` of a manifest with another schema or a float tolerance go to the
+Phase 1 binary. `bridge` now falls back in none of its 38 cases and `refresh` in none of 7
+([log](measurements/2026-11-24-phase2-replay-17.md)). `tool/tests/test_bridge_jvm.mojo` and
+`test_batch.mojo` bridge and refresh the Java and Kotlin fixtures, units written to reach each
+refusal and batches of every language with both binaries, comparing stdout, stderr, the exit
+code, every written file and every folder (`pixi run check-tool`: 35 test files, 207 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
