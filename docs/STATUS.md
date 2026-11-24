@@ -49,6 +49,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Go and Ruby units | 524 | 524 | 27.1% (142/524), [log](measurements/2026-11-24-phase2-replay-15.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` and `map` of TypeScript and JavaScript workspaces (read through oxc's own parser on Node), `bridge` and `refresh` of TS/JS units | 524 | 524 | 14.9% (78/524), [log](measurements/2026-11-24-phase2-replay-16.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Java and Kotlin units, `bridge --batch` and `refresh --batch` | 524 | 524 | 13.9% (73/524), [log](measurements/2026-11-24-phase2-replay-17.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Go and Ruby units, `analyze --whole-app` of Go, C, C++, Ruby, Java, Kotlin and PHP, the manifest errors of `build`, `diff`, `gate`, `bench` and `fuzz` | 524 | 524 | 9.9% (52/524), [log](measurements/2026-11-24-phase2-replay-18.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -379,6 +380,31 @@ Phase 1 binary. `bridge` now falls back in none of its 38 cases and `refresh` in
 `test_batch.mojo` bridge and refresh the Java and Kotlin fixtures, units written to reach each
 refusal and batches of every language with both binaries, comparing stdout, stderr, the exit
 code, every written file and every folder (`pixi run check-tool`: 35 test files, 207 tests).
+
+The eighteenth row adds `record` of Go and Ruby units, `analyze --whole-app` of seven more
+languages, and the errors `build`, `diff`, `gate`, `bench` and `fuzz` give before a manifest
+loads.
+
+- **Recording Go and Ruby.** A Go unit's driver is built over the original package as
+  harness_go.rs builds it (a module in `.mojo-anything/go-original` that requires and replaces
+  the unit's module) and runs on `{fn, args}` cases; a Ruby unit runs the Rust tool's own driver
+  with each package's source root on `-I`. Both share the Python recording's watchdog. Classes,
+  named parameter types, pinned recordings, `--from-tests`, unit paths that are not plain and a
+  missing `go` or `ruby` go to the Phase 1 binary. `record` of C/C++, Java/Kotlin and TS/JS
+  units still falls back.
+- **Whole-app plans.** `--whole-app` of Go, C, C++, Ruby, Java, Kotlin and PHP plans reads
+  `cmd/` folders, go.mod requirements, gemspec executables and dependencies, Gemfile groups,
+  pom.xml and Gradle dependencies (comments removed), composer.json `bin` and `require`, a
+  front controller and each language's `main`; text outside ASCII declines. TS and C# plans
+  still fall back (`analyze` 4 of 147).
+- **Unit commands.** `build`, `gate`, `bench` and `fuzz` answer `Manifest::load`'s errors and
+  `diff` its missing-recording error; a manifest that loads still goes to the Phase 1 binary.
+
+`refresh --batch` now prepares every file before it writes the manifest, so a case it hands
+over finds the manifest untouched ([log](measurements/2026-11-24-phase2-replay-18.md)).
+`tool/tests/test_record_ffi.mojo`, `test_analyze_whole_app.mojo` and `test_unit_commands.mojo`
+run both binaries on copies of the same folders and compare stdout, stderr, the exit code and
+every file (`pixi run check-tool`: 37 test files, 212 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
