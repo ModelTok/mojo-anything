@@ -231,6 +231,7 @@ def test_ruby_records_match_the_phase1_binary() raises:
     var t = _py()
     _check(t, _case("rb", _RB, _RB_UNIT, _CRATE, ["--count", "20"]))
     _check(t, _case("rb-default", _RB, _RB_UNIT, _CRATE, []))
+    _check(t, _case("rb-none", _RB, _RB_UNIT, _CRATE, ["--count", "0"]))
     _check(
         t,
         _case(

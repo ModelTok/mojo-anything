@@ -208,13 +208,18 @@ def record_ruby(texts, fns, crate_dir, includes, files, targets_text, driver_tex
         out = hp["join"](crate_dir, "cases.jsonl")
         script = work + "/driver.rb"
         targets = work + "/targets.json"
-        hp["_create_dir_all"](work)
-        hp["_write"](script, driver_text)
-        hp["_write"](targets, targets_text)
         head = ["ruby", "-E", "UTF-8:UTF-8"] + ["-I" + i for i in includes] + [script, "record", targets]
+
+        def argv_of(inputs, part):
+            # driver_command writes the driver and its targets each time a
+            # part starts: a recording with no case writes neither.
+            hp["_create_dir_all"](work)
+            hp["_write"](script, driver_text)
+            hp["_write"](targets, targets_text)
+            return head + [inputs, part, "0"] + list(files)
+
         timed = hp["record_cases"](texts, texts, work, pending, "ruby driver (record)",
-                                   lambda inputs, part: head + [inputs, part, "0"] + list(files),
-                                   dict(os.environ), limit)
+                                   argv_of, dict(os.environ), limit)
         try:
             with open(pending, "rb") as f:
                 text = f.read().decode("utf-8")
