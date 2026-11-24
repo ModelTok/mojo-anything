@@ -42,6 +42,7 @@ from mojo_anything.codegen_mojo_node import mojo_node_bindings
 from mojo_anything.codegen_mojo_py import mojo_py_bindings
 from mojo_anything.embedded import py_num_mojo
 from mojo_anything.fallback import fallback
+from mojo_anything.harness_ffi import record_ffi
 from mojo_anything.harness_py import record_python
 
 
@@ -451,13 +452,24 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
         if p.flag("no-pin-clock") and not from_tests:
             return fallback(argv)
         raise e^
+    if l.declined:
+        return fallback(argv)
+    var language = String(py=l.manifest["language"])
+    var kind = String(py=l.manifest["kind"])
+    if (language == "go" or language == "ruby") and kind == "ffi":
+        if from_tests:
+            return fallback(argv)
+        return record_ffi(
+            manifest_from_py(l.manifest),
+            l.crate_dir,
+            p.value("count").or_else("200"),
+            p.value("inputs"),
+            1 if p.flag("pin-clock") else (2 if p.flag("no-pin-clock") else 0),
+            argv,
+        )
     # A Python unit of another kind (`ffi`) gets Rust's pinned.rs helper
     # (pin.rs `mojo_unit`), which the Mojo tool does not write.
-    if (
-        l.declined
-        or String(py=l.manifest["language"]) != "python"
-        or String(py=l.manifest["kind"]) != "mojo-py"
-    ):
+    if language != "python" or kind != "mojo-py":
         return fallback(argv)
     return record_python(
         manifest_from_py(l.manifest),

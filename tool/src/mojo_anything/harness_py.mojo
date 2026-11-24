@@ -182,89 +182,100 @@ def record(texts, crate_dir, driver_text, limit, pin):
         driver = join(work, "driver.py")
         _write(driver, driver_text)
         out = join(crate_dir, "cases.jsonl")
-        _create_dir_all(work)
-        inputs = join(work, "record-inputs.json")
-        part = join(work, "record-part.jsonl")
-        progress = join(work, "record-progress")
-        stderr_path = join(work, "record-stderr")
-        recorded = []
-        timed = []
-        start = 0
-        while start < len(texts):
-            _write(inputs, "[" + ",".join(texts[start:]) + "]")
-            _write(progress, "")
-            try:
-                os.remove(part)
-            except OSError:
-                pass
-            env = dict(os.environ)
-            env["PYTHONHASHSEED"] = "0"
-            env["PYTHONDONTWRITEBYTECODE"] = "1"
-            # pin::apply: the pinned clock and seed, or none of them.
-            if pin is None:
-                for key in ("MOJO_ANYTHING_NOW_MS", "MOJO_ANYTHING_SEED", "MOJO_ANYTHING_CASE"):
-                    env.pop(key, None)
-            else:
-                env["MOJO_ANYTHING_NOW_MS"] = str(pin[0])
-                env["MOJO_ANYTHING_SEED"] = str(pin[1])
-                env["TZ"] = "UTC"
-                env.pop("MOJO_ANYTHING_CASE", None)
-            env["MOJO_ANYTHING_PROGRESS"] = progress
-            argv = [python_name(), driver, "record", inputs, part]
-            try:
-                err = open(stderr_path, "wb")
-            except OSError as e:
-                raise Failed(_io(e))
-            scratch = _temp_dir("unit")
-            try:
-                try:
-                    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
-                                             stdout=subprocess.DEVNULL, stderr=err,
-                                             cwd=scratch, env=env, process_group=0)
-                except OSError as e:
-                    raise Failed("running python: " + _io(e))
-                finally:
-                    err.close()
-                current = None
-                status = None
-                while True:
-                    pid, st = os.waitpid(child.pid, os.WNOHANG)
-                    if pid != 0:
-                        status = st
-                        break
-                    i = _started(progress)
-                    if i is not None and (current is None or current[0] != i):
-                        current = (i, time.monotonic())
-                    if current is not None and time.monotonic() - current[1] > limit:
-                        try:
-                            os.killpg(child.pid, signal.SIGKILL)
-                        except OSError:
-                            pass
-                        try:
-                            os.kill(child.pid, signal.SIGKILL)
-                        except OSError:
-                            pass
-                        os.waitpid(child.pid, 0)
-                        break
-                    time.sleep(0.02)
-                child.returncode = 0
-            finally:
-                shutil.rmtree(scratch, ignore_errors=True)
-            written = read_text(part)
-            end = written.rfind("\\n")
-            recorded.append(written[: end + 1] if end >= 0 else "")
-            if status is not None:
-                if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
-                    break
-                tail = _lines(read_text(stderr_path))[-25:]
-                raise Failed("python failed (%s):\\n%s" % (_status(status), "\\n".join(tail)))
-            timed.append(start + current[0])
-            start += current[0] + 1
-        _write(out, "".join(recorded))
-        _write(join(work, "timed-out.json"), "[" + ",".join(texts[k] for k in timed) + "]")
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = "0"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # pin::apply: the pinned clock and seed, or none of them.
+        if pin is None:
+            for key in ("MOJO_ANYTHING_NOW_MS", "MOJO_ANYTHING_SEED", "MOJO_ANYTHING_CASE"):
+                env.pop(key, None)
+        else:
+            env["MOJO_ANYTHING_NOW_MS"] = str(pin[0])
+            env["MOJO_ANYTHING_SEED"] = str(pin[1])
+            env["TZ"] = "UTC"
+            env.pop("MOJO_ANYTHING_CASE", None)
+        name = python_name()
+        timed = record_cases(texts, texts, work, out, "python",
+                             lambda inputs, part: [name, driver, "record", inputs, part], env, limit)
         return ("ok", timed)
     except Failed as e:
         return ("error", str(e))
+
+def record_cases(texts, timed_texts, work, out, what, argv_of, env, limit):
+    # harness.rs `record_cases`: runs the driver `argv_of(inputs, part)` over
+    # `texts` from a scratch folder under the watchdog, writes `out` and
+    # timed-out.json (from `timed_texts`); the indices left out. Raises
+    # Failed with Rust's message.
+    _create_dir_all(work)
+    inputs = join(work, "record-inputs.json")
+    part = join(work, "record-part.jsonl")
+    progress = join(work, "record-progress")
+    stderr_path = join(work, "record-stderr")
+    recorded = []
+    timed = []
+    start = 0
+    while start < len(texts):
+        _write(inputs, "[" + ",".join(texts[start:]) + "]")
+        _write(progress, "")
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        run_env = dict(env)
+        run_env["MOJO_ANYTHING_PROGRESS"] = progress
+        argv = argv_of(inputs, part)
+        try:
+            err = open(stderr_path, "wb")
+        except OSError as e:
+            raise Failed(_io(e))
+        scratch = _temp_dir("unit")
+        try:
+            try:
+                child = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=err,
+                                         cwd=scratch, env=run_env, process_group=0)
+            except OSError as e:
+                raise Failed("running %s: %s" % (what, _io(e)))
+            finally:
+                err.close()
+            current = None
+            status = None
+            while True:
+                pid, st = os.waitpid(child.pid, os.WNOHANG)
+                if pid != 0:
+                    status = st
+                    break
+                i = _started(progress)
+                if i is not None and (current is None or current[0] != i):
+                    current = (i, time.monotonic())
+                if current is not None and time.monotonic() - current[1] > limit:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                    try:
+                        os.kill(child.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                    os.waitpid(child.pid, 0)
+                    break
+                time.sleep(0.02)
+            child.returncode = 0
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+        written = read_text(part)
+        end = written.rfind("\\n")
+        recorded.append(written[: end + 1] if end >= 0 else "")
+        if status is not None:
+            if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
+                break
+            tail = _lines(read_text(stderr_path))[-25:]
+            raise Failed("%s failed (%s):\\n%s" % (what, _status(status), "\\n".join(tail)))
+        timed.append(start + current[0])
+        start += current[0] + 1
+    _write(out, "".join(recorded))
+    _write(join(work, "timed-out.json"), "[" + ",".join(timed_texts[k] for k in timed) + "]")
+    return timed
 
 def _components(path):
     # Path's components: `.` and empty pieces dropped after the first.
@@ -761,6 +772,37 @@ def _given(
             shown.append("null")
 
 
+def uses_regex(language: String, text: String) -> Bool:
+    """risks.rs `uses_regex` for Python, Go and Ruby sources."""
+    var needles: List[String]
+    if language == "go":
+        needles = ['"regexp"']
+    elif language == "ruby":
+        needles = [
+            "=~",
+            "Regexp",
+            "%r{",
+            ".match(",
+            ".scan(/",
+            ".gsub(/",
+            ".sub(/",
+            ".split(/",
+            ".match?(",
+        ]
+    else:
+        needles = [
+            "import re\n",
+            "import re ",
+            "from re import",
+            "import regex",
+            "re.compile(",
+        ]
+    for needle in needles:
+        if text.find(needle) >= 0:
+            return True
+    return False
+
+
 def _generate(
     m: Manifest,
     h: PythonObject,
@@ -780,24 +822,15 @@ def _generate(
         )
         if f.file not in regex_files:
             var text = String(py=h["read_text"](PythonObject(module)))
-            var uses = False
-            for needle in [
-                "import re\n",
-                "import re ",
-                "from re import",
-                "import regex",
-                "re.compile(",
-            ]:
-                if text.find(needle) >= 0:
-                    uses = True
-            regex_files[f.file] = uses
+            regex_files[f.file] = uses_regex(m.language, text)
         var regex = regex_files[f.file]
         if regex:
             for p in f.params:
                 if param_rtype(p) == "Str":
                     regex_functions.append(f.name)
                     break
-        g.set_scope(module, False)
+        # Rust reads other languages' named types with the TS reader.
+        g.set_scope(module, m.language != "python")
         var all = generate(g, f, count)
         var seen = Set[String]()
         for a in all:
@@ -811,7 +844,7 @@ def _generate(
                 seen.add(key)
                 all.append(args.copy())
         for i in range(len(all)):
-            if i % 4 == 3:
+            if m.language == "python" and i % 4 == 3:
                 intify(f.params, all[i])
             texts.append(case_text(f, module, all[i]))
             fns.append(f.name)

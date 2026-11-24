@@ -24,7 +24,9 @@
 - `go_helpers()`, `go_call()`, `go_typed_helpers()`, `go_typed_helpers_mojo()`: the fixed
   parts of a Go unit's cgo wrapper and `exports.mojo` (src/codegen_go.rs).
 - `ruby_codec()`, `ruby_native()`: the fixed parts of a Ruby unit's Fiddle module
-  (src/codegen_ruby.rs).
+  (src/codegen_ruby.rs); `ruby_driver()`, the driver `record` runs after the codec.
+- `go_driver()`: the driver package `record` builds over a Go unit (src/codegen_go.rs
+  `DRIVER_GO`, before `driver` fills it in).
 - `node_shim()`: src/mojo/node_shim.c, the Node-API addon a `mojo-node` unit builds
   (src/codegen_mojo_node.rs `NODE_SHIM_C`, an `include_str!`).
 - `java_native_ffm()`, `java_json()`, `java_error()`: the fixed Java classes of a mojo-jvm
@@ -61,6 +63,8 @@ FILES = [
     ("go_typed_helpers_mojo", os.path.join(REPO, "src", "codegen_go.rs") + "#TYPED_HELPERS_MOJO"),
     ("ruby_codec", os.path.join(REPO, "src", "codegen_ruby.rs") + "#CODEC_RB"),
     ("ruby_native", os.path.join(REPO, "src", "codegen_ruby.rs") + "#NATIVE_RB"),
+    ("ruby_driver", os.path.join(REPO, "src", "codegen_ruby.rs") + "#DRIVER_RB"),
+    ("go_driver", os.path.join(REPO, "src", "codegen_go.rs") + "#DRIVER_GO"),
     ("node_shim", os.path.join(REPO, "src", "mojo", "node_shim.c")),
     ("js_codec", os.path.join(REPO, "src", "codegen_js.rs") + "#CODEC_CJS"),
     ("js_call", os.path.join(REPO, "src", "codegen_mojo_node.rs") + "#CALL_CJS"),
