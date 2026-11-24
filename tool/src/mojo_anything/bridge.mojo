@@ -38,6 +38,7 @@ from mojo_anything.codegen_mojo import (
     match_export_names,
     parse_port_mojo,
     port_mojo,
+    trim,
     trim_start_matches,
 )
 from mojo_anything.codegen_mojo_c import BUILD_DIR, c_bindings, port_mojo_c
@@ -607,10 +608,75 @@ def _less(a_name: String, a_at: String, b_name: String, b_at: String) -> Bool:
     return a_at < b_at
 
 
+def keep_reason(keep: List[String], name: String) -> Optional[String]:
+    """Bridge.rs `keep_reason`: `--keep name` or `--keep "name: reason"`."""
+    for k in keep:
+        var colon = k.find(":")
+        var kept = k
+        var reason = String("")
+        if colon >= 0:
+            kept = trim(String(k[byte=0:colon]))
+            reason = trim(String(k[byte = colon + 1 :]))
+        if kept == name:
+            if reason.byte_length() == 0:
+                return String("kept on request")
+            return reason
+    return None
+
+
+@fieldwise_init
+struct Flags(Copyable, Movable):
+    """The bridge flags the Mojo tool answers: `--keep`, `--name`,
+    `--out` (`--as-json` changes only TS units, `--force` is read where the
+    plan's status is checked)."""
+
+    var keep: List[String]
+    var name: Optional[String]
+    var out: Optional[String]
+
+    def crate_name(self, unit_id: String) -> String:
+        if self.name:
+            return self.name.value()
+        return _crate_name(unit_id)
+
+    def crate_dir(self, root: String, crate_name: String) -> String:
+        if self.out:
+            return self.out.value()
+        return root + "/mojo/" + crate_name
+
+    def why(self, f: ExportedFn) -> Optional[String]:
+        """`keep_reason`, then `js_only_reason`."""
+        var kept = keep_reason(self.keep, f.name)
+        if kept:
+            return kept
+        return js_only_reason(f)
+
+
 def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
-    for name in ["kind", "out", "name", "keep", "batch", "as-json"]:
-        if p.value(name):
+    # `--batch` adds batches to the manifest; `--kind node` bridges a unit
+    # of another language through Node: neither is ported.
+    if p.value("batch"):
+        return fallback(argv)
+    var kind = p.value("kind")
+    if kind and kind.value() != "wasm":
+        return fallback(argv)
+    var keep = p.all("keep")
+    for k in keep:
+        if not is_ascii(k):
             return fallback(argv)
+    var name = p.value("name")
+    if name and (
+        name.value().byte_length() == 0
+        or not is_ascii(name.value())
+        or name.value().find("/") >= 0
+    ):
+        return fallback(argv)
+    var out_dir = p.value("out")
+    if out_dir and (
+        out_dir.value().byte_length() == 0 or not is_ascii(out_dir.value())
+    ):
+        return fallback(argv)
+    var flags = Flags(keep^, name, out_dir)
     var force = p.flag("force")
     var root_arg = p.value("ROOT").or_else("")
     var unit_arg = p.value("UNIT").or_else("")
@@ -687,10 +753,20 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
             " record`, `app replay`) and get a Rust front door (`app"
             " front-door`) that hands everything to the original"
         )
+    if kind:
+        if lang == "ts":
+            return fallback(argv)
+        raise Error(
+            String(
+                "`--kind wasm` is for TS/JS units; a ",
+                lang_name(lang),
+                " unit bridges with its own kind (leave out --kind)",
+            )
+        )
     if lang == "c":
-        return _bridge_c(argv, root, unit, bh)
+        return _bridge_c(argv, root, unit, bh, flags)
     if lang == "cpp":
-        return _bridge_cpp(argv, root, unit, bh)
+        return _bridge_cpp(argv, root, unit, bh, flags)
     if lang == "go" or lang == "ruby":
         # A unit `analyze` counted no exports in (functions and classes,
         # read by the same tree-sitter readers bridge's `lang::exports`
@@ -719,7 +795,7 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
         return fallback(argv)
     if lang != "python":
         return fallback(argv)
-    return _bridge_python(argv, root, unit, bh)
+    return _bridge_python(argv, root, unit, bh, flags)
 
 
 def _check_defined(
@@ -798,7 +874,11 @@ def _check_defined(
 
 
 def _bridge_python(
-    argv: List[String], root: String, unit: UnitReport, bh: PythonObject
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
 ) raises -> Int:
     var th = tree_helpers()
     var exports = List[ExportedFn]()
@@ -813,7 +893,7 @@ def _bridge_python(
         var fs = r[1]
         for i in range(_len(fs)):
             var f = _function(fs[i])
-            var reason = js_only_reason(f)
+            var reason = flags.why(f)
             if reason:
                 js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
             else:
@@ -839,7 +919,9 @@ def _bridge_python(
                 methods^,
                 _opt(c["blocker"]),
             )
-            var why = cls.blocker
+            var why = keep_reason(flags.keep, cls.name)
+            if not why:
+                why = cls.blocker
             if not why:
                 why = method_reason
             if why:
@@ -851,8 +933,8 @@ def _bridge_python(
             else:
                 classes.append(cls^)
     _check_defined(unit, "python", exports, classes, js_only)
-    var crate_name = _crate_name(unit.id)
-    var crate_dir = root + "/mojo/" + crate_name
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
     var cs = String(py=bh["crate_state"](PythonObject(crate_dir)))
     if cs == "other":
         return fallback(argv)
@@ -1084,7 +1166,11 @@ def _outcome(
 
 
 def _bridge_c(
-    argv: List[String], root: String, unit: UnitReport, bh: PythonObject
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
 ) raises -> Int:
     """Bridge.rs `bridge` for a C unit (`bridge_c`, `c_bindings`)."""
     var th = tree_helpers()
@@ -1102,14 +1188,14 @@ def _bridge_c(
     var fs = r[1]
     for i in range(_len(fs)):
         var f = _c_function(fs[i])
-        var reason = js_only_reason(f)
+        var reason = flags.why(f)
         if reason:
             js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
         else:
             exports.append(f^)
     _check_defined(unit, "c", exports, classes, js_only)
-    var crate_name = _crate_name(unit.id)
-    var crate_dir = root + "/mojo/" + crate_name
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
     if not _free_crate_dir(crate_dir, bh):
         return fallback(argv)
     var host = bh["host"]()
@@ -1180,7 +1266,11 @@ def _bridge_c(
 
 
 def _bridge_cpp(
-    argv: List[String], root: String, unit: UnitReport, bh: PythonObject
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
 ) raises -> Int:
     """Bridge.rs `bridge` for a C++ unit (`bridge_cpp`, codegen_cpp
     `bindings`)."""
@@ -1204,24 +1294,28 @@ def _bridge_cpp(
         var item = items[i]
         if Bool(py=item["is_class"]):
             # A C++ class always carries its refusal.
+            var class_name = String(py=item["name"])
+            var why = keep_reason(flags.keep, class_name).or_else(
+                String(py=item["blocker"])
+            )
             js_only.append(
                 JsOnly(
-                    String(py=item["name"]),
+                    class_name,
                     String(py=item["file"]),
                     Int(py=item["line"]),
-                    "class: " + String(py=item["blocker"]),
+                    "class: " + why,
                 )
             )
             continue
         var f = _c_function(item)
-        var reason = js_only_reason(f)
+        var reason = flags.why(f)
         if reason:
             js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
         else:
             exports.append(f^)
     _check_defined(unit, "cpp", exports, classes, js_only)
-    var crate_name = _crate_name(unit.id)
-    var crate_dir = root + "/mojo/" + crate_name
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
     if not _free_crate_dir(crate_dir, bh):
         return fallback(argv)
     var host = bh["host"]()

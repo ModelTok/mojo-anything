@@ -445,6 +445,120 @@ def test_cpp_units_are_bridged_in_mojo() raises:
     _ = t["gone"]()
 
 
+def _with(var args: List[String], extra: List[String]) -> List[String]:
+    for a in extra:
+        args.append(a)
+    return args^
+
+
+def test_bridge_flags_match_the_phase1_binary() raises:
+    """`--keep`, `--name`, `--out`/`-o`, `--as-json` and `--kind wasm` on
+    the languages bridged in Mojo."""
+    var t = _py()
+    var none = List[String]()
+    var py = List[String]()
+    py.append("--keep")
+    py.append("scale")
+    py.append("--name")
+    py.append("mk")
+    py.append("--as-json")
+    py.append("T")
+    _owned(
+        t,
+        "py-flags",
+        "tests/fixtures/python-mojo",
+        none,
+        _with(_args(".", "src/mathkit/"), py),
+    )
+    var out = List[String]()
+    out.append("-o")
+    out.append("ports/mk/")
+    _owned(
+        t,
+        "py-out",
+        "tests/fixtures/python-mojo",
+        none,
+        _with(_args(".", "src/mathkit/"), out),
+    )
+    var c = List[String]()
+    c.append("--keep")
+    c.append("fnv1a: hashed elsewhere ")
+    c.append("--keep")
+    c.append("clamp:")
+    c.append("--name")
+    c.append("sums")
+    c.append("--out")
+    c.append("out/sums")
+    _owned(
+        t,
+        "c-flags",
+        "tests/fixtures/c",
+        none,
+        _with(_args(".", "src/checksum.c"), c),
+    )
+    var cpp = List[String]()
+    cpp.append("--keep")
+    cpp.append("kit::add")
+    cpp.append("--keep")
+    cpp.append(" kit::shout : loud")
+    _owned(
+        t,
+        "cpp-flags",
+        "tests/fixtures/cpp",
+        none,
+        _with(_args(".", "src/kit.cpp"), cpp),
+    )
+    # Keeping every export, and a `--name` taken by a port in progress.
+    var all = List[String]()
+    all.append("--keep")
+    all.append("adler32")
+    var stays = List[String]()
+    stays.append("Makefile=all:\n")
+    stays.append("a.c=int adler32(int x) { return x; }\n")
+    _owned(t, "c-all-kept", "", stays, _with(_args(".", "a.c"), all))
+    var taken = List[String]()
+    taken.append("mojo/mine/keep.txt=mine\n")
+    var named = List[String]()
+    named.append("--name")
+    named.append("mine")
+    _owned(
+        t,
+        "c-name-taken",
+        "tests/fixtures/c",
+        taken,
+        _with(_args(".", "src/checksum.c"), named),
+    )
+    var wasm = List[String]()
+    wasm.append("--kind")
+    wasm.append("wasm")
+    _owned(
+        t,
+        "py-wasm",
+        "tests/fixtures/python-mojo",
+        none,
+        _with(_args(".", "src/mathkit/"), wasm),
+    )
+    _owned(
+        t,
+        "c-wasm",
+        "tests/fixtures/c",
+        none,
+        _with(_args(".", "src/checksum.c"), wasm),
+    )
+    var batch = List[String]()
+    batch.append("--batch")
+    batch.append("adler32:data")
+    var log = _both(
+        t,
+        "c-batch",
+        "tests/fixtures/c",
+        none,
+        _with(_args(".", "src/checksum.c"), batch),
+    )
+    assert_true(log != "", "--batch did not fall back")
+    _ = t["gone"]()
+
+
 def test_failed_writes_match_the_phase1_binary() raises:
     """Review of 069c8e8..ba4490e: `mojo` is a file, so create_dir_all
     fails, and the error is the Rust tool's text."""
@@ -470,4 +584,5 @@ def main() raises:
     test_failed_writes_match_the_phase1_binary()
     test_c_units_are_bridged_in_mojo()
     test_cpp_units_are_bridged_in_mojo()
-    print("test_bridge: 8 passed")
+    test_bridge_flags_match_the_phase1_binary()
+    print("test_bridge: 9 passed")
