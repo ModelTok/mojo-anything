@@ -9,6 +9,10 @@
 # the per-case limit (MOJO_ANYTHING_CASE_TIMEOUT seconds, 10 by default) has
 # the group killed and is left out, and the driver goes on with the rest.
 #
+# `--inputs` lines are read by Python's json behind a screen (no NaN,
+# infinities, `-0`, integers past 64 bits or lone surrogates) and written
+# back as serde_json writes them, with their `module`.
+#
 # Declined before anything is written (the Phase 1 binary records): a type
 # the shape reader (shape.mojo) does not read, a named type in a class's
 # parameters (Rust reads a class's file with the TS type reader), a dataclass
@@ -34,6 +38,8 @@ from mojo_anything.harness import (
     scenarios,
     trap_args,
 )
+from mojo_anything.js_number import json_number_to_string
+from mojo_anything.json_text import write_string
 from mojo_anything.recording import save_fingerprint
 from mojo_anything.shape import DECLINE
 from mojo_anything.tree_lang import tree_helpers
@@ -276,6 +282,91 @@ def python_types(path, th):
 def make_loader(th):
     return lambda path: python_types(path, th)
 
+_WS = set("\\t\\n\\x0b\\x0c\\r \\x85\\xa0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006"
+          "\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000")
+
+class _Odd(Exception):
+    pass
+
+def _int(text):
+    v = int(text)
+    # serde_json reads `-0` as -0.0, and an integer past the 64-bit limits
+    # as a float: their texts would differ.
+    if (text.startswith("-") and v == 0) or not (-(2 ** 63) <= v < 2 ** 64):
+        raise _Odd()
+    return v
+
+def _float(text):
+    v = float(text)
+    if v != v or v in (float("inf"), float("-inf")):
+        raise _Odd()
+    return v
+
+def _constant(name):
+    raise _Odd()
+
+def _pairs(pairs):
+    # serde_json's map with preserve_order: a key met again keeps its place
+    # and takes the later value, as a dict does.
+    out = {}
+    for k, v in pairs:
+        out[k] = v
+    return out
+
+def _plain(v):
+    # No lone surrogate in a string or key (serde_json refuses them).
+    if isinstance(v, str):
+        return not any(0xD800 <= ord(c) <= 0xDFFF for c in v)
+    if isinstance(v, list):
+        return all(_plain(x) for x in v)
+    if isinstance(v, dict):
+        return all(_plain(k) and _plain(x) for k, x in v.items())
+    return True
+
+def read_inputs(path):
+    # The lines of `--inputs` as generate_cases reads them: ("ok", [(line
+    # number, value)]), ("error", message) for a file that does not read,
+    # ("decline",) where serde_json may read the file or a line otherwise.
+    import json
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        return ("error", "reading %s: %s" % (path, _io(e)))
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError:
+        return ("decline",)
+    out = []
+    for i, line in enumerate(_lines(text)):
+        if all(c in _WS for c in line):
+            continue
+        try:
+            v = json.loads(line, parse_int=_int, parse_float=_float,
+                           parse_constant=_constant, object_pairs_hook=_pairs)
+        except (ValueError, _Odd, RecursionError):
+            return ("decline",)
+        if not _plain(v):
+            return ("decline",)
+        out.append((i + 1, v))
+    return ("ok", out)
+
+def kind(v):
+    # The JSON kind of a value read_inputs gave.
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float"
+    if isinstance(v, str):
+        return "str"
+    if isinstance(v, list):
+        return "list"
+    return "dict"
+
 def summarize(path):
     # harness.rs `summarize` of cases.jsonl: (cases, threw, [(name, n)] by name).
     import json
@@ -356,11 +447,124 @@ def _case_limit() raises -> Float64:
         return 10.0
 
 
+def _serde(h: PythonObject, v: PythonObject) raises -> String:
+    """serde_json's `to_string` of a value `read_inputs` gave."""
+    var k = String(py=h["kind"](v))
+    if k == "null":
+        return "null"
+    if k == "bool":
+        return "true" if Bool(py=v) else "false"
+    if k == "int":
+        return String(py=Python.import_module("builtins").str(v))
+    if k == "float":
+        return json_number_to_string(Float64(py=v))
+    if k == "str":
+        return write_string(String(py=v))
+    if k == "list":
+        var out = String("[")
+        for i in range(_len(v)):
+            if i > 0:
+                out += ","
+            out += _serde(h, v[i])
+        return out + "]"
+    var out = String("{")
+    var items = Python.import_module("builtins").list(v.items())
+    for i in range(_len(items)):
+        if i > 0:
+            out += ","
+        out += write_string(String(py=items[i][0])) + ":"
+        out += _serde(h, items[i][1])
+    return out + "}"
+
+
+def _str_field(
+    h: PythonObject, given: PythonObject, key: String
+) raises -> Optional[String]:
+    """`given[key].as_str()`."""
+    if String(py=h["kind"](given)) != "dict":
+        return None
+    if not Bool(py=given.__contains__(PythonObject(key))):
+        return None
+    var v = given[PythonObject(key)]
+    if String(py=h["kind"](v)) != "str":
+        return None
+    return String(py=v)
+
+
+def _given(
+    m: Manifest,
+    h: PythonObject,
+    path: String,
+    mut texts: List[String],
+    mut fns: List[String],
+    mut shown: List[String],
+) raises:
+    """generate_cases' `--inputs` lines, each given the module of its
+    function or class. Raises DECLINE for a file or line serde_json may read
+    otherwise than Python's json."""
+    var r = h["read_inputs"](PythonObject(path))
+    var state = String(py=r[0])
+    if state == "error":
+        raise Error(String(py=r[1]))
+    if state != "ok":
+        raise Error(DECLINE)
+    var lines = r[1]
+    for i in range(_len(lines)):
+        var n = Int(py=lines[i][0])
+        var given = lines[i][1]
+        var fn_name = _str_field(h, given, "fn")
+        var file = Optional[String](None)
+        var class_name = _str_field(h, given, "class")
+        if class_name:
+            for c in m.classes:
+                if c.name == class_name.value():
+                    file = c.file
+                    break
+            if not file:
+                raise Error(
+                    String(
+                        path,
+                        ":",
+                        n,
+                        ": `",
+                        class_name.value(),
+                        "` is not a ported class of this unit",
+                    )
+                )
+        else:
+            var name = fn_name.or_else("")
+            for f in m.exports:
+                if f.name == name:
+                    file = f.file
+                    break
+            if not file:
+                raise Error(
+                    String(
+                        path,
+                        ":",
+                        n,
+                        ": `",
+                        name,
+                        "` is not an export of this unit",
+                    )
+                )
+        given[PythonObject("module")] = h["join"](
+            PythonObject(m.root), PythonObject(file.value())
+        )
+        texts.append(_serde(h, given))
+        fns.append(fn_name.or_else("?"))
+        if Bool(py=given.__contains__(PythonObject("args"))):
+            shown.append(_serde(h, given[PythonObject("args")]))
+        else:
+            shown.append("null")
+
+
 def _generate(
     m: Manifest,
     h: PythonObject,
     mut g: Gen,
     count: Int,
+    inputs: Optional[String],
     mut texts: List[String],
     mut fns: List[String],
     mut shown: List[String],
@@ -418,12 +622,18 @@ def _generate(
         g.set_scope(module, True)
         for s in scenarios(g, c, max(count, 20), module):
             texts.append(s)
-            fns.append("")
+            fns.append("?")
             shown.append("null")
+    if inputs:
+        _given(m, h, inputs.value(), texts, fns, shown)
 
 
 def record_python(
-    m: Manifest, crate_dir: String, count_text: String, argv: List[String]
+    m: Manifest,
+    crate_dir: String,
+    count_text: String,
+    inputs: Optional[String],
+    argv: List[String],
 ) raises -> Int:
     """`record` of a Python unit."""
     var count = _plain_count(count_text)
@@ -451,7 +661,7 @@ def record_python(
     var shown = List[String]()
     var regex_functions = List[String]()
     try:
-        _generate(m, h, g, count, texts, fns, shown, regex_functions)
+        _generate(m, h, g, count, inputs, texts, fns, shown, regex_functions)
     except e:
         if String(e) == DECLINE:
             return fallback(argv)
@@ -512,8 +722,7 @@ def record_python(
         )
         for i in range(n):
             var k = Int(py=timed[i])
-            var name = fns[k] if fns[k] != "" else "?"
-            print(String("  ", name, "(", shown[k], ")"))
+            print(String("  ", fns[k], "(", shown[k], ")"))
     return 0
 
 

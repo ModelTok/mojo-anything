@@ -339,6 +339,56 @@ def test_record_failures_match_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+comptime _GIVEN = """{"fn": "slugify", "args": ["Hello World"], "kwargs": {"max_length": 3}}
+   \t
+{"fn": "chunk", "module": "elsewhere", "args": [[1, 2, 3], 2], "extra": [1.5, -0.0, 1e21, 1e-7, 0.1, 12345678901234567890, -9223372036854775808, "\\u00e9\\n\\t\\"", true, null, {}]}\r
+{"class": "Stack", "ctor": [2], "calls": [{"method": "push", "args": ["a"]}, {"method": "pop", "args": []}]}
+{"fn": "mean", "args": [[0.1, 0.2]], "fn": "mean", "args": [[1, 2]]}
+{"fn": "page_count", "args": [10, 0]}
+"""
+
+
+def _given(name: String, lines: String, path: String = "in.jsonl") -> Case:
+    var c = _case(name, "tests/fixtures/python", "src/textkit/")
+    c.after.append(String("in.jsonl=", lines))
+    _record(c, "mojo/textkit-mojo", "5")
+    c.args.append("--inputs")
+    c.args.append(path)
+    return c^
+
+
+def test_inputs_match_the_phase1_binary() raises:
+    var t = _py()
+    _owned(t, _given("given", _GIVEN))
+    _owned(t, _given("given-only", _GIVEN, "./in.jsonl"))
+    _owned(
+        t,
+        _given(
+            "not-export",
+            '{"fn": "slugify", "args": ["a"]}\n\n{"fn": "nope", "args": []}\n',
+        ),
+    )
+    _owned(
+        t, _given("not-class", '{"class": "Queue", "ctor": [], "calls": []}\n')
+    )
+    _owned(t, _given("no-fn", '{"args": [1]}\n'))
+    _owned(t, _given("array", "[1, 2]\n"))
+    _owned(t, _given("missing", "", "gone.jsonl"))
+    _owned(t, _given("empty", ""))
+    # serde_json reads these otherwise than Python's json (or refuses them).
+    for bad in [
+        '{"fn": "mean", "args": [[NaN]]}\n',
+        '{"fn": "mean", "args": [[1e400]]}\n',
+        '{"fn": "mean", "args": [[-0]]}\n',
+        '{"fn": "mean", "args": [[123456789012345678901234567890]]}\n',
+        '{"fn": "slugify", "args": ["\\ud800"]}\n',
+        "not json\n",
+    ]:
+        var c = _given("odd", bad)
+        assert_true(_both(t, c) != "", String("did not fall back: ", bad))
+    _ = t["gone"]()
+
+
 def test_unanswered_records_go_to_the_phase1_binary() raises:
     var t = _py()
     var pinned = _case("pinned", "tests/fixtures/python-mojo", "src/mathkit/")
@@ -347,12 +397,6 @@ def test_unanswered_records_go_to_the_phase1_binary() raises:
     )
     _record(pinned, "mojo/mathkit-mojo", "3")
     assert_true(_both(t, pinned) != "", "a pinned recording did not fall back")
-    var inputs = _case("inputs", "tests/fixtures/python-mojo", "src/mathkit/")
-    inputs.after.append('in.jsonl={"fn": "exclaim", "args": ["x"]}\n')
-    _record(inputs, "mojo/mathkit-mojo", "3")
-    inputs.args.append("--inputs")
-    inputs.args.append("in.jsonl")
-    assert_true(_both(t, inputs) != "", "--inputs did not fall back")
     var lib = _case("lib", "tests/fixtures/lib", "ts/src/nums.ts")
     _record(lib, "mojo/nums-mojo", "3")
     assert_true(
@@ -365,5 +409,6 @@ def main() raises:
     test_python_record_matches_the_phase1_binary()
     test_structured_parameters_match_the_phase1_binary()
     test_record_failures_match_the_phase1_binary()
+    test_inputs_match_the_phase1_binary()
     test_unanswered_records_go_to_the_phase1_binary()
-    print("test_record: 4 passed")
+    print("test_record: 5 passed")

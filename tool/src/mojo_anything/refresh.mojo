@@ -243,7 +243,6 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
     if from_tests or p.flag("pin-clock") or p.flag("no-pin-clock"):
         return fallback(argv)
     for name in [
-        "inputs",
         "module",
         "resolve-from",
         "node-arg",
@@ -259,5 +258,6 @@ def run_record(p: Parsed, argv: List[String]) raises -> Int:
         manifest_from_py(l.manifest),
         l.crate_dir,
         p.value("count").or_else("200"),
+        p.value("inputs"),
         argv,
     )
