@@ -47,6 +47,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Python units (generated cases, `--inputs`, `--pin-clock` and pinned recordings, `--from-tests`) | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-13.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of C and C++ units, `bridge`'s `--keep`, `--name`, `--out`, `--as-json` and `--kind wasm` | 524 | 524 | 27.5% (144/524), [log](measurements/2026-11-24-phase2-replay-14.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Go and Ruby units | 524 | 524 | 27.1% (142/524), [log](measurements/2026-11-24-phase2-replay-15.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` and `map` of TypeScript and JavaScript workspaces (read through oxc's own parser on Node), `bridge` and `refresh` of TS/JS units | 524 | 524 | 14.9% (78/524), [log](measurements/2026-11-24-phase2-replay-16.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -321,6 +322,39 @@ written. `bridge` now falls back in 14 of its 38 cases and `refresh` in 1 of 7
 `test_refresh.mojo` bridge and refresh the Go and Ruby fixtures and units written to reach each
 reason with both binaries, and now compare the folders each run leaves as well as the files
 (`pixi run check-tool`: 31 test files, 188 tests).
+
+The sixteenth row adds TypeScript and JavaScript: `analyze` and `map`, and `bridge` and
+`refresh` of TS/JS units.
+
+- **The reader.** oxc's Rust AST is not reachable from Mojo, so `oxc_reader.mjs` runs on the
+  project's Node with oxc's own parser at the release `Cargo.lock` pins (npm `oxc-parser`
+  0.158.0 in `tool/oxc`, DECISIONS.md F20). It reads oxc's ESTree output as scan.rs,
+  exports.rs, jsdoc.rs and tsconfig.rs read the Rust AST: imports and their platforms, risks
+  with their lines, loops, exports and bridgeable exports, JSDoc types of JavaScript, CommonJS
+  exports, declaration files beside JS files, and tsconfig path aliases (`extends` followed).
+  Parse errors are counted from oxc's diagnostics, as in Rust.
+- **`analyze` and `map`.** Discovery, resolution (relative, aliases, workspace packages) and
+  the planner are Mojo: UI files are kept in the original language, editor code in TS, each unit
+  gets the Node-API or wasm bridge analyze.rs gives it from what it reaches, and parse errors
+  mark a unit partial. `map` reads the same plan.
+- **`bridge` and `refresh`.** The default `mojo-node` kind, `--kind node` and `--kind wasm`,
+  with `--keep`, `--name`, `--out`, `--force` and `--as-json`, write the files the Rust tool
+  writes (`port.mojo`, `.gitignore`, `README.md`, `mojo-anything.json`, `pixi.toml`,
+  `json.mojo`, `dispatcher.mojo`, `node_shim.c` and `binding.gyp` for Node, `index.cjs`), with
+  aliases and constraints resolved through the files the unit imports and every class left in
+  TS; `refresh` regenerates the same layers from `port.mojo`.
+
+Decorated classes and exports, a lossy string, a name scan.rs looks for in a place whose role
+is not known, a tsconfig outside ASCII or with a JSON5 form serde may read otherwise, a missing
+`tool/oxc`, a missing Node or one older than oxc-parser supports (Node 18 under
+`PATH=/usr/bin:/bin`), a bridged export named outside ASCII, `analyze --whole-app` of TS,
+`bridge --batch` and a manifest with batches go to the Phase 1 binary before anything is written. `analyze` now falls back in 14 of
+its 147 cases (the whole-app ones of every language), `map` in none of 137, `bridge` in 5 of 38
+(the Java and Kotlin units) and `refresh` in none of 7 ([log](measurements/2026-11-24-phase2-replay-16.md)).
+`tool/tests/test_analyze_ts.mojo` and `test_bridge_ts.mojo` analyze, map, bridge and refresh
+copies of the TS fixtures and projects written to reach each rule and each refusal with both
+binaries, comparing stdout, stderr, the exit code, every written file and every folder
+(`pixi run check-tool`: 33 test files, 200 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
