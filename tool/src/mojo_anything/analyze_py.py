@@ -1016,3 +1016,292 @@ def whole_app_facts(root, files):
         return ("decline", str(e))
     except RecursionError:
         return ("decline", "too deep")
+
+
+# ---- analyze --whole-app of the other languages (src/whole_app.rs) -----------------------
+
+_WA_MAIN = {
+    "python": _WA_PY_MAIN,
+    "go": r"^func\s+main\s*\(\s*\)",
+    "c": r"\bint\s+main\s*\(",
+    "cpp": r"\bint\s+main\s*\(",
+    "ruby": r"^#!.*\bruby\b|\bARGV\b|__FILE__\s*==\s*\$0",
+    "java": r"public\s+static\s+void\s+main\s*\(",
+    "kotlin": r"\bfun\s+main\s*\(",
+    "php": r"""^#!.*\bphp\b|\$argv\b|PHP_SAPI\s*===?\s*['"]cli['"]""",
+}
+
+
+def _wa_dir_names(path):
+    """read_dir's entries of a folder, in its order, as (name, is_dir without following
+    links); None when it does not read. A name outside ASCII declines."""
+    try:
+        entries = list(os.scandir(path))
+    except OSError:
+        return None
+    out = []
+    for e in entries:
+        _wa_ascii(e.name, "a file name")
+        try:
+            is_dir = e.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+        out.append((e.name, is_dir))
+    return out
+
+
+def _wa_gemspecs(root):
+    """The `*.gemspec` entries of the root, in read_dir's order."""
+    names = _wa_dir_names(root) or []
+    out = []
+    for name, _ in names:
+        k = name.rfind(".")
+        if k > 0 and name[k + 1 :] == "gemspec":
+            out.append(os.path.join(root, name))
+    return out
+
+
+def _wa_lang_entries(root, lang, serde_ok):
+    """manifest_entries' language parts (Go's `cmd/` folders, PHP's composer.json `bin` and
+    front controller, a gemspec's `executables`)."""
+    import json
+    import re
+
+    out = []
+    if lang == "go":
+        names = _wa_dir_names(os.path.join(root, "cmd"))
+        for name in sorted(n for n, d in (names or []) if d):
+            out.append(("cli", "cmd/" + name, name, "a `cmd/` folder"))
+    if lang == "php":
+        path = os.path.join(root, "composer.json")
+        text = _wa_read(path)
+        if os.path.lexists(path) and text:
+            if not serde_ok(path):
+                raise _WaDecline("a composer.json serde_json may read otherwise")
+            _wa_ascii(text, "a composer.json")
+            try:
+                doc = json.loads(text)
+            except ValueError:
+                doc = None
+            bins = doc.get("bin") if isinstance(doc, dict) else None
+            for b in bins if isinstance(bins, list) else []:
+                if isinstance(b, str):
+                    path_ = b
+                    while path_.startswith("./"):
+                        path_ = path_[2:]
+                    out.append(("cli", path_, b.rsplit("/", 1)[-1], "composer.json `bin`"))
+        for front in ("public/index.php", "web/index.php", "index.php"):
+            if os.path.isfile(os.path.join(root, front)):
+                out.append(("server", front, None,
+                            "`%s`, a front controller: serve it with `php -S`" % front))
+                break
+    if lang == "ruby":
+        specs = _wa_gemspecs(root)
+        text = _wa_read(specs[0]) if specs else ""
+        _wa_ascii(text, "a gemspec")
+        c = re.search(r"""executables\s*=\s*(?:\[([^\]]*)\]|%w[\[(]([^\])]*)[\])])""", text)
+        if c is not None:
+            names = c.group(1) if c.group(1) is not None else (c.group(2) or "")
+            for n in re.split(r"[, \n]", names):
+                n = n.strip().strip("\"'")
+                if n:
+                    out.append(("cli", "exe/" + n, n, "gemspec `executables`"))
+    return out
+
+
+def _wa_opens_a_block(line):
+    return (line.endswith(" do") or " do |" in line
+            or any(line.startswith(k) for k in ("if ", "unless ", "while ", "until ", "case ")))
+
+
+def _wa_without_xml_comments(text):
+    out = []
+    rest = text
+    while True:
+        start = rest.find("<!--")
+        if start < 0:
+            break
+        out.append(rest[:start])
+        end = rest.find("-->", start)
+        if end < 0:
+            rest = ""
+            break
+        rest = rest[end + 3 :]
+    out.append(rest)
+    return "".join(out)
+
+
+def _wa_without_comments(text):
+    """whole_app.rs `without_comments` for ASCII text."""
+    out = []
+    i = 0
+    n = len(text)
+    quote = None
+    while i < n:
+        c = text[i]
+        if quote is not None:
+            out.append(c)
+            if c == "\\":
+                if i + 1 < n:
+                    out.append(text[i + 1])
+                    i += 1
+            elif c == quote or c == "\n":
+                quote = None
+        elif c in "\"'":
+            quote = c
+            out.append(c)
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            last = " "
+            while i < n:
+                if last == "*" and text[i] == "/":
+                    break
+                last = text[i]
+                i += 1
+        else:
+            out.append(c)
+        i += 1
+    lines = [l for l in _wa_lines("".join(out)) if not l.lstrip().startswith("//")]
+    return "\n".join(lines)
+
+
+def _wa_lang_declared(root, lang):
+    """whole_app.rs `declared` for Go, Ruby, Java, Kotlin, C and C++ (no normalising)."""
+    import re
+
+    out = set()
+    if lang == "go":
+        text = _wa_read(os.path.join(root, "go.mod"))
+        _wa_ascii(text, "a go.mod")
+        in_block = False
+        for line in _wa_lines(text):
+            line = line.strip()
+            if line.startswith("require ("):
+                in_block = True
+                continue
+            if in_block and line == ")":
+                in_block = False
+                continue
+            spec = line if in_block else (line[len("require ") :] if line.startswith("require ") else None)
+            if spec is not None and "// indirect" not in spec:
+                words = spec.split()
+                if words and not words[0].startswith("//"):
+                    out.add(words[0])
+    elif lang == "ruby":
+        gem = re.compile(r"""^\s*gem\s+['"]([^'"]+)['"]""")
+        spec = re.compile(r"""add_(?:runtime_)?dependency\s*\(?\s*['"]([^'"]+)['"]""")
+        text = _wa_read(os.path.join(root, "Gemfile"))
+        for p in _wa_gemspecs(root):
+            text += "\n" + _wa_read(p)
+        _wa_ascii(text, "a Gemfile or gemspec")
+        depth = 0
+        group_at = None
+        for line in _wa_lines(text):
+            t = line.strip()
+            if t.startswith("group "):
+                group_at = depth
+            if _wa_opens_a_block(t):
+                depth += 1
+            if t == "end" or t.startswith("end "):
+                depth = max(depth - 1, 0)
+                if group_at is not None and depth <= group_at:
+                    group_at = None
+            m = gem.search(line)
+            if m is not None and group_at is None:
+                out.add(m.group(1))
+            m = spec.search(line)
+            if m is not None:
+                out.add(m.group(1))
+    elif lang in ("java", "kotlin"):
+        pom = _wa_read(os.path.join(root, "pom.xml"))
+        _wa_ascii(pom, "a pom.xml")
+        pom = _wa_without_xml_comments(pom)
+
+        def tag(block, name):
+            m = re.search(r"<%s>\s*([^<]+?)\s*</%s>" % (name, name), block)
+            return m.group(1) if m else None
+
+        for m in re.finditer(r"<dependency>(.*?)</dependency>", pom, re.S):
+            block = m.group(1)
+            if tag(block, "scope") == "test":
+                continue
+            g, a = tag(block, "groupId"), tag(block, "artifactId")
+            if g is not None and a is not None:
+                out.add("%s:%s" % (g, a))
+        gradle = _wa_read(os.path.join(root, "build.gradle")) + _wa_read(os.path.join(root, "build.gradle.kts"))
+        _wa_ascii(gradle, "a Gradle build")
+        gradle = _wa_without_comments(gradle)
+        for m in re.finditer(r"""\b(?:implementation|api|compile)\s*\(?\s*['"]([^:'"]+:[^:'"]+)""", gradle):
+            out.add(m.group(1))
+    elif lang == "php":
+        import json
+
+        text = _wa_read(os.path.join(root, "composer.json"))
+        try:
+            doc = json.loads(text) if text else None
+        except ValueError:
+            doc = None
+        req = doc.get("require") if isinstance(doc, dict) else None
+        if isinstance(req, dict):
+            for k in req:
+                if "/" in k and not k.startswith("ext-"):
+                    out.add(k)
+    return out
+
+
+def whole_app_lang_facts(root, files, lang, serde_ok):
+    """whole_app_facts for a Go, Ruby, Java, Kotlin, PHP, C or C++ workspace: the same
+    answer shape; ("decline", why) where Python's readers may read otherwise than Rust's
+    (a package.json, a pyproject.toml tomllib refuses, source text outside ASCII, where
+    Python's `\\b`, `\\s` and `\\w` are not Rust's)."""
+    import re
+    import tomllib
+
+    try:
+        if os.path.lexists(os.path.join(root, "package.json")):
+            raise _WaDecline("a package.json")
+        entries = []
+        pyproject = _wa_read(os.path.join(root, "pyproject.toml"))
+        try:
+            doc = tomllib.loads(pyproject)
+        except (tomllib.TOMLDecodeError, ValueError, RecursionError):
+            raise _WaDecline("a pyproject.toml tomllib refuses")
+        if not toml_as_rust_reads(doc):
+            raise _WaDecline("a pyproject.toml value toml_edit refuses")
+        for table in (_wa_table(doc, "project", "scripts"), _wa_table(doc, "tool", "poetry", "scripts")):
+            if not isinstance(table, dict):
+                continue
+            for name, target in table.items():
+                entries.append(("cli", target if isinstance(target, str) else "", name, "pyproject.toml scripts"))
+        entries += _wa_lang_entries(root, lang, serde_ok)
+        server = re.compile(_WA_SERVER)
+        main = re.compile(_WA_MAIN[lang], re.M)
+        found = []
+        for rel in sorted(set(files)):
+            text = _wa_read(os.path.join(root, rel))
+            _wa_ascii(text, "source text")
+            if lang == "go" and "package main" not in text:
+                continue
+            m = server.search(text)
+            kind = "server"
+            if m is None:
+                m = main.search(text)
+                kind = "cli"
+            if m is None:
+                continue
+            line = text.count("\n", 0, m.start()) + 1
+            found.append((kind, rel, None, "`%s` at %s:%d" % (m.group(0).strip(), rel, line)))
+        declared = set()
+        for n in _wa_lang_declared(root, lang):
+            if n:
+                _wa_ascii(n, "a dependency name")
+                declared.add(n)
+
+        def row(e):
+            return (e[0], e[1], "" if e[2] is None else e[2], 0 if e[2] is None else 1, e[3])
+
+        return ("ok", [row(e) for e in entries], [row(e) for e in found], sorted(declared))
+    except _WaDecline as e:
+        return ("decline", str(e))
+    except RecursionError:
+        return ("decline", "too deep")

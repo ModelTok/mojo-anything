@@ -282,8 +282,8 @@ def test_out_writes_a_whole_app_plan() raises:
 
 def test_what_python_may_read_otherwise_goes_to_the_phase1_binary() raises:
     """A package.json (read as serde_json reads it), a regex trigger next to
-    text outside ASCII, a requirements file outside ASCII, and other
-    languages."""
+    text outside ASCII, a requirements file outside ASCII, and C# and TS
+    workspaces."""
     var t = _py()
     var cases = List[Tuple[String, String]]()
     cases.append(
@@ -299,7 +299,18 @@ def test_what_python_may_read_otherwise_goes_to_the_phase1_binary() raises:
         ("non-ascii", "requirements.txt=x\n|a.py=s = 'é'\napp.run()\n")
     )
     cases.append(("requirements", "requirements.txt=café\n|a.py=x = 1\n"))
-    cases.append(("go", "go.mod=module m\n|a.go=package m\n"))
+    cases.append(
+        (
+            "csharp",
+            (
+                'tool.csproj=<Project Sdk="Microsoft.NET.Sdk" />\n|A.cs=class A'
+                " {}\n"
+            ),
+        )
+    )
+    cases.append(
+        ("ts", 'package.json={"name": "t"}\n|a.ts=export const x = 1;\n')
+    )
     # tomllib reads integers past i64 and floats that overflow; toml_edit
     # refuses the file, so Rust reads no scripts and no dependencies.
     for big in ["99999999999999999999", "1e999", "-1e999"]:
@@ -324,9 +335,166 @@ def test_what_python_may_read_otherwise_goes_to_the_phase1_binary() raises:
         assert_equal(log, "analyze .\n", "fallback of " + c[0])
 
 
+comptime _GO_MOD = """module example.com/tool
+
+go 1.21
+
+require (
+	github.com/a/b v1.0.0
+	github.com/c/d v1.0.0 // indirect
+	// github.com/e/f v1.0.0
+)
+
+require golang.org/x/text v0.3.0
+"""
+
+comptime _GEMSPEC = """Gem::Specification.new do |s|
+  s.name = "tool"
+  s.executables = %w[tool other]
+  s.add_dependency 'json'
+  s.add_runtime_dependency("rake")
+  s.add_development_dependency "minitest"
+end
+"""
+
+comptime _GEMFILE = """source 'https://rubygems.org'
+gem 'sinatra'
+group :test do
+  platform :mri do
+    gem 'pry'
+  end
+  gem 'rspec'
+end
+gem 'puma'
+"""
+
+comptime _POM = """<project>
+  <dependencies>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- <dependency><groupId>a.b</groupId><artifactId>c</artifactId></dependency> -->
+  </dependencies>
+</project>
+"""
+
+comptime _GRADLE = """dependencies {
+    implementation("org.slf4j:slf4j-api:2.0.0")
+    api 'com.squareup:okio:3.0.0'
+    // implementation("x.y:z:1")
+    /* compile("p.q:r:1") */
+    testImplementation("junit:junit:4")
+}
+"""
+
+comptime _COMPOSER = """{
+  "name": "acme/tool",
+  "bin": ["./bin/tool", "bin/other"],
+  "require": {"php": ">=8", "ext-json": "*", "guzzlehttp/guzzle": "^7"}
+}
+"""
+
+
+def test_other_languages_match_the_phase1_binary() raises:
+    """Go (`cmd/` folders, go.mod requirements, `package main`), C and C++
+    mains, Ruby (gemspec executables and dependencies, Gemfile groups),
+    Java and Kotlin (pom.xml, Gradle, comments), PHP (composer.json `bin`
+    and `require`, a front controller), in Markdown and JSON."""
+    var t = _py()
+    _whole(
+        t,
+        "go-cmd",
+        [
+            "go.mod=" + _GO_MOD,
+            "cmd/tool/main.go=package main\n\nfunc main() {\n}\n",
+            "cmd/zz/main.go=package main\n\nfunc main() {\n}\n",
+            "lib.go=package tool\n\nfunc F(a int) int {\n\treturn a * 2\n}\n",
+        ],
+    )
+    _whole(
+        t,
+        "go-server",
+        [
+            "go.mod=module example.com/srv\n\ngo 1.22\n",
+            (
+                'main.go=package main\n\nimport "net/http"\n\nfunc main()'
+                ' {\n\thttp.ListenAndServe(":8080", nil)\n}\n'
+            ),
+        ],
+    )
+    _whole(
+        t,
+        "c-main",
+        [
+            "tool.c=#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n",
+            "util.c=int twice(int x) { return x * 2; }\n",
+        ],
+    )
+    _whole(
+        t,
+        "cpp-main",
+        [
+            "tool.cpp=int add(int a, int b) { return a + b; }\nint main() {"
+            " return add(1, 2); }\n"
+        ],
+    )
+    _whole(
+        t,
+        "ruby-gem",
+        [
+            "tool.gemspec=" + _GEMSPEC,
+            "Gemfile=" + _GEMFILE,
+            (
+                "lib/tool.rb=module Tool\n  def self.twice(a)\n    a * 2\n "
+                " end\nend\n"
+            ),
+        ],
+    )
+    _whole(
+        t,
+        "ruby-argv",
+        ["tool.rb=def run(args)\n  args.size\nend\n\nputs run(ARGV)\n"],
+    )
+    _whole(
+        t,
+        "java-pom",
+        [
+            "pom.xml=" + _POM,
+            (
+                "src/main/java/a/Main.java=package a;\n\npublic class Main {\n "
+                " public static void main(String[] args) {\n  }\n}\n"
+            ),
+        ],
+    )
+    _whole(
+        t,
+        "kotlin-gradle",
+        [
+            "build.gradle.kts=" + _GRADLE,
+            "src/main/kotlin/a/Main.kt=package a\n\nfun main() {\n}\n",
+        ],
+    )
+    _whole(
+        t,
+        "php-composer",
+        [
+            "composer.json=" + _COMPOSER,
+            "public/index.php=<?php\necho 'hi';\n",
+            "src/Tool.php=<?php\nfunction twice($a) { return $a * 2; }\n",
+        ],
+    )
+
+
 def main() raises:
     test_whole_app_plans_match_the_phase1_binary()
     test_out_writes_a_whole_app_plan()
+    test_other_languages_match_the_phase1_binary()
     test_what_python_may_read_otherwise_goes_to_the_phase1_binary()
     _ = _py()["gone"]()
-    print("test_analyze_whole_app: 3 passed")
+    print("test_analyze_whole_app: 4 passed")

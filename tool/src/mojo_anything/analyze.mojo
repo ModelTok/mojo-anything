@@ -13,7 +13,7 @@
 # unreadable folder or a name that is not ASCII, a `package.json` serde_json
 # might read otherwise than Python's json, an ignore file in a TS workspace
 # with a pattern globset might refuse (the ignore crate's error stops a TS
-# walk), and `--whole-app` of anything but a Python plan (whole_app.mojo).
+# walk), and `--whole-app` of a TS or C# plan (whole_app.mojo).
 
 from std.os import listdir
 from std.os.path import exists, isdir, isfile, islink
@@ -36,6 +36,7 @@ from mojo_anything.tree_lang import read_tree_facts, tree_helpers
 from mojo_anything.ts_lang import read_ts_facts, ts_helpers
 from mojo_anything.walk import canonical, walk, walk_links
 from mojo_anything.whole_app import (
+    whole_app_lang,
     WholeApp,
     whole_app,
     whole_app_json,
@@ -2021,7 +2022,7 @@ def _emit(
 
 
 def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
-    # `--whole-app` is answered for Python plans only (whole_app.mojo).
+    # `--whole-app` is answered for the plans whole_app_lang names (whole_app.mojo).
     var whole = p.flag("whole-app")
     var root = p.value("ROOT").or_else(".")
     if root.byte_length() == 0:
@@ -2087,13 +2088,15 @@ def run_analyze(p: Parsed, argv: List[String]) raises -> Int:
         if not _ascii(own) or _extension(own).lower() in _compiled():
             return fallback(argv)
         var lp = lang_plan(lang, root, py)
-        if lp.declined or (whole and not (lp.planned and lang == "python")):
+        if lp.declined or (whole and not (lp.planned and whole_app_lang(lang))):
             return fallback(argv)
         if lp.planned:
             var w = WholeApp()
             if whole:
                 var declined = False
-                w = whole_app(lp.report, root, py_helpers(), declined)
+                w = whole_app(
+                    lp.report, root, py_helpers(), py["serde_reads"], declined
+                )
                 if declined:
                     return fallback(argv)
             if p.flag("json"):

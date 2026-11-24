@@ -1,10 +1,11 @@
 # `analyze --whole-app` (port of src/whole_app.rs and the whole-app section
-# of src/report.rs) for Python workspaces analyze.mojo plans: the entry
+# of src/report.rs) for the workspaces analyze.mojo plans in Python, Go, C,
+# C++, Ruby, Java, Kotlin and PHP: the entry
 # points the manifests and the code give away, every dependency imported or
 # declared with its replacement, the port order as pieces and the decisions
 # for the user. What the manifests and the code say is read by
-# analyze_py.py's `whole_app_facts` (tomllib, Python's re over ASCII-safe
-# text); the rest is Mojo over analyze's report.
+# analyze_py.py's `whole_app_facts` and `whole_app_lang_facts` (tomllib,
+# Python's json and re over ASCII-safe text); the rest is Mojo over analyze's report.
 
 from std.python import Python, PythonObject
 
@@ -20,6 +21,16 @@ from mojo_anything.plan import (
     fit_name,
     waves,
 )
+
+
+def whole_app_lang(lang: String) -> Bool:
+    """The languages `--whole-app` is answered for (TS and C# go to the
+    Phase 1 binary: package.json, the electron question and the .csproj walk
+    are not ported)."""
+    for l in ["python", "go", "c", "cpp", "ruby", "java", "kotlin", "php"]:
+        if l == lang:
+            return True
+    return False
 
 
 @fieldwise_init
@@ -161,16 +172,27 @@ def _trim_dots(s: String) -> String:
 
 
 def whole_app(
-    r: Report, root: String, py: PythonObject, mut declined: Bool
+    r: Report,
+    root: String,
+    py: PythonObject,
+    serde_reads: PythonObject,
+    mut declined: Bool,
 ) raises -> WholeApp:
-    """whole_app::whole_app for a Python report; `declined` when what the
-    manifests or the code say may be read otherwise than in Rust."""
+    """whole_app::whole_app for a report of a language whole_app_lang
+    names; `declined` when what the manifests or the code say may be read
+    otherwise than in Rust. `serde_reads` screens a JSON manifest."""
     var w = WholeApp()
     var files = Python.list()
     for u in r.units:
         for f in u.files:
             files.append(PythonObject(f))
-    var got = py["whole_app_facts"](PythonObject(root), files)
+    var got: PythonObject
+    if r.language == "python":
+        got = py["whole_app_facts"](PythonObject(root), files)
+    else:
+        got = py["whole_app_lang_facts"](
+            PythonObject(root), files, PythonObject(r.language), serde_reads
+        )
     if String(py=got[0]) != "ok":
         declined = True
         return w^
@@ -231,7 +253,7 @@ def whole_app(
         _insert_sorted(names, d)
     var crates = Crates(py)
     for name in names:
-        var m = crates.find("python", name)
+        var m = crates.find(r.language, name)
         var used_by = 0
         for k in range(len(used_names)):
             if used_names[k] == name:
