@@ -13,7 +13,7 @@
 from std.python import Python, PythonObject
 
 from mojo_anything.analyze import lang_name
-from mojo_anything.bridge import bridge_helpers
+from mojo_anything.bridge import bridge_helpers, mojo_ffi_bindings
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.codegen_mojo import (
     ExportedClass,
@@ -183,6 +183,8 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
                     ),
                 )
             )
+        if kind == "ffi":
+            return _refresh_ffi(argv, crate_dir, l.manifest, bh)
         return fallback(argv)
     if kind == "ffi":
         raise Error(
@@ -231,6 +233,43 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
     var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
     if failed.byte_length() > 0:
         raise Error(failed)
+    var names = List[String]()
+    for f in api.functions:
+        names.append(f.js_name)
+    print(String("Regenerated ", join(paths, ", "), " for ", join(names, ", ")))
+    return 0
+
+
+def _refresh_ffi(
+    argv: List[String],
+    crate_dir: String,
+    loaded: PythonObject,
+    bh: PythonObject,
+) raises -> Int:
+    """Refresh of a Go or Ruby unit: bridge.rs `mojo_ffi_bindings` from the
+    signatures in port.mojo, then gofmt."""
+    var port = bh["read_port"](PythonObject(crate_dir))
+    var ps = String(py=port[0])
+    if ps == "missing":
+        raise Error("reading port.mojo: No such file or directory (os error 2)")
+    if ps != "ok":
+        return fallback(argv)
+    var m = manifest_from_py(loaded)
+    var api = parse_port_mojo(String(py=port[1]))
+    match_export_names(m, api)
+    var paths = List[String]()
+    var texts = List[String]()
+    if not mojo_ffi_bindings(m, api, paths, texts):
+        return fallback(argv)
+    var pp = Python.list()
+    var pt = Python.list()
+    for i in range(len(paths)):
+        pp.append(PythonObject(paths[i]))
+        pt.append(PythonObject(texts[i]))
+    var failed = String(py=bh["write_files"](PythonObject(crate_dir), pp, pt))
+    if failed.byte_length() > 0:
+        raise Error(failed)
+    _ = bh["gofmt"](PythonObject(crate_dir))
     var names = List[String]()
     for f in api.functions:
         names.append(f.js_name)

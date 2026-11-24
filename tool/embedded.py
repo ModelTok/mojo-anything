@@ -16,6 +16,13 @@
   port (src/pin.rs `HELPER_MOJO_SRC`, an `include_str!`).
 - `py_hook_head()`, `py_hook_tail()`: the two halves of the `sitecustomize.py` that
   `record --from-tests` puts on a Python test suite's path (src/from_tests.rs).
+- `json_mojo()`: src/mojo/json.mojo, which `bridge` writes into a unit that needs JSON
+  (src/codegen_mojo.rs `JSON_MOJO`, an `include_str!`).
+- `dispatcher_helpers()`: the helpers of every JSON dispatcher (src/codegen_ffi.rs).
+- `go_helpers()`, `go_call()`, `go_typed_helpers()`, `go_typed_helpers_mojo()`: the fixed
+  parts of a Go unit's cgo wrapper and `exports.mojo` (src/codegen_go.rs).
+- `ruby_codec()`, `ruby_native()`: the fixed parts of a Ruby unit's Fiddle module
+  (src/codegen_ruby.rs).
 
 Run by tool/build.sh and tool/check.sh; the output is not committed (.gitignore) and not
 formatted.
@@ -35,6 +42,14 @@ FILES = [
     ("pinned_mojo", os.path.join(REPO, "src", "mojo", "pinned.mojo")),
     ("py_hook_head", os.path.join(REPO, "src", "from_tests.rs") + "#PY_HOOK_HEAD"),
     ("py_hook_tail", os.path.join(REPO, "src", "from_tests.rs") + "#PY_HOOK_TAIL"),
+    ("json_mojo", os.path.join(REPO, "src", "mojo", "json.mojo")),
+    ("dispatcher_helpers", os.path.join(REPO, "src", "codegen_ffi.rs") + "#DISPATCHER_HELPERS"),
+    ("go_helpers", os.path.join(REPO, "src", "codegen_go.rs") + "#HELPERS_GO"),
+    ("go_call", os.path.join(REPO, "src", "codegen_go.rs") + "#CALL_GO"),
+    ("go_typed_helpers", os.path.join(REPO, "src", "codegen_go.rs") + "#TYPED_HELPERS_GO"),
+    ("go_typed_helpers_mojo", os.path.join(REPO, "src", "codegen_go.rs") + "#TYPED_HELPERS_MOJO"),
+    ("ruby_codec", os.path.join(REPO, "src", "codegen_ruby.rs") + "#CODEC_RB"),
+    ("ruby_native", os.path.join(REPO, "src", "codegen_ruby.rs") + "#NATIVE_RB"),
 ]
 
 

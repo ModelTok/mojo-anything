@@ -31,11 +31,13 @@ from mojo_anything.codegen_mojo import (
     MANIFEST,
     Manifest,
     Param,
+    PortApi,
     is_alnum,
     is_ascii,
     join,
     manifest_json,
     match_export_names,
+    needs_json_mojo,
     parse_port_mojo,
     port_mojo,
     trim,
@@ -43,13 +45,21 @@ from mojo_anything.codegen_mojo import (
 )
 from mojo_anything.codegen_mojo_c import BUILD_DIR, c_bindings, port_mojo_c
 from mojo_anything.codegen_cpp import WRAPPER, cpp_bindings, port_mojo_cpp
+from mojo_anything.codegen_ffi import DISPATCHER, dispatcher_mojo
+from mojo_anything.codegen_go import EXPORTS as GO_EXPORTS
+from mojo_anything.codegen_go import typed_mojo, used_types, uses_dispatcher
+from mojo_anything.codegen_go import wrapper as go_wrapper
+from mojo_anything.codegen_go import wrapper_go_mod
 from mojo_anything.codegen_mojo_py import (
     GITIGNORE,
     mojo_py_bindings,
     mojo_readme,
     pixi_toml,
+    unit_pixi_toml,
 )
-from mojo_anything.embedded import py_num_mojo
+from mojo_anything.codegen_ruby import native as ruby_native
+from mojo_anything.codegen_ruby import wrapper as ruby_wrapper
+from mojo_anything.embedded import json_mojo, py_num_mojo
 from mojo_anything.fallback import fallback
 from mojo_anything.plan import BLOCKED, KEEP, UnitReport
 from mojo_anything.tree_lang import tree_helpers
@@ -147,6 +157,18 @@ def write_files(base, paths, texts):
         except OSError as e:
             return "writing %s: %s" % (target, _io(e))
     return ""
+
+def gofmt(crate_dir):
+    # bridge.rs `format_wrapper`: `gofmt -w <crate>/go`, best effort, as
+    # Command::output runs it (stdin closed, output captured and dropped).
+    import subprocess
+    go = os.path.join(crate_dir, "go")
+    if os.path.isdir(go):
+        try:
+            subprocess.run(["gofmt", "-w", go], stdin=subprocess.DEVNULL,
+                           capture_output=True)
+        except OSError:
+            pass
 
 def absolute(arg):
     # std::path::absolute on Unix: `.` components dropped, `..` kept, a
@@ -768,31 +790,7 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
     if lang == "cpp":
         return _bridge_cpp(argv, root, unit, bh, flags)
     if lang == "go" or lang == "ruby":
-        # A unit `analyze` counted no exports in (functions and classes,
-        # read by the same tree-sitter readers bridge's `lang::exports`
-        # uses) has none to bridge, when every file of it reads as UTF-8
-        # (an unreadable file is skipped by analyze, an error in bridge).
-        # A unit with exports is not ported yet.
-        var files = Python.list()
-        for f in unit.files:
-            files.append(PythonObject(f))
-        if (
-            unit.exports == 0
-            and unit.status != KEEP
-            and unit.status != BLOCKED
-            and Int(py=bh["readable"](PythonObject(root), files)) == 1
-        ):
-            raise Error(
-                String(
-                    "unit `",
-                    unit.id,
-                    (
-                        "` exports no functions; bridge a unit with an exported"
-                        " function API"
-                    ),
-                )
-            )
-        return fallback(argv)
+        return _bridge_ffi(argv, root, unit, bh, flags, lang)
     if lang != "python":
         return fallback(argv)
     return _bridge_python(argv, root, unit, bh, flags)
@@ -1261,6 +1259,192 @@ def _bridge_c(
     )
     for j in m.js_only:
         notes.append(String("`", j.name, "` stays in C: ", j.reason, "."))
+    _outcome(crate_dir, m.kind, paths, m, notes)
+    return 0
+
+
+def _ffi_function(f: PythonObject) raises -> ExportedFn:
+    """An export analyze_tree.py's Go or Ruby reader gives."""
+    var params = List[Param]()
+    var ps = f["params"]
+    for i in range(_len(ps)):
+        var p = ps[i]
+        params.append(
+            Param(
+                String(py=p["name"]),
+                String(py=p["ts_type"]),
+                Bool(py=p["optional"]),
+                Bool(py=p["rest"]),
+                _opt(p["default"]),
+                Bool(py=p["keyword_only"]),
+                _opt(p["native_type"]),
+            )
+        )
+    return ExportedFn(
+        String(py=f["name"]),
+        String(py=f["file"]),
+        Int(py=f["line"]),
+        params^,
+        String(py=f["returns"]),
+        False,
+        False,
+        List[String](),
+        False,
+        _opt(f["blocker"]),
+        _opt(f["native_return"]),
+        _opt(f["prototype"]),
+    )
+
+
+def mojo_ffi_bindings(
+    m: Manifest,
+    api: PortApi,
+    mut paths: List[String],
+    mut texts: List[String],
+) raises -> Bool:
+    """Bridge.rs `mojo_ffi_bindings`: `pixi.toml`, `json.mojo` when the unit
+    needs it, the library source and the language-side wrapper. False when
+    the Go sources cannot be read the way the Rust tool reads them."""
+    # Only the unit's exports cross; a public helper stays in the library.
+    var exported = PortApi()
+    for f in api.functions:
+        for e in m.exports:
+            if e.name == f.js_name:
+                exported.functions.append(f.copy())
+                break
+    for s in api.structs:
+        exported.structs.append(s)
+    var json = needs_json_mojo(m.language, exported) or (
+        m.language == "go" and uses_dispatcher(m, exported)
+    )
+    paths.append("pixi.toml")
+    texts.append(unit_pixi_toml(m, json))
+    if json:
+        paths.append("json.mojo")
+        texts.append(json_mojo())
+    if m.language == "go":
+        var th = tree_helpers()
+        var src = th["go_unit_sources"](
+            PythonObject(m.root), PythonObject(m.unit)
+        )
+        if String(py=src[0]) != "ok":
+            return False
+        var sources = src[2]
+        if _len(sources) == 0:
+            raise Error(
+                String(
+                    "cannot read the Go sources of `",
+                    m.unit,
+                    "` under ",
+                    m.root,
+                    ": is `root` in ",
+                    MANIFEST,
+                    " right?",
+                )
+            )
+        var package = String(py=src[1])
+        paths.append(GO_EXPORTS)
+        texts.append(typed_mojo(m, exported))
+        var names = Python.list()
+        for n in used_types(m):
+            names.append(PythonObject(n))
+        var decls = th["go_type_decls"](sources, names)
+        if decls is Python.none():
+            return False
+        var types = List[String]()
+        for i in range(_len(decls)):
+            types.append(String(py=decls[i]))
+        paths.append("go/go.mod")
+        texts.append(wrapper_go_mod(m))
+        paths.append(String("go/", package, ".go"))
+        texts.append(go_wrapper(m, exported, package, types))
+        return True
+    paths.append(DISPATCHER)
+    texts.append(dispatcher_mojo(m, exported))
+    paths.append(String("ruby/", m.lib_name(), "_native.rb"))
+    texts.append(ruby_native(m))
+    paths.append(String("ruby/", m.lib_name(), ".rb"))
+    texts.append(ruby_wrapper(m))
+    return True
+
+
+def _bridge_ffi(
+    argv: List[String],
+    root: String,
+    unit: UnitReport,
+    bh: PythonObject,
+    flags: Flags,
+    lang: String,
+) raises -> Int:
+    """Bridge.rs `bridge` for a Go or Ruby unit (`bridge_ffi_mojo`)."""
+    var th = tree_helpers()
+    var files = Python.list()
+    for f in unit.files:
+        files.append(PythonObject(f))
+    var r = th[String(lang, "_bridge_exports")](PythonObject(root), files)
+    if String(py=r[0]) != "ok":
+        return fallback(argv)
+    var exports = List[ExportedFn]()
+    var classes = List[ExportedClass]()
+    var js_only = List[JsOnly]()
+    var fs = r[1]
+    for i in range(_len(fs)):
+        var f = _ffi_function(fs[i])
+        var reason = flags.why(f)
+        if reason:
+            js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
+        else:
+            exports.append(f^)
+    _check_defined(unit, lang, exports, classes, js_only)
+    var crate_name = flags.crate_name(unit.id)
+    var crate_dir = flags.crate_dir(root, crate_name)
+    if not _free_crate_dir(crate_dir, bh):
+        return fallback(argv)
+    var m = Manifest(
+        root,
+        unit.id,
+        lang,
+        "ffi",
+        crate_name,
+        exports^,
+        classes^,
+        js_only^,
+    )
+    # Everything is generated before anything is written.
+    var port = port_mojo(m)
+    var api = parse_port_mojo(port)
+    match_export_names(m, api)
+    var paths = List[String]()
+    var texts = List[String]()
+    paths.append("port.mojo")
+    texts.append(port)
+    paths.append(".gitignore")
+    texts.append(".pixi/\n.mojo-anything/\n")
+    paths.append("README.md")
+    texts.append(readme(m))
+    paths.append(MANIFEST)
+    texts.append(manifest_json(m))
+    if not mojo_ffi_bindings(m, api, paths, texts):
+        return fallback(argv)
+    _write(crate_dir, paths, texts, bh)
+    _ = bh["gofmt"](PythonObject(crate_dir))
+    var notes = List[String]()
+    notes.append(
+        String(
+            "Port each function in port.mojo, then: mojo-anything record ",
+            crate_dir,
+            " && mojo-anything build ",
+            crate_dir,
+            " && mojo-anything diff ",
+            crate_dir,
+        )
+    )
+    for j in m.js_only:
+        notes.append(
+            String(
+                "`", j.name, "` stays in ", lang_name(lang), ": ", j.reason, "."
+            )
+        )
     _outcome(crate_dir, m.kind, paths, m, notes)
     return 0
 

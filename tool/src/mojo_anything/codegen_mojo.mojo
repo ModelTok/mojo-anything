@@ -605,7 +605,104 @@ def has_literal_default(p: Param) -> Bool:
 # ---- port.mojo ---------------------------------------------------------------
 
 
+def go_mojo_type(go: String) -> String:
+    """codegen_mojo::go_mojo_type: anything structured crosses as
+    `JsonValue`."""
+    var t = trim(go)
+    if t == "int":
+        return "Int"
+    if t == "int8":
+        return "Int8"
+    if t == "int16":
+        return "Int16"
+    if t == "int32" or t == "rune":
+        return "Int32"
+    if t == "int64":
+        return "Int64"
+    if t == "uint":
+        return "UInt"
+    if t == "uint8" or t == "byte":
+        return "UInt8"
+    if t == "uint16":
+        return "UInt16"
+    if t == "uint32":
+        return "UInt32"
+    if t == "uint64" or t == "uintptr":
+        return "UInt64"
+    if t == "float32":
+        return "Float32"
+    if t == "float64":
+        return "Float64"
+    if t == "string":
+        return "String"
+    if t == "bool":
+        return "Bool"
+    if t == "[]string":
+        return "List[String]"
+    return "JsonValue"
+
+
+def _typed_mojo_type(t: String) -> Bool:
+    """codegen_mojo.rs `TYPED`."""
+    return (
+        t == "Int"
+        or t == "Int8"
+        or t == "Int16"
+        or t == "Int32"
+        or t == "Int64"
+        or t == "UInt"
+        or t == "UInt8"
+        or t == "UInt16"
+        or t == "UInt32"
+        or t == "UInt64"
+        or t == "Float32"
+        or t == "Float64"
+        or t == "Bool"
+        or t == "String"
+    )
+
+
+def go_typed_eligible(f: PortFn) -> Bool:
+    for t in f.param_types:
+        if not _typed_mojo_type(t):
+            return False
+    return f.ret == "None" or _typed_mojo_type(f.ret)
+
+
+def needs_json_mojo(lang: String, api: PortApi) -> Bool:
+    """codegen_mojo::needs_json_mojo (a Mojo port has no classes)."""
+    for f in api.functions:
+        if f.ret.find("JsonValue") >= 0:
+            return True
+        for t in f.param_types:
+            if t.find("JsonValue") >= 0:
+                return True
+    if lang == "ruby":
+        return True
+    if lang == "go":
+        for f in api.functions:
+            if not go_typed_eligible(f):
+                return True
+    return False
+
+
+def _go_ret_mojo(native: String) -> Optional[String]:
+    var inner = trim_end_matches(trim_start_matches(trim(native), "("), ")")
+    var results = List[String]()
+    for piece in inner.split(","):
+        var r = trim(String(piece))
+        if r.byte_length() > 0 and r != "error":
+            results.append(r)
+    if len(results) == 0:
+        return None
+    if len(results) == 1:
+        return go_mojo_type(results[0])
+    return String("JsonValue")
+
+
 def _param_mojo(m: Manifest, p: Param) -> String:
+    if m.language == "go" and p.native_type:
+        return go_mojo_type(p.native_type.value())
     var t: String
     if has_literal_default(p):
         t = rtype_from_ts(p.ts_type)
@@ -623,9 +720,14 @@ def port_mojo(m: Manifest) -> String:
         for p in f.params:
             params.append(mojo_ident(p.name) + ": " + _param_mojo(m, p))
         var ret = String("")
-        var r = rtype_from_ts(f.returns)
-        if r != "Unit":
-            ret = " -> " + rtype_mojo(r, m.language)
+        if m.language == "go" and f.native_return:
+            var g = _go_ret_mojo(f.native_return.value())
+            if g:
+                ret = " -> " + g.value()
+        else:
+            var r = rtype_from_ts(f.returns)
+            if r != "Unit":
+                ret = " -> " + rtype_mojo(r, m.language)
         body += String(
             "\n\n# Port of `", f.name, "` (`", f.file, ":", f.line, "`).\n"
         )

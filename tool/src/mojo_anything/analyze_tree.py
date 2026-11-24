@@ -650,15 +650,241 @@ def go_to_ts(t, structs):
                 break
         if close is not None:
             if trim(rest[:close]) != "string":
-                raise _NotBridgeable("keys")
+                raise _NotBridgeable("`" + t + "`: JSON object keys are strings")
             return "Record<string, " + go_to_ts(rest[close + 1 :], structs) + ">"
-    if t.startswith("*") or t.startswith("func") or t.startswith("chan") or t.startswith("<-chan"):
-        raise _NotBridgeable(t)
-    if t == "any" or t.startswith("interface") or t.startswith("[") or t == "error":
-        raise _NotBridgeable(t)
-    if "." in t or not _upper_first(t):
-        raise _NotBridgeable(t)
+    if t.startswith("*"):
+        raise _NotBridgeable("takes or returns a pointer (`" + t + "`)")
+    if t.startswith("func"):
+        raise _NotBridgeable("takes or returns a function")
+    if t.startswith("chan") or t.startswith("<-chan"):
+        raise _NotBridgeable("takes or returns a channel")
+    if t == "any" or t.startswith("interface"):
+        raise _NotBridgeable("`" + t + "`: values of any type")
+    if t.startswith("["):
+        raise _NotBridgeable("`" + t + "`: fixed-size array")
+    if t == "error":
+        raise _NotBridgeable("takes an `error` value")
+    if "." in t:
+        raise _NotBridgeable("uses `" + t + "` from another package")
+    if not _upper_first(t):
+        raise _NotBridgeable("uses the unexported type `" + t + "`")
     return structs.get(t, "unknown")
+
+
+_ASCII_WS = "\t\n\x0b\x0c\r "
+
+
+def _ascii_tree(v):
+    if isinstance(v, str):
+        return v.isascii()
+    if isinstance(v, dict):
+        return all(_ascii_tree(x) for x in v.values())
+    if isinstance(v, (list, tuple)):
+        return all(_ascii_tree(x) for x in v)
+    return True
+
+
+def _param(name, ts_type, optional=False, default=None, keyword_only=False, native_type=None):
+    return {
+        "name": name,
+        "ts_type": ts_type,
+        "optional": optional,
+        "rest": False,
+        "default": default,
+        "keyword_only": keyword_only,
+        "native_type": native_type,
+    }
+
+
+def _export(name, path, line, params, returns, blocker, native_return=None, prototype=None):
+    return {
+        "name": name,
+        "file": path,
+        "line": line,
+        "params": params,
+        "returns": returns,
+        "blocker": blocker,
+        "native_return": native_return,
+        "prototype": prototype,
+    }
+
+
+def _go_functions(root, data, path):
+    """go.rs `exports` over one parsed file, with Rust's reasons."""
+    structs = _go_structs(root)
+    out = []
+    for node in _named(root):
+        if node.type != "function_declaration":
+            continue
+        n = node.child_by_field_name("name")
+        name = _text(n) if n is not None else ""
+        if not _upper_first(name):
+            continue
+        blocker = None
+        if node.child_by_field_name("type_parameters") is not None:
+            blocker = "generic: Go instantiates it per type"
+        params = []
+        plist = node.child_by_field_name("parameters")
+        for i, p in enumerate(_named(plist) if plist is not None else []):
+            if p.type == "variadic_parameter_declaration" and blocker is None:
+                blocker = "is variadic"
+            t = p.child_by_field_name("type")
+            go_type = _text(t) if t is not None else ""
+            try:
+                ts = go_to_ts(go_type, structs)
+            except _NotBridgeable as e:
+                if blocker is None:
+                    blocker = str(e)
+                ts = "unknown"
+            names = [_text(x) for x in p.children_by_field_name("name")]
+            if not names:
+                names = ["arg%d" % i]
+            for pn in names:
+                if pn == "_":
+                    pn = "arg%d" % len(params)
+                params.append(_param(pn, ts, native_type=go_type))
+        results = []
+        r = node.child_by_field_name("result")
+        if r is not None:
+            if r.type == "parameter_list":
+                for p in _named(r):
+                    t = p.child_by_field_name("type")
+                    count = max(1, len(p.children_by_field_name("name")))
+                    results.extend([_text(t) if t is not None else ""] * count)
+            else:
+                results.append(_text(r))
+        fallible = bool(results) and results[-1] == "error"
+        if fallible:
+            results.pop()
+        dialect = []
+        for x in results:
+            try:
+                dialect.append(go_to_ts(x, structs))
+            except _NotBridgeable as e:
+                if blocker is None:
+                    blocker = str(e)
+                dialect.append("unknown")
+        if not dialect:
+            returns = "void"
+        elif len(dialect) == 1:
+            returns = dialect[0]
+        else:
+            returns = "[" + ", ".join(dialect) + "]"
+        body = node.child_by_field_name("body")
+        if body is None:
+            signature = _text(node)
+        else:
+            signature = data[node.start_byte : body.start_byte].decode("utf-8")
+        tail = ""
+        if fallible:
+            tail = "error" if not results else ", error"
+        out.append(
+            _export(
+                name,
+                path,
+                _line(node),
+                params,
+                returns,
+                blocker,
+                "(" + ", ".join(results) + tail + ")",
+                " ".join(_split_ws(signature)),
+            )
+        )
+    return out
+
+
+def go_bridge_exports(root, files):
+    """bridge's reading of a Go unit (go.rs `exports` over each file): ("ok", functions) or
+    ("decline",) when a file does not read as UTF-8 (bridge's `reading <file>` error is not
+    reproduced), a tree has an error, or any name, type or prototype is outside ASCII."""
+    out = []
+    try:
+        for rel in files:
+            if rel.endswith((".vue", ".svelte", ".astro")):
+                continue
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                data.decode("utf-8")
+            except (OSError, UnicodeError):
+                return ("decline",)
+            if not rel.endswith(".go") or rel.endswith("_test.go"):
+                continue
+            tree = _parse("go", data)
+            if tree.root_node.has_error:
+                return ("decline",)
+            out.extend(_go_functions(tree.root_node, data, rel))
+    except (Decline, RecursionError):
+        return ("decline",)
+    if not _ascii_tree(out):
+        return ("decline",)
+    return ("ok", out)
+
+
+def go_unit_sources(root, unit):
+    """codegen_go `unit_sources` and `package_name`: ("ok", package, sources) where sources
+    may be empty; ("decline",) for a unit path Rust would join otherwise or a name outside
+    ASCII."""
+    if unit.startswith("/"):
+        return ("decline",)
+    d = os.path.join(root, _trim_end_matches(unit, "/"))
+    if os.path.isfile(d):
+        d = os.path.dirname(d)
+    try:
+        names = os.listdir(d)
+    except OSError:
+        names = []
+    picked = []
+    for name in names:
+        if not name.isascii():
+            return ("decline",)
+        if name.endswith(".go") and len(name) > 3 and not name.endswith("_test.go"):
+            picked.append(name)
+    picked.sort(key=lambda n: n.encode())
+    sources = []
+    for name in picked:
+        try:
+            with open(os.path.join(d, name), "rb") as f:
+                sources.append(f.read().decode("utf-8"))
+        except (OSError, UnicodeError):
+            continue
+    package = "port"
+    for s in sources:
+        hit = None
+        for l in _lines(s):
+            tl = trim(l)
+            if tl.startswith("package "):
+                words = _split_ws(tl[len("package ") :])
+                hit = words[0] if words else ""
+                break
+        if hit is not None:
+            package = hit
+            break
+    if not package.isascii():
+        return ("decline",)
+    return ("ok", package, sources)
+
+
+def go_type_decls(sources, names):
+    """go.rs `type_decls`: the `type` declarations named `names`, as written."""
+    out = []
+    try:
+        for source in sources:
+            tree = _parse("go", source.encode("utf-8"))
+            if tree.root_node.has_error:
+                return None
+            for decl in _named(tree.root_node):
+                if decl.type != "type_declaration":
+                    continue
+                for spec in _named(decl):
+                    if spec.type != "type_spec":
+                        continue
+                    n = spec.child_by_field_name("name")
+                    if n is not None and _text(n) in names:
+                        out.append("type " + _text(spec))
+    except (Decline, RecursionError):
+        return None
+    return out
 
 
 def _go_exports(root):
@@ -944,6 +1170,336 @@ def _ruby_exports(root):
         if child.type in ("module", "class"):
             _ruby_namespace(child, out)
     return [(f[2], []) for f in out]
+
+
+def _ruby_split_top(text, sep):
+    """ruby.rs `split_top`."""
+    out = []
+    depth = 0
+    cur = ""
+    for c in text:
+        if c in "<{([":
+            depth += 1
+        elif c in ">})]":
+            depth -= 1
+        elif c == sep and depth == 0:
+            out.append(trim(cur))
+            cur = ""
+            continue
+        cur += c
+    if trim(cur):
+        out.append(trim(cur))
+    return out
+
+
+def yard_to_ts(types):
+    """ruby.rs `yard_to_ts`."""
+    parts = _ruby_split_top(types, ",")
+    if len(parts) > 1:
+        return " | ".join(yard_to_ts(p) for p in parts)
+    t = trim(types)
+    if t.startswith("Array<") and t.endswith(">") and len(t) >= 7:
+        inner = yard_to_ts(t[6:-1])
+        return "(" + inner + ")[]" if " " in inner else inner + "[]"
+    if t.startswith("Hash{") and t.endswith("}") and len(t) >= 6 and "=>" in t[5:-1]:
+        k, v = t[5:-1].split("=>", 1)
+        if yard_to_ts(k) == "string":
+            return "Record<string, " + yard_to_ts(v) + ">"
+        return "unknown"
+    return {
+        "String": "string",
+        "Integer": "int",
+        "Fixnum": "int",
+        "Bignum": "int",
+        "Float": "number",
+        "Numeric": "number",
+        "Boolean": "boolean",
+        "TrueClass": "boolean",
+        "FalseClass": "boolean",
+        "true": "boolean",
+        "false": "boolean",
+        "Bool": "boolean",
+        "nil": "undefined",
+        "NilClass": "undefined",
+        "void": "undefined",
+        "Array": "unknown[]",
+        "Symbol": "string",
+    }.get(t, "unknown")
+
+
+def _parses_i64(v):
+    """str::parse::<i64>."""
+    s = v[1:] if v[:1] in ("+", "-") else v
+    if not s or not all("0" <= c <= "9" for c in s):
+        return False
+    return -(2**63) <= int(v) <= 2**63 - 1
+
+
+def _parses_f64(v):
+    """str::parse::<f64> (ASCII)."""
+    s = v[1:] if v[:1] in ("+", "-") else v
+    if s.lower() in ("inf", "infinity", "nan"):
+        return True
+    i, n = 0, len(s)
+    digits = 0
+    while i < n and "0" <= s[i] <= "9":
+        i += 1
+        digits += 1
+    if i < n and s[i] == ".":
+        i += 1
+        while i < n and "0" <= s[i] <= "9":
+            i += 1
+            digits += 1
+    if digits == 0:
+        return False
+    if i < n and s[i] in "eE":
+        i += 1
+        if i < n and s[i] in "+-":
+            i += 1
+        e = 0
+        while i < n and "0" <= s[i] <= "9":
+            i += 1
+            e += 1
+        if e == 0:
+            return False
+    return i == n
+
+
+def _literal_type(value):
+    """ruby.rs `literal_type`."""
+    v = trim(value)
+    if v.startswith('"') or v.startswith("'"):
+        return "string"
+    if v in ("true", "false"):
+        return "boolean"
+    if not v.isascii():
+        return None
+    if _parses_i64(v):
+        return "int"
+    if _parses_f64(v):
+        return "number"
+    return None
+
+
+def _doc_above(lines, row):
+    out = []
+    i = row
+    while i > 0:
+        i -= 1
+        l = trim(lines[i]) if i < len(lines) else ""
+        if l.startswith("#"):
+            out.append(trim(l[1:]))
+        else:
+            break
+    out.reverse()
+    return out
+
+
+def _ruby_method_fn(path, module, node, lines):
+    """ruby.rs `method_fn`."""
+    n = node.child_by_field_name("name")
+    if n is None:
+        return None
+    name = _text(n)
+    doc = _doc_above(lines, node.start_point[0])
+
+    def yard_param(p):
+        for l in doc:
+            if not l.startswith("@param "):
+                continue
+            rest = l[len("@param ") :]
+            if " " not in rest:
+                continue
+            pname, rest = rest.split(" ", 1)
+            if _trim_end_matches(_trim_start_matches(pname, ":"), ":") != p:
+                continue
+            rest = trim(rest)
+            if not rest.startswith("["):
+                continue
+            return yard_to_ts(rest[1:].split("]")[0])
+        return None
+
+    returns = "unknown"
+    for l in doc:
+        if not l.startswith("@return "):
+            continue
+        rest = trim(l[len("@return ") :])
+        if not rest.startswith("["):
+            continue
+        returns = yard_to_ts(rest[1:].split("]")[0])
+        break
+    blocker = None
+    first = name[:1]
+    if first and not first.isascii():
+        raise Decline("a method name outside ASCII")
+    if name.endswith("=") or name.endswith("!") or not (first and ("a" <= first <= "z" or first == "_")):
+        blocker = "`" + name + "` is not a plain method name"
+    params = []
+    signature = ""
+    plist = node.child_by_field_name("parameters")
+    if plist is not None:
+        s = _text(plist)
+        i, j = 0, len(s)
+        while i < j and s[i] in "()":
+            i += 1
+        while j > i and s[j - 1] in "()":
+            j -= 1
+        signature = s[i:j]
+        for p in _named(plist):
+            pn = p.child_by_field_name("name")
+            pname = _text(pn) if pn is not None else _text(p)
+            v = p.child_by_field_name("value")
+            value = _text(v) if v is not None else None
+            kind = p.type
+            if kind == "identifier":
+                keyword_only, optional = False, False
+            elif kind == "optional_parameter":
+                keyword_only, optional = False, True
+            elif kind == "keyword_parameter":
+                keyword_only, optional = True, value is not None
+            elif kind == "splat_parameter":
+                if blocker is None:
+                    blocker = "takes `*args`"
+                keyword_only, optional = False, True
+            elif kind == "hash_splat_parameter":
+                if blocker is None:
+                    blocker = "takes `**options`"
+                keyword_only, optional = False, True
+            elif kind == "block_parameter":
+                if blocker is None:
+                    blocker = "takes a block"
+                continue
+            else:
+                if blocker is None:
+                    blocker = "parameter `" + _text(p) + "`"
+                continue
+            ts = yard_param(pname)
+            if ts is None and value is not None:
+                ts = _literal_type(value)
+            if ts is None:
+                ts = "unknown"
+            if value == "nil" and "undefined" not in ts:
+                ts = ts + " | undefined"
+            params.append(_param(pname, ts, optional, value, keyword_only))
+    body = node.child_by_field_name("body")
+    if body is not None:
+        numeric = []
+        for b in _walk(body):
+            if b.type != "binary":
+                continue
+            o = b.child_by_field_name("operator")
+            op = _text(o) if o is not None else ""
+            left = b.child_by_field_name("left")
+            right = b.child_by_field_name("right")
+            if left is None or right is None:
+                continue
+            literal = left.type in ("integer", "float") or right.type in ("integer", "float")
+            if op in ("-", "*", "/", "**") or (op in ("+", "%", "<", ">", "<=", ">=") and literal):
+                for side in (left, right):
+                    if side.type == "identifier":
+                        numeric.append(_text(side))
+        for p in params:
+            if p["ts_type"] == "unknown" and p["name"] in numeric:
+                p["ts_type"] = "number"
+        if blocker is None and any(x.type == "yield" for x in _walk(body)):
+            blocker = "yields to a block"
+    return _export(
+        name, path, _line(node), params, returns, blocker, None, module + "." + _text(n) + "(" + signature + ")"
+    )
+
+
+def _ruby_namespace_fns(path, node, lines, scope, out):
+    """ruby.rs `namespace`."""
+    n = node.child_by_field_name("name")
+    if n is None:
+        return
+    scope.append(_text(n))
+    receiver = "::".join(scope)
+    is_module = node.type == "module"
+    module_function = False
+    private = False
+    hidden = []
+    found = []
+    instance = []
+    body = node.child_by_field_name("body")
+
+    def add(m):
+        f = _ruby_method_fn(path, receiver, m, lines)
+        if f is not None:
+            found.append(f)
+
+    for item in _named(body) if body is not None else []:
+        kind = item.type
+        t = _text(item)
+        if kind == "identifier" and t == "module_function" and is_module:
+            module_function = True
+        elif kind == "identifier" and t in ("private", "protected"):
+            private = True
+        elif kind == "call" and t.startswith("private_class_method"):
+            hidden.append(t)
+        elif kind == "call" and is_module and t.startswith("module_function"):
+            for m in instance:
+                mn = m.child_by_field_name("name")
+                if ":" + (_text(mn) if mn is not None else "") in t:
+                    add(m)
+        elif (
+            kind == "singleton_method"
+            and item.child_by_field_name("object") is not None
+            and _text(item.child_by_field_name("object")) == "self"
+        ):
+            add(item)
+        elif kind == "method" and module_function and not private:
+            add(item)
+        elif kind == "method" and not private:
+            instance.append(item)
+        elif kind == "singleton_class":
+            private_here = False
+            sb = item.child_by_field_name("body")
+            for m in _named(sb) if sb is not None else []:
+                if m.type == "identifier" and _text(m) == "private":
+                    private_here = True
+                if m.type == "method" and not private_here:
+                    add(m)
+        elif kind in ("module", "class"):
+            _ruby_namespace_fns(path, item, lines, scope, out)
+    found = [f for f in found if not any(":" + f["name"] in h for h in hidden)]
+    found.sort(key=lambda f: f["line"])
+    out.extend(found)
+    scope.pop()
+
+
+def ruby_bridge_exports(root, files):
+    """bridge's reading of a Ruby unit (ruby.rs `exports` over each file): ("ok", functions)
+    or ("decline",) when a file does not read as UTF-8, a tree has an error, or any name, type,
+    default or prototype is outside ASCII."""
+    out = []
+    try:
+        for rel in files:
+            if rel.endswith((".vue", ".svelte", ".astro")):
+                continue
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                text = data.decode("utf-8")
+            except (OSError, UnicodeError):
+                return ("decline",)
+            if not rel.endswith(".rb"):
+                continue
+            tree = _parse("ruby", data)
+            if tree.root_node.has_error:
+                return ("decline",)
+            lines = _lines(text)
+            found = []
+            for child in _named(tree.root_node):
+                if child.type in ("module", "class"):
+                    _ruby_namespace_fns(rel, child, lines, [], found)
+            found.sort(key=lambda f: f["line"])
+            out.extend(found)
+    except (Decline, RecursionError):
+        return ("decline",)
+    if not _ascii_tree(out):
+        return ("decline",)
+    return ("ok", out)
 
 
 # ---- C# (src/lang/csharp.rs) -------------------------------------------------------------

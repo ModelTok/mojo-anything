@@ -37,9 +37,19 @@ def fixture(side, name, source, files):
 def gone():
     shutil.rmtree(BASE, ignore_errors=True)
 
+def made(name):
+    # 1 when the Mojo run wrote a crate (a mojo-anything.json somewhere).
+    for base, dirs, files in os.walk(os.path.join(BASE, "new", name)):
+        if "mojo-anything.json" in files:
+            return 1
+    return 0
+
 def tree(d):
     out = []
     for base, dirs, files in os.walk(d):
+        # Folders too, so an empty one left behind shows.
+        for sub in dirs:
+            out.append((os.path.relpath(os.path.join(base, sub), d) + "/", b""))
         for f in files:
             p = os.path.join(base, f)
             with open(p, "rb") as fh:
@@ -279,14 +289,11 @@ def test_unanswered_bridges_go_to_the_phase1_binary() raises:
     # analyze declines a syntax error, so bridge does too.
     log = _both(t, "broken", "", broken, _args(".", "b.py"))
     assert_true(log != "", "a syntax error did not fall back")
-    log = _both(
-        t,
-        "go",
-        "tests/fixtures/go-mojo-ports",
-        none,
-        _args(".", "textkit/textkit.go"),
-    )
-    assert_true(log != "", "a Go unit did not fall back")
+    var go_batch = _args(".", "textkit/textkit.go")
+    go_batch.append("--batch")
+    go_batch.append("Echo:s")
+    log = _both(t, "go", "tests/fixtures/go-mojo-ports", none, go_batch)
+    assert_true(log != "", "--batch on a Go unit did not fall back")
     _ = t["gone"]()
 
 
@@ -559,6 +566,321 @@ def test_bridge_flags_match_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+comptime _GO_SHAPES = """package shapes
+
+import "errors"
+
+// Point is a point.
+type Point struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y,omitempty"`
+	hidden int
+	Skip   int `json:"-"`
+	Label  string
+}
+
+// Box embeds a Point.
+type Box struct {
+	Point
+	W int
+}
+
+type Tags map[string][]string
+
+func Dist(a Point, b Point) float64 { return 0 }
+
+func Scale(p Point, k float64) (Point, error) { return p, nil }
+
+func Split(s string, sep string) ([]string, int) { return nil, 0 }
+
+func Check(ok bool) error {
+	if !ok {
+		return errors.New("no")
+	}
+	return nil
+}
+
+func Nothing() {}
+
+func Widths(b byte, r rune, u uint, u8 uint8, i8 int8, i16 int16, i32 int32, f32 float32, up uintptr) (uint64, error) {
+	return 0, nil
+}
+
+func Name(_ string, x int) (string, error) { return "", nil }
+
+func Unnamed(int, string) bool { return true }
+
+func Pair(a, b int) (x, y int) { return a, b }
+
+func Counts(m map[string]int) map[string][]int { return nil }
+
+func Boxed(b Box) Box { return b }
+
+func Tagged(t Tags) Tags { return t }
+
+func Grow(s Size) Size { return s }
+
+func Ptr(p *Point) int { return 0 }
+
+func Fn(f func(int) int) int { return 0 }
+
+func Ch(c chan int) {}
+
+func Any(v any) {}
+
+func Arr(a [3]int) {}
+
+func Err(e error) {}
+
+func Other(d time.Duration) {}
+
+func Keys(m map[int]string) {}
+
+func Gen[T any](x T) T { return x }
+
+func Var(xs ...int) int { return 0 }
+
+func lower(x int) int { return x }
+
+func (p Point) Method() int { return 0 }
+
+func Commented(a int /* the a */, b int) int { return a }
+
+func   Spaced(  a   int,
+	b int ) int { return a }
+"""
+
+comptime _GO_SIZE = """package shapes
+
+// Size is a width.
+type Size int
+
+type unused struct{ A int }
+"""
+
+comptime _GO_CALC = """package calc
+
+func Add(a int, b int) int { return a + b }
+
+func Neg(b bool) (bool, error) { return !b, nil }
+
+func Clean(path string) string { return path }
+
+func Ratio(a float32, b float64) float64 { return b }
+
+func Ok() error { return nil }
+
+func Do(x int8) {}
+
+func Big(x uint) uint { return x }
+"""
+
+comptime _RUBY_KIT = """# frozen_string_literal: true
+
+module Kit
+  # Mixes things.
+  #
+  # @param text [String]
+  # @param sep [String, nil]
+  # @param n [Array<Integer>]
+  # @return [Hash{String => Array<Float>}]
+  def self.mix(text, sep = nil, n = [], flag: true, limit: 1_000, rate: 1.5, big: +5, e: 1e3, name: "x", sym: :a, req:)
+    {}
+  end
+
+  # @param a [Integer, Float]
+  # @return [Hash{Symbol => Integer}]
+  def self.weird(a, b = 2)
+    a * b + 1
+  end
+
+  def self.math(x, y)
+    x - y
+  end
+
+  def self.cmp(a, b)
+    a < 3
+  end
+
+  def self.splat(*args) end
+  def self.opts(**o) end
+  def self.blk(&b) end
+
+  def self.yields(x)
+    yield x
+  end
+
+  def self.bang!(x) x end
+  def self.set=(x) end
+  def self.empty?(x) x end
+  def self.Upper(x) x end
+
+  class << self
+    def inside(a) a end
+
+    private
+
+    def hidden(a) a end
+  end
+
+  module Inner
+    module_function
+
+    # @param a [Array]
+    # @return [Boolean]
+    def one(a) a end
+
+    private
+
+    def two(a) a end
+  end
+
+  module Late
+    def a(x) x end
+    def b(x) x end
+    module_function :a
+  end
+
+  class Tool
+    def self.make(n) n end
+    def self.secret(n) n end
+    private_class_method :secret
+
+    def instance(x) x end
+  end
+end
+"""
+
+
+def _made(
+    t: PythonObject,
+    name: String,
+    source: String,
+    spec: List[String],
+    args: List[String],
+) raises:
+    """`_owned`, and the run wrote a crate (not an error both binaries
+    agree on)."""
+    _owned(t, name, source, spec, args)
+    assert_equal(
+        Int(py=t["made"](PythonObject(name))), 1, "no crate in " + name
+    )
+
+
+def _forced(a: String, b: String) -> List[String]:
+    var out = _args(a, b)
+    out.append("--force")
+    return out^
+
+
+def test_go_and_ruby_units_are_bridged_in_mojo() raises:
+    """`bridge_ffi_mojo`: port.mojo, exports.mojo (typed calls and the JSON
+    dispatcher), the cgo wrapper after gofmt, and for Ruby the dispatcher,
+    the Fiddle module and the wrapper with the original module functions."""
+    var t = _py()
+    var none = List[String]()
+    _made(
+        t,
+        "go-ports",
+        "tests/fixtures/go-mojo-ports",
+        none,
+        _args(".", "textkit/textkit.go"),
+    )
+    _made(t, "go-strkit", "tests/fixtures/go", none, _args(".", "strkit/"))
+    var shapes = List[String]()
+    shapes.append("go.mod=module example.com/shapes\n\ngo 1.22\n")
+    shapes.append(String("shapes/shapes.go=", _GO_SHAPES))
+    shapes.append(String("shapes/size.go=", _GO_SIZE))
+    shapes.append("shapes/shapes_test.go=package shapes\n\nfunc TestX() {}\n")
+    _made(t, "go-shapes", "", shapes, _forced(".", "shapes/"))
+    _made(t, "go-shapes-file", "", shapes, _forced(".", "shapes/shapes.go"))
+    var calc = List[String]()
+    calc.append("go.mod=module example.com/calc\n\ngo 1.22\n")
+    calc.append(String("calc.go=", _GO_CALC))
+    _made(t, "go-calc", "", calc, _forced(".", "calc.go"))
+    var stays = List[String]()
+    stays.append("go.mod=module example.com/v\n\ngo 1.22\n")
+    stays.append("v.go=package v\n\nfunc V(xs ...int) int { return 0 }\n")
+    _owned(t, "go-stays", "", stays, _forced(".", "v.go"))
+    var twice = List[String]()
+    twice.append("go.mod=module example.com/w\n\ngo 1.22\n")
+    twice.append("w/a.go=package w\n\nfunc F(x int) int { return x }\n")
+    twice.append("w/b.go=package w\n\nfunc F(x int) int { return x }\n")
+    _owned(t, "go-twice", "", twice, _forced(".", "w/"))
+    var taken = List[String]()
+    taken.append("mojo/textkit-mojo/keep.txt=mine\n")
+    _owned(
+        t,
+        "go-taken",
+        "tests/fixtures/go-mojo-ports",
+        taken,
+        _args(".", "textkit/textkit.go"),
+    )
+    _made(
+        t,
+        "rb-ports",
+        "tests/fixtures/ruby-mojo-ports",
+        none,
+        _args(".", "textkit/lib/textkit.rb"),
+    )
+    _made(t, "rb-lib", "tests/fixtures/ruby", none, _args(".", "lib/textkit/"))
+    _made(
+        t,
+        "rb-words",
+        "tests/fixtures/ruby",
+        none,
+        _args(".", "lib/textkit/words.rb"),
+    )
+    var kit = List[String]()
+    kit.append("Gemfile=source 'https://rubygems.org'\n")
+    kit.append(String("lib/kit.rb=", _RUBY_KIT))
+    _made(t, "rb-kit", "", kit, _forced(".", "lib/kit.rb"))
+    var rb_stays = List[String]()
+    rb_stays.append("Gemfile=source 'https://rubygems.org'\n")
+    rb_stays.append("s.rb=module S\n  def self.each(&b) end\nend\n")
+    _owned(t, "rb-stays", "", rb_stays, _forced(".", "s.rb"))
+    # Flags: --keep with and without a reason, --name, --out.
+    var go_flags = List[String]()
+    go_flags.append("--keep")
+    go_flags.append("Echo")
+    go_flags.append("--keep")
+    go_flags.append("Pair: two results")
+    go_flags.append("--name")
+    go_flags.append("tk")
+    go_flags.append("--out")
+    go_flags.append("ports/tk")
+    _made(
+        t,
+        "go-flags",
+        "tests/fixtures/go-mojo-ports",
+        none,
+        _with(_args(".", "textkit/textkit.go"), go_flags),
+    )
+    var rb_flags = List[String]()
+    rb_flags.append("--keep")
+    rb_flags.append("half:floats")
+    rb_flags.append("--name")
+    rb_flags.append("rk")
+    _made(
+        t,
+        "rb-flags",
+        "tests/fixtures/ruby-mojo-ports",
+        none,
+        _with(_args(".", "textkit/lib/textkit.rb"), rb_flags),
+    )
+    var wasm = List[String]()
+    wasm.append("--kind")
+    wasm.append("wasm")
+    _owned(
+        t,
+        "go-wasm",
+        "tests/fixtures/go-mojo-ports",
+        none,
+        _with(_args(".", "textkit/textkit.go"), wasm),
+    )
+    _ = t["gone"]()
+
+
 def test_failed_writes_match_the_phase1_binary() raises:
     """Review of 069c8e8..ba4490e: `mojo` is a file, so create_dir_all
     fails, and the error is the Rust tool's text."""
@@ -585,4 +907,5 @@ def main() raises:
     test_c_units_are_bridged_in_mojo()
     test_cpp_units_are_bridged_in_mojo()
     test_bridge_flags_match_the_phase1_binary()
-    print("test_bridge: 9 passed")
+    test_go_and_ruby_units_are_bridged_in_mojo()
+    print("test_bridge: 10 passed")

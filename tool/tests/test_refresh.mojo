@@ -50,6 +50,9 @@ def gone():
 def tree(d):
     out = []
     for base, dirs, files in os.walk(d):
+        # Folders too, so an empty one left behind shows.
+        for sub in dirs:
+            out.append((os.path.relpath(os.path.join(base, sub), d) + "/", b""))
         for f in files:
             p = os.path.join(base, f)
             with open(p, "rb") as fh:
@@ -546,11 +549,141 @@ def test_review_findings_match_the_phase1_binary() raises:
     _ = t["gone"]()
 
 
+comptime _GO_CRATE = "mojo/textkit-mojo"
+
+comptime _GO_EDITED = """# A Go port with a helper, a renamed function and changed types.
+
+from json import JsonValue
+
+
+def _helper(x: Int) -> Int:
+    return x
+
+
+# Port of `Echo`.
+def echo_it(s: JsonValue) raises -> String:
+    return String()
+
+
+def repeat(s: String, n: Int) raises -> String:
+    return s
+
+
+def count(s: String) -> Int:
+    return 0
+
+
+def add(a: UInt64, b: UInt64) raises -> UInt64:
+    return a + b
+
+
+def split(s: String) raises -> List[String]:
+    return List[String]()
+
+
+def half(x: Float32) raises -> Float32:
+    return x
+
+
+def is_neg(x: Float64) raises -> Bool:
+    return x < 0
+
+
+def pair(s: String) raises -> JsonValue:
+    return JsonValue()
+
+
+def extra(a: Int8, b: List[Optional[Int16]]) raises -> UInt32:
+    return 0
+"""
+
+
+def test_go_and_ruby_refresh_matches_the_phase1_binary() raises:
+    """Refresh of `ffi` units: exports.mojo, json.mojo and the cgo wrapper
+    (formatted with gofmt) for Go; the dispatcher, the Fiddle module and the
+    wrapper for Ruby."""
+    var t = _py()
+    var go = _case("go", "tests/fixtures/go-mojo-ports", "textkit/textkit.go")
+    go.args.append("refresh")
+    go.args.append(_GO_CRATE)
+    _owned(t, go)
+    var edited = _case(
+        "go-edited", "tests/fixtures/go-mojo-ports", "textkit/textkit.go"
+    )
+    edited.files.append(String(_GO_CRATE, "/port.mojo=", _GO_EDITED))
+    edited.args.append("refresh")
+    edited.args.append(_GO_CRATE)
+    _owned(t, edited)
+    var ported = _case(
+        "go-ported", "tests/fixtures/go-mojo-ports", "textkit/textkit.go"
+    )
+    ported.files.append(
+        String(_GO_CRATE, "/port.mojo=")
+        + String(
+            py=Python.import_module("builtins")
+            .open("tests/fixtures/go-mojo-ports/textkit.mojo")
+            .read()
+        )
+    )
+    ported.args.append("refresh")
+    ported.args.append(_GO_CRATE)
+    _owned(t, ported)
+    var strkit = _case("go-strkit", "tests/fixtures/go", "strkit/")
+    strkit.cwd = "/mojo/strkit-mojo"
+    strkit.args.append("refresh")
+    _owned(t, strkit)
+    # The Go sources are gone: the wrapper cannot be named.
+    var lost = _case(
+        "go-lost", "tests/fixtures/go-mojo-ports", "textkit/textkit.go"
+    )
+    lost.remove.append("textkit/textkit.go")
+    lost.args.append("refresh")
+    lost.args.append(_GO_CRATE)
+    _owned(t, lost)
+    var rb = _case(
+        "rb", "tests/fixtures/ruby-mojo-ports", "textkit/lib/textkit.rb"
+    )
+    rb.args.append("refresh")
+    rb.args.append("mojo/textkit-mojo")
+    _owned(t, rb)
+    var rb_ported = _case(
+        "rb-ported", "tests/fixtures/ruby-mojo-ports", "textkit/lib/textkit.rb"
+    )
+    rb_ported.files.append(
+        String("mojo/textkit-mojo/port.mojo=")
+        + String(
+            py=Python.import_module("builtins")
+            .open("tests/fixtures/ruby-mojo-ports/textkit.mojo")
+            .read()
+        )
+    )
+    rb_ported.args.append("refresh")
+    rb_ported.args.append("mojo/textkit-mojo")
+    _owned(t, rb_ported)
+    var lib = _case("rb-lib", "tests/fixtures/ruby", "lib/textkit/")
+    lib.args.append("refresh")
+    lib.args.append("mojo/textkit-mojo")
+    _owned(t, lib)
+    # A type the dispatcher cannot carry.
+    var bad = _case(
+        "rb-bad", "tests/fixtures/ruby-mojo-ports", "textkit/lib/textkit.rb"
+    )
+    bad.files.append(
+        "mojo/textkit-mojo/port.mojo=def repeat(s: Dict[String, Int], n: Int)"
+        " raises -> String:\n    return String()\n"
+    )
+    bad.args.append("refresh")
+    bad.args.append("mojo/textkit-mojo")
+    _owned(t, bad)
+    _ = t["gone"]()
+
+
 def main() raises:
+    test_go_and_ruby_refresh_matches_the_phase1_binary()
     test_python_refresh_matches_the_phase1_binary()
     test_refresh_errors_match_the_phase1_binary()
     test_record_load_errors_match_the_phase1_binary()
     test_unanswered_go_to_the_phase1_binary()
     test_review_findings_match_the_phase1_binary()
     test_c_refresh_matches_the_phase1_binary()
-    print("test_refresh: 6 passed")
+    print("test_refresh: 7 passed")
