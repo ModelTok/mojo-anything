@@ -289,9 +289,16 @@ fn wheel_imports_in_clean_venv() {
         .find(|p| p.extension().is_some_and(|x| x == "whl"))
         .expect("a wheel");
     let wheel_name = wheel.file_name().unwrap().to_string_lossy().to_string();
+    // The tag is that of the `python3` this test runs, which also builds and installs the wheel.
+    let version = Command::new("python3")
+        .args(["-c", "import sys; print('%d%d' % sys.version_info[:2])"])
+        .output()
+        .unwrap();
+    let version = String::from_utf8_lossy(&version.stdout).trim().to_string();
+    let tag = format!("quopri_mojo-1.0.0-cp{version}-cp{version}-linux_");
     assert!(
-        wheel_name.starts_with("quopri_mojo-1.0.0-cp312-cp312-linux_"),
-        "{wheel_name}"
+        wheel_name.starts_with(&tag),
+        "{wheel_name} (expected {tag}...)"
     );
 
     // Install it into a fresh venv with no pixi on PATH.
