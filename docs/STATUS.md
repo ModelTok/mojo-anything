@@ -45,6 +45,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of C++ workspaces, `map` of repositories whose bridge crates name another root, Python `analyze --whole-app` | 524 | 524 | 31.5% (165/524), [log](measurements/2026-11-24-phase2-replay-11.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` of Python units and the errors of every planned unit, `refresh` of Python units, the manifest's errors in `refresh` and `record` | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-12.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Python units (generated cases, `--inputs`, `--pin-clock` and pinned recordings, `--from-tests`) | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-13.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of C and C++ units, `bridge`'s `--keep`, `--name`, `--out`, `--as-json` and `--kind wasm` | 524 | 524 | 27.5% (144/524), [log](measurements/2026-11-24-phase2-replay-14.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -260,6 +261,41 @@ The following go to the Phase 1 binary before anything is written:
 ([log](measurements/2026-11-24-phase2-replay-13.md)). `tool/tests/test_record.mojo` records
 copies of the fixtures with both binaries and compares stdout, stderr, the exit code and every
 file, `.mojo-anything/` included (`pixi run check-tool`: 31 test files, 182 tests).
+
+The fourteenth row adds `bridge` and `refresh` of C and C++ units, and the bridge flags.
+
+- **`bridge` of C units.** A C unit's exports are read through tree-sitter-c, with the Rust
+  tool's refusal texts (`_c_functions` in `analyze_tree.py`). `port.mojo`, `exports.mojo`,
+  `exports_shadow.mojo`, `include/<lib>.h` and `c_structs.mojo` are written as
+  `codegen_mojo_c.rs` and `codegen_c.rs` write them (`codegen_mojo_c.mojo`), with plain
+  `char`'s signedness and the library suffix taken from the host.
+- **`bridge` of C++ units.** cpp.rs `exports` is read through tree-sitter-cpp, also with its
+  refusal texts: inline and constexpr functions, templates, C linkage, members, overloads,
+  shared port names, pointers, references, unsupported types and classes. `port.mojo`,
+  `exports.mojo`, `cpp/shim.cpp` and `cpp/wrapper.cpp` are written as `codegen_cpp.rs` writes
+  them (`codegen_cpp.mojo`). analyze's C++ export counts come from the same reader.
+- **`refresh` of C and C++ units.** The bindings are regenerated from the manifest's
+  `native_type`, `native_return` and `prototype`.
+- **The bridge flags.** `--keep NAME[:REASON]` is applied before the language's own
+  refusals, classes included. `--name` and `--out`/`-o` name the port and its folder.
+  `--as-json` changes only TS units. `--kind wasm` on a unit of another language gets the Rust
+  tool's error. These apply to Python, C and C++ units.
+
+The following go to the Phase 1 binary before anything is written:
+- a C or C++ file that is not UTF-8, a tree with an error, and text outside ASCII;
+- a C manifest whose `len:`, `outptr:` or `ptr:` indices Rust would read otherwise;
+- `--batch`, `--kind node`, and a TS unit with `--kind`;
+- flag values outside ASCII, an empty `--out`, and a `--name` with a slash;
+- the bridges of Go, Ruby, Java, Kotlin and TS units;
+- `refresh` of the `ffi`, `mojo-node`, `mojo-wasm` and `mojo-jvm` kinds;
+- `record` of every language but Python.
+
+`bridge` now falls back in 16 of its 38 cases, `refresh` in 1 of 7 and `record` in 0 of 7
+([log](measurements/2026-11-24-phase2-replay-14.md)). No recorded case passes the bridge
+flags. `tool/tests/test_bridge.mojo` and `test_refresh.mojo` bridge and refresh copies of the
+C and C++ fixtures, and units written to reach each refusal, with both binaries. They compare
+stdout, stderr, the exit code and every written file (`pixi run check-tool`: 31 test files,
+186 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
