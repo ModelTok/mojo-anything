@@ -44,6 +44,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of Kotlin, PHP and C workspaces with source files, `map` of those repositories with no port | 524 | 524 | 38.4% (201/524), [log](measurements/2026-11-24-phase2-replay-10.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` of C++ workspaces, `map` of repositories whose bridge crates name another root, Python `analyze --whole-app` | 524 | 524 | 31.5% (165/524), [log](measurements/2026-11-24-phase2-replay-11.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` of Python units and the errors of every planned unit, `refresh` of Python units, the manifest's errors in `refresh` and `record` | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-12.md) |
+| 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Python units (generated cases, `--inputs`, `--pin-clock` and pinned recordings, `--from-tests`) | 524 | 524 | 28.2% (148/524), [log](measurements/2026-11-24-phase2-replay-13.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -221,7 +222,7 @@ The following go to the Phase 1 binary before anything is written:
 - a manifest serde_json might read otherwise than Python's json (duplicate keys, `\u`
   escapes, numbers it refuses, a field of another type);
 - `refresh` of C, C++, TS and JVM units;
-- every recording (`record` past the manifest).
+- every recording (`record` past the manifest); the thirteenth row answers Python's.
 
 `bridge` now falls back in 19 of its 38 cases, `refresh` in 2 of 7 and `record` in 0 of 7
 ([log](measurements/2026-11-24-phase2-replay-12.md)). `tool/tests/test_bridge.mojo` and
@@ -229,6 +230,36 @@ The following go to the Phase 1 binary before anything is written:
 compare stdout, stderr, the exit code and every written file (`pixi run check-tool`: 30 test
 files, 175 tests). TS, `--whole-app` of other languages, `map` with real ports, the bridges of
 the other languages, `refresh` of their kinds and every recording still fall back.
+
+The thirteenth row adds `record` of Python units (`harness.mojo`, `shape.mojo`,
+`harness_py.mojo`).
+
+- **Cases.** The generator reproduces the Rust tool's: the same xorshift64* sequence seeded
+  from each name, the same values, string, regex and JSON traps, parameter shapes read from
+  `to_ts_type`'s types and sibling dataclasses, and serde_json's text for every value. The
+  Rust tool's Python driver (embedded from `src/harness_py.rs`) runs them under the same
+  watchdog, which kills a case past `MOJO_ANYTHING_CASE_TIMEOUT` and resumes after it.
+  `cases.jsonl`, `recorded-from.json`, `timed-out.json` and the summary lines match.
+- **`--inputs`**, with the Rust tool's screen of the lines it reads.
+- **`--pin-clock`, `--no-pin-clock` and pinned recordings.** These cover `pinned.json` and
+  `pinned.mojo`, and the clock and seed the driver is given.
+- **`--from-tests -- <command>`.** The suite runs with the Rust tool's import hook, and its
+  calls are kept in `test-inputs.jsonl`.
+
+The following go to the Phase 1 binary before anything is written:
+- a type the shape reader does not read, and a class parameter named by type;
+- C pointers;
+- a `pinned.json` serde_json would refuse or read otherwise;
+- input lines serde_json might read otherwise;
+- `--module`, `--resolve-from`, `--node-arg` and `--float-tolerance`;
+- Python units of kind `ffi`;
+- `--no-pin-clock` with a manifest that fails to load;
+- every other language.
+
+`record` falls back in 0 of its 7 cases, as before: no recorded case records a Python unit
+([log](measurements/2026-11-24-phase2-replay-13.md)). `tool/tests/test_record.mojo` records
+copies of the fixtures with both binaries and compares stdout, stderr, the exit code and every
+file, `.mojo-anything/` included (`pixi run check-tool`: 31 test files, 182 tests).
 
 The previous row, checked with `tool/fallback/mojo-anything app replay . --build
 tool/build/mojo-anything` ([log](measurements/2026-11-23-phase2-replay-2.md)): `setup` falls
