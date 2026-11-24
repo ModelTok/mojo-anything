@@ -25,6 +25,7 @@ from mojo_anything.codegen_mojo import (
     match_export_names,
     parse_port_mojo,
 )
+from mojo_anything.codegen_cpp import cpp_bindings
 from mojo_anything.codegen_mojo_c import c_bindings, c_manifest_reads_alike
 from mojo_anything.codegen_mojo_py import mojo_py_bindings
 from mojo_anything.embedded import py_num_mojo
@@ -191,7 +192,7 @@ def run_refresh(p: Parsed, argv: List[String]) raises -> Int:
                 " unit of kind `ffi`: bridge again",
             )
         )
-    if kind == "c-abi" and language == "c":
+    if kind == "c-abi" and (language == "c" or language == "cpp"):
         return _refresh_c(argv, crate_dir, l.manifest, bh)
     if kind != "mojo-py":
         return fallback(argv)
@@ -252,13 +253,16 @@ def _refresh_c(
     if ps != "ok":
         return fallback(argv)
     var m = manifest_from_py(loaded)
-    if not c_manifest_reads_alike(m):
+    if m.language == "c" and not c_manifest_reads_alike(m):
         return fallback(argv)
     var api = parse_port_mojo(String(py=port[1]))
     var signed = Int(py=bh["host"]()[0]) == 1
     var paths = List[String]()
     var texts = List[String]()
-    c_bindings(m, api, signed, paths, texts)
+    if m.language == "cpp":
+        cpp_bindings(m, api, signed, paths, texts)
+    else:
+        c_bindings(m, api, signed, paths, texts)
     var pp = Python.list()
     var pt = Python.list()
     for i in range(len(paths)):

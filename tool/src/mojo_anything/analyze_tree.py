@@ -2827,9 +2827,36 @@ def _cpp_dialect(named):
     return c_scalar(named[1]) + "[]"
 
 
+_CPP_FACADE = "write a free function with plain arguments over it (a facade) and bridge that"
+_CPP_SUBSET = (
+    "which the C++ subset does not take (integers, floating-point numbers, `bool`, "
+    "`std::string`, `std::vector` of numbers)"
+)
+
+
+def _trim_end(s):
+    """str::trim_end."""
+    j = len(s)
+    while j > 0 and s[j - 1] in _WS:
+        j -= 1
+    return s[:j]
+
+
+def _cpp_spelled(named, by_ref):
+    """Crossing::spelled."""
+    if named[0] == "scalar":
+        base = named[1]
+    elif named[0] == "str":
+        base = "std::string"
+    else:
+        base = "std::vector<%s>" % named[1]
+    return "const %s &" % base if by_ref else base
+
+
 def _cpp_unwrap(node):
-    """`unwrap`: how a declarator wraps its name (the outermost wrapping)."""
+    """`unwrap`: how a declarator wraps its name (the outermost wrapping), and the name."""
     wrap = "value"
+    name = None
     while node is not None:
         kind = node.type
         if kind in ("reference_declarator", "abstract_reference_declarator"):
@@ -2849,52 +2876,144 @@ def _cpp_unwrap(node):
             if wrap == "value":
                 wrap = "function"
             node = node.child_by_field_name("declarator")
+        elif kind in ("identifier", "field_identifier"):
+            name = _text(node)
+            node = None
         else:
             node = None
-    return wrap
+    return wrap, name
 
 
 def _cpp_param(p, using_std):
-    """`param_crossing`: the parameter's dialect type, or None when it cannot cross."""
+    """`param_crossing`: (True, dialect, spelled, name) or (False, reason)."""
     is_const = False
-    other = False
+    other = None
     for child in _named(p):
         if child.type == "type_qualifier":
             if _text(child) == "const":
                 is_const = True
             else:
-                other = True
+                other = _text(child)
     ty = p.child_by_field_name("type")
     if ty is None:
-        return None
-    wrap = _cpp_unwrap(p.child_by_field_name("declarator"))
-    if other:
-        return None
+        return (False, "has a parameter without a type")
+    wrap, name = _cpp_unwrap(p.child_by_field_name("declarator"))
+    written = " ".join(_split_ws(_text(p)))
+    if name is not None:
+        if written.endswith(name):
+            written = written[: len(written) - len(name)]
+        written = _trim_end(written)
+    if other is not None:
+        return (False, "takes a `%s` parameter (`%s`); %s" % (other, written, _CPP_FACADE))
     named = _cpp_named(ty, using_std)
     if named[0] == "other":
-        return None
-    if wrap == "value" or (wrap == "ref" and is_const):
-        return _cpp_dialect(named)
-    return None
+        t = named[1]
+        cls = t.split("::")[-1] in _CPP_TYPES[1]
+        if wrap == "ref" and not is_const:
+            why = (
+                "takes `%s`, a state object by non-const reference, which the C ABI shim "
+                "cannot pass; %s" % (written, _CPP_FACADE)
+            )
+        elif wrap == "pointer" and cls:
+            why = (
+                "takes `%s`, a pointer to a state object, which the C ABI shim cannot pass; %s"
+                % (written, _CPP_FACADE)
+            )
+        elif wrap in ("pointer", "array"):
+            why = "takes a pointer (`%s`), which the C ABI shim does not pass; %s" % (
+                written,
+                _CPP_FACADE,
+            )
+        elif "vector<bool>" in t:
+            why = "uses `%s`, which stores bits, not `bool`s; %s over `std::vector<int>`" % (
+                t,
+                _CPP_FACADE,
+            )
+        elif t == "long double":
+            why = "uses `long double`, which Mojo cannot pass; %s" % _CPP_FACADE
+        else:
+            why = "uses `%s`, %s; %s" % (t, _CPP_SUBSET, _CPP_FACADE)
+        return (False, why)
+    if wrap == "value":
+        by_ref = False
+    elif wrap == "ref" and is_const:
+        by_ref = True
+    elif wrap == "ref":
+        return (
+            False,
+            "writes through a non-const reference (`%s`); %s (one that returns the value)"
+            % (written, _CPP_FACADE),
+        )
+    elif wrap == "rref":
+        return (
+            False,
+            "takes an rvalue reference (`%s`); %s (one that takes it by value)"
+            % (written, _CPP_FACADE),
+        )
+    elif wrap in ("pointer", "array"):
+        return (
+            False,
+            "takes a pointer (`%s`), which the C ABI shim does not pass; %s"
+            % (written, _CPP_FACADE),
+        )
+    else:
+        return (False, "takes a function (`%s`); %s" % (written, _CPP_FACADE))
+    return (True, _cpp_dialect(named), _cpp_spelled(named, by_ref), name)
 
 
-def _cpp_function(node, namespaces, using_std, blocked):
-    """`function`: [qualified name, blocked, types] or None (internal linkage, not a
-    function, an operator, `main`)."""
+def _cpp_without_comments(head):
+    out = ""
+    rest = head
+    while "/*" in rest:
+        start = rest.find("/*")
+        out += rest[:start]
+        end = rest[start:].find("*/")
+        rest = "" if end < 0 else rest[start + end + 2 :]
+    out += rest
+    joined = " ".join(l.split("//")[0] for l in _lines(out))
+    return " ".join(_split_ws(joined)).replace("( ", "(").replace(" )", ")")
+
+
+def _cpp_fn(name, path, node, blocker, params=None, returns="unknown", native=None, proto=None):
+    return {
+        "name": name,
+        "file": path,
+        "line": _line(node),
+        "params": params or [],
+        "returns": returns,
+        "native_return": native,
+        "prototype": proto,
+        "blocker": blocker,
+    }
+
+
+def _cpp_function(node, data, path, namespaces, using_std, refused):
+    """`function`: an ExportedFn dict, or None (internal linkage, not a function, an
+    operator, `main`)."""
+    blocker = refused
     for spec in _named(node):
         word = _text(spec)
         if spec.type == "storage_class_specifier" and word == "static":
             return None
         if spec.type == "storage_class_specifier" and word == "inline":
-            blocked = True
+            if blocker is None:
+                blocker = (
+                    "is `inline`, so its file need not emit a symbol the shim could call; "
+                    "drop `inline` or %s" % _CPP_FACADE
+                )
         elif spec.type == "type_qualifier" and word in ("constexpr", "consteval"):
-            blocked = True
+            if blocker is None:
+                blocker = (
+                    "is `%s` (implicitly inline), so its file need not emit a symbol the "
+                    "shim could call; %s" % (word, _CPP_FACADE)
+                )
     function = node.child_by_field_name("declarator")
     if function is None:
         return None
-    indirect = False
+    indirect = None
     while function.type in ("pointer_declarator", "reference_declarator"):
-        indirect = True
+        if indirect is None:
+            indirect = "pointer" if function.type == "pointer_declarator" else "reference"
         inner = function.child_by_field_name("declarator")
         if inner is None:
             kids = _named(function)
@@ -2914,13 +3033,23 @@ def _cpp_function(node, namespaces, using_std, blocked):
             return None
         scope, name = full.rsplit("::", 1)
         parts = scope.split("::")
-        member = any(s in _CPP_TYPES[1] for s in parts) or any(
+        class_scope = next((s for s in parts if s in _CPP_TYPES[1]), None)
+        member = class_scope is not None or any(
             c.type == "type_qualifier" for c in _named(function)
         )
         qualified.extend(parts)
         qualified.append(name)
         if member:
-            return ["::".join(qualified), True, []]
+            owner = class_scope if class_scope is not None else scope
+            f = _cpp_fn(
+                "::".join(qualified),
+                path,
+                node,
+                "is a member function of `%s`: only free functions cross the C ABI shim; %s"
+                % (owner, _CPP_FACADE),
+            )
+            f["member"] = True
+            return f
     elif ident.type == "identifier":
         qualified.append(_text(ident))
     else:
@@ -2928,59 +3057,91 @@ def _cpp_function(node, namespaces, using_std, blocked):
     name = "::".join(qualified)
     if name == "main":
         return None
-    types = []
-    params = function.child_by_field_name("parameters")
-    if params is not None:
-        if any(c.type in ("...", "variadic_parameter") for c in params.children):
-            blocked = True
-        for p in _named(params):
+    params = []
+    plist = function.child_by_field_name("parameters")
+    if plist is not None:
+        if any(c.type in ("...", "variadic_parameter") for c in plist.children):
+            if blocker is None:
+                blocker = "is variadic; %s" % _CPP_FACADE
+        for i, p in enumerate(_named(plist)):
             if p.type in ("variadic_parameter_declaration", "variadic_parameter"):
-                blocked = True
+                if blocker is None:
+                    blocker = "is variadic; %s" % _CPP_FACADE
                 continue
             if p.type not in ("parameter_declaration", "optional_parameter_declaration"):
                 continue
             if trim(_text(p)) == "void":
                 continue
-            d = _cpp_param(p, using_std)
-            if d is None:
-                blocked = True
-                types.append("unknown")
+            r = _cpp_param(p, using_std)
+            if r[0]:
+                params.append(
+                    {"name": r[3] if r[3] is not None else "arg%d" % i, "ts_type": r[1], "native_type": r[2]}
+                )
             else:
-                types.append(d)
+                if blocker is None:
+                    blocker = r[1]
+                params.append({"name": "arg%d" % i, "ts_type": "unknown", "native_type": None})
     ret = node.child_by_field_name("type")
     if ret is None:
         return None
-    returns = "unknown"
-    if indirect or ret.type == "placeholder_type_specifier":
-        blocked = True
+    if indirect is not None:
+        if blocker is None:
+            head = trim(data[node.start_byte : function.start_byte].decode("utf-8"))
+            blocker = (
+                "returns a %s (`%s`): who owns it must be designed; %s (one that returns a copy)"
+                % (indirect, head, _CPP_FACADE)
+            )
+        returns, native = "unknown", None
+    elif ret.type == "placeholder_type_specifier":
+        if blocker is None:
+            blocker = "deduces its return type (`auto`): write the type out"
+        returns, native = "unknown", None
     elif ret.type == "primitive_type" and _text(ret) == "void":
-        returns = "void"
+        returns, native = "void", "void"
     else:
         named = _cpp_named(ret, using_std)
         if named[0] == "other":
-            blocked = True
+            if blocker is None:
+                blocker = "returns `%s`, %s; %s" % (named[1], _CPP_SUBSET, _CPP_FACADE)
+            returns, native = "unknown", None
         else:
-            returns = _cpp_dialect(named)
-    return [name, blocked, types + [returns]]
-
-
-def _cpp_class(node, template):
-    """`class`: whether this class or struct counts (one with member functions, or a
-    template); it is always refused."""
+            returns, native = _cpp_dialect(named), _cpp_spelled(named, False)
     body = node.child_by_field_name("body")
     if body is None:
-        return False
+        head = _text(node)
+    else:
+        head = data[node.start_byte : body.start_byte].decode("utf-8")
+    return _cpp_fn(name, path, node, blocker, params, returns, native, _cpp_without_comments(head))
+
+
+def _cpp_class(node, path, namespaces, template):
+    """`class`: a class or struct with member functions (or a template), which stays in
+    C++, as an ExportedClass dict; None otherwise."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return None
+    has_methods = False
     for m in _named(body):
         if m.type in ("function_definition", "template_declaration"):
-            return True
-        if m.type in ("field_declaration", "declaration"):
+            has_methods = True
+        elif m.type in ("field_declaration", "declaration"):
             d = m.child_by_field_name("declarator")
-            if d is not None and _cpp_unwrap(d) == "function":
-                return True
-    return template
+            if d is not None and _cpp_unwrap(d)[0] == "function":
+                has_methods = True
+    if not has_methods and not template:
+        return None
+    n = node.child_by_field_name("name")
+    name = _text(n) if n is not None else "(anonymous)"
+    return {
+        "name": "::".join(list(namespaces) + [name]),
+        "file": path,
+        "line": _line(node),
+        "blocker": "is a %sclass: member functions do not cross the C ABI shim; %s"
+        % ("template " if template else "", _CPP_FACADE),
+    }
 
 
-def _cpp_visit(node, namespaces, using_std, functions, classes):
+def _cpp_visit(node, data, path, namespaces, using_std, functions, classes):
     for child in _named(node):
         kind = child.type
         if kind == "namespace_definition":
@@ -2991,20 +3152,29 @@ def _cpp_visit(node, namespaces, using_std, functions, classes):
             inner = list(namespaces) + [trim(s) for s in _text(name).split("::") if trim(s)]
             body = child.child_by_field_name("body")
             if body is not None:
-                _cpp_visit(body, inner, using_std, functions, classes)
+                _cpp_visit(body, data, path, inner, using_std, functions, classes)
         elif kind == "function_definition":
-            f = _cpp_function(child, namespaces, using_std, False)
+            f = _cpp_function(child, data, path, namespaces, using_std, None)
             if f is not None:
                 functions.append(f)
         elif kind == "template_declaration":
             for inner in _named(child):
                 if inner.type == "function_definition":
-                    f = _cpp_function(inner, namespaces, using_std, True)
+                    f = _cpp_function(
+                        inner,
+                        data,
+                        path,
+                        namespaces,
+                        using_std,
+                        "is a template: the C ABI shim needs one concrete signature; %s for "
+                        "each type you use" % _CPP_FACADE,
+                    )
                     if f is not None:
                         functions.append(f)
                 elif inner.type in ("class_specifier", "struct_specifier"):
-                    if _cpp_class(inner, True):
-                        classes.append(True)
+                    c = _cpp_class(inner, path, namespaces, True)
+                    if c is not None:
+                        classes.append(c)
         elif kind == "linkage_specification":
             body = child.child_by_field_name("body")
             if body is not None:
@@ -3013,46 +3183,121 @@ def _cpp_visit(node, namespaces, using_std, functions, classes):
                 else:
                     defs = [n for n in _named(body) if n.type == "function_definition"]
                 for d in defs:
-                    f = _cpp_function(d, namespaces, using_std, True)
+                    f = _cpp_function(
+                        d,
+                        data,
+                        path,
+                        namespaces,
+                        using_std,
+                        'has C linkage (`extern "C"`): it is already a C function; move it '
+                        "to a `.c` file and bridge it as C",
+                    )
                     if f is not None:
                         functions.append(f)
         elif kind in ("class_specifier", "struct_specifier"):
-            if _cpp_class(child, False):
-                classes.append(True)
+            c = _cpp_class(child, path, namespaces, False)
+            if c is not None:
+                classes.append(c)
         elif kind == "declaration":
             for inner in _named(child):
-                if inner.type in ("class_specifier", "struct_specifier") and _cpp_class(inner, False):
-                    classes.append(True)
+                if inner.type in ("class_specifier", "struct_specifier"):
+                    c = _cpp_class(inner, path, namespaces, False)
+                    if c is not None:
+                        classes.append(c)
 
 
-def _cpp_exports(root, using_std):
-    """cpp.rs `exports`: free functions (one per name: an overloaded name is refused once,
-    a name its port would share is refused after the first), then the classes, as
-    (blocked, types)."""
+def _cpp_full_exports(root, data, path, using_std):
+    """cpp.rs `exports`: the free functions (one per name: an overloaded name is refused
+    once, a name its port would share is refused after the first) and the classes."""
     functions = []
     classes = []
-    _cpp_visit(root, [], using_std, functions, classes)
+    _cpp_visit(root, data, path, [], using_std, functions, classes)
     counts = {}
     for f in functions:
-        counts[f[0]] = counts.get(f[0], 0) + 1
+        counts[f["name"]] = counts.get(f["name"], 0) + 1
     seen = set()
     kept = []
     for f in functions:
-        if f[0] not in seen:
-            seen.add(f[0])
+        if f["name"] not in seen:
+            seen.add(f["name"])
             kept.append(f)
     ports = {}
     for f in kept:
-        if counts[f[0]] > 1:
-            f[1] = True
+        n = counts[f["name"]]
+        if n > 1:
+            f["blocker"] = (
+                "is overloaded (%d definitions): the C ABI shim needs one signature per name; "
+                "give each overload its own name in a facade" % n
+            )
             continue
-        if not f[1]:
-            port = f[0].split("::")[-1]
+        if f["blocker"] is None:
+            port = f["name"].split("::")[-1]
             if port in ports:
-                f[1] = True
+                f["blocker"] = (
+                    "has the same name as `%s`, and the Mojo port names functions without "
+                    "their namespace; rename one in a facade" % ports[port]
+                )
             else:
-                ports[port] = f[0]
-    return [(f[1], f[2]) for f in kept] + [(True, []) for _ in classes]
+                ports[port] = f["name"]
+    return kept, classes
+
+
+def _cpp_exports(root, using_std, data=b""):
+    """cpp.rs `exports` for analyze: (blocked, the dialect types) of each function, then
+    one refused entry per class."""
+    functions, classes = _cpp_full_exports(root, data, "", using_std)
+    # A member function is refused before its types are read.
+    return [
+        (
+            f["blocker"] is not None,
+            [] if f.get("member") else [p["ts_type"] for p in f["params"]] + [f["returns"]],
+        )
+        for f in functions
+    ] + [(True, []) for _ in classes]
+
+
+def _ascii_all(v):
+    if isinstance(v, str):
+        return v.isascii()
+    if isinstance(v, dict):
+        return all(_ascii_all(x) for x in v.values())
+    if isinstance(v, (list, tuple)):
+        return all(_ascii_all(x) for x in v)
+    return True
+
+
+def cpp_bridge_exports(root, files):
+    """bridge's reading of a C++ unit (cpp.rs `exports` over each implementation file,
+    after `use_types`): ("ok", items) (each file's functions, then its classes, marked by
+    `is_class`) or ("decline",) when a file does not read as UTF-8, a tree has an error, or
+    any name or type is outside ASCII."""
+    items = []
+    try:
+        for rel in files:
+            try:
+                with open(os.path.join(root, rel), "rb") as f:
+                    data = f.read()
+                text = data.decode("utf-8")
+            except (OSError, UnicodeError):
+                return ("decline",)
+            if not cpp_is_source(rel):
+                continue
+            tree = _parse("cpp", data)
+            if tree.root_node.has_error:
+                return ("decline",)
+            fs, cs = _cpp_full_exports(tree.root_node, data, rel, "using namespace std" in text)
+            # bridge reads each file's functions, then its classes.
+            for f in fs:
+                f["is_class"] = False
+                items.append(f)
+            for c in cs:
+                c["is_class"] = True
+                items.append(c)
+    except (Decline, RecursionError, UnicodeError):
+        return ("decline",)
+    if not _ascii_all(items):
+        return ("decline",)
+    return ("ok", items)
 
 
 def read_file(lang, path):
@@ -3092,7 +3337,7 @@ def read_file(lang, path):
         elif lang == "cpp":
             imports, risks, loops = _cpp_scan(root)
             using_std = "using namespace std" in text
-            exports = _cpp_exports(root, using_std) if cpp_is_source(path) else []
+            exports = _cpp_exports(root, using_std, data) if cpp_is_source(path) else []
         elif lang == "php":
             imports, risks, loops = _php_scan(root)
             # package_of's kebab case and the PSR-4 lookups use Unicode tables.

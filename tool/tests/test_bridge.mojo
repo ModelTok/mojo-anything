@@ -382,6 +382,69 @@ def test_c_units_are_bridged_in_mojo() raises:
     _ = t["gone"]()
 
 
+def test_cpp_units_are_bridged_in_mojo() raises:
+    """`bridge_cpp`: port.mojo, exports.mojo, cpp/shim.cpp and
+    cpp/wrapper.cpp, and the reason each refused function stays in C++."""
+    var t = _py()
+    var none = List[String]()
+    _owned(t, "cpp-kit", "tests/fixtures/cpp", none, _args(".", "src/kit.cpp"))
+    _owned(
+        t,
+        "cpp-mixed",
+        "tests/fixtures/cpp-mixed",
+        none,
+        _args(".", "src/mixed.cpp"),
+    )
+    var kinds = List[String]()
+    kinds.append("CMakeLists.txt=project(k CXX)\n")
+    kinds.append(
+        "src/k.hpp=#include <string>\n#include <vector>\nusing Real ="
+        " double;\ntypedef long Count;\nstruct State { int n; void tick(); };\n"
+    )
+    kinds.append(
+        'src/k.cpp=#include "k.hpp"\n#include <stdexcept>\nusing namespace'
+        " std;\n\nnamespace kit {\nnamespace text {\n\nstring join(const"
+        " vector<string> &xs) { return xs.empty() ? string() : xs[0];"
+        " }\n\nstd::string upper(const std::string &s /* the text */) { return"
+        " s; }\n\nint count(const std::string s, // the input\n          char"
+        " c) { return 0; }\n\n}  // namespace text\n\nstd::vector<double>"
+        " scale(const std::vector<double> &xs, Real k) { return xs;"
+        " }\n\nvector<long> ids(vector<int64_t> xs, Count n) { return {};"
+        " }\n\nbool positive(double x) { return x > 0; }\n\nvoid nothing()"
+        " {}\n\nunsigned long long big(unsigned short a, signed char b, float"
+        " c, size_t d) { return 0; }\n\ninline int twice(int x) { return 2 * x;"
+        " }\n\nconstexpr int thrice(int x) { return 3 * x; }\n\ntemplate"
+        " <typename T> T id(T x) { return x; }\n\ntemplate <typename T> struct"
+        ' Box { T v; };\n\nextern "C" int plain(int x) { return x; }\n\nvoid'
+        " State::tick() {}\n\nint over(int x) { return x; }\nint over(double x)"
+        " { return 0; }\n\nint ptr(int *p) { return *p; }\n\nint state(State"
+        " *s) { return 0; }\n\nint by_ref(State &s) { return 0; }\n\nvoid"
+        " fill(std::vector<int> &out) {}\n\nint moved(std::string &&s) { return"
+        " 0; }\n\nint call(int (*f)(int)) { return f(1); }\n\nint vol(volatile"
+        " int x) { return x; }\n\nint bits(std::vector<bool> b) { return 0;"
+        " }\n\nint ld(long double x) { return 0; }\n\nint *where(int x) {"
+        " static int y; return &y; }\n\nconst std::string &name() { static"
+        " std::string s; return s; }\n\nauto guess(int x) { return x;"
+        " }\n\nState make() { return State(); }\n\nint arr(int xs[]) { return"
+        " 0; }\n\nint varargs(int n, ...) { return n; }\n\nclass Meter {"
+        " public: int read() const { return 0; } };\n\nnamespace {\nint"
+        " hidden(int x) { return x; }\n}\n\nstatic int also_hidden(int x) {"
+        " return x; }\n\n}  // namespace kit\n\nnamespace other {\nbool"
+        " positive(double x) { return x > 0; }\n}\n\nint main() { return 0; }\n"
+    )
+    _owned(t, "cpp-kinds", "", kinds, _args(".", "src/k.cpp"))
+    var stays = List[String]()
+    stays.append("CMakeLists.txt=project(k CXX)\n")
+    stays.append("v.cpp=inline int f(int x) { return x; }\n")
+    _owned(t, "cpp-stays", "", stays, _args(".", "v.cpp"))
+    var taken = List[String]()
+    taken.append("mojo/kit-mojo/keep.txt=mine\n")
+    _owned(
+        t, "cpp-taken", "tests/fixtures/cpp", taken, _args(".", "src/kit.cpp")
+    )
+    _ = t["gone"]()
+
+
 def test_failed_writes_match_the_phase1_binary() raises:
     """Review of 069c8e8..ba4490e: `mojo` is a file, so create_dir_all
     fails, and the error is the Rust tool's text."""
@@ -406,4 +469,5 @@ def main() raises:
     test_units_without_exports_match_the_phase1_binary()
     test_failed_writes_match_the_phase1_binary()
     test_c_units_are_bridged_in_mojo()
-    print("test_bridge: 7 passed")
+    test_cpp_units_are_bridged_in_mojo()
+    print("test_bridge: 8 passed")

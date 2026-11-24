@@ -273,6 +273,23 @@ def test_c_refresh_matches_the_phase1_binary() raises:
     c.args.append("refresh")
     c.args.append("mojo/checksum-mojo")
     _owned(t, c)
+    # A C++ unit: exports.mojo, cpp/shim.cpp and cpp/wrapper.cpp.
+    var cpp = _case("cpp", "tests/fixtures/cpp", "src/kit.cpp")
+    cpp.args.append("refresh")
+    cpp.args.append("mojo/kit-mojo")
+    _owned(t, cpp)
+    var thrown = _case("cpp-raises", "tests/fixtures/cpp", "src/kit.cpp")
+    thrown.files.append(
+        "mojo/kit-mojo/port.mojo=def add(a: Int32, b: Int32) raises ->"
+        " Int32:\n    return a + b\n\n\ndef touch() raises:\n    pass\n"
+    )
+    thrown.args.append("refresh")
+    thrown.args.append("mojo/kit-mojo")
+    _owned(t, thrown)
+    var mixed = _case("cpp-mixed", "tests/fixtures/cpp-mixed", "src/mixed.cpp")
+    mixed.args.append("refresh")
+    mixed.args.append("mojo/mixed-mojo")
+    _owned(t, mixed)
     # A port function that raises is called in a `try`.
     var raising = _case("c-raises", "tests/fixtures/c", "src/text.c")
     raising.files.append(

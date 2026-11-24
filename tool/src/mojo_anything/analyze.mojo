@@ -1633,6 +1633,18 @@ def c_type_rels(root: String) raises -> PythonObject:
     return rels
 
 
+def cpp_type_rels(root: String) raises -> PythonObject:
+    """cpp.rs use_typedefs' files: every implementation file and header the
+    unfiltered walk keeps."""
+    var rels = Python.list()
+    for path in walk(root, _keep, False):
+        var rel = _rel(root, path)
+        var name = _name_of(rel)
+        if cpp_source(name) or cpp_header(name):
+            rels.append(PythonObject(rel))
+    return rels
+
+
 def tree_plan(
     lang: String,
     registry: String,

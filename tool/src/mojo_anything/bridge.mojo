@@ -16,6 +16,7 @@ from std.python import Python, PythonObject
 
 from mojo_anything.analyze import (
     c_type_rels,
+    cpp_type_rels,
     detect_lang,
     empty_workspace,
     helpers,
@@ -40,6 +41,7 @@ from mojo_anything.codegen_mojo import (
     trim_start_matches,
 )
 from mojo_anything.codegen_mojo_c import BUILD_DIR, c_bindings, port_mojo_c
+from mojo_anything.codegen_cpp import WRAPPER, cpp_bindings, port_mojo_cpp
 from mojo_anything.codegen_mojo_py import (
     GITIGNORE,
     mojo_py_bindings,
@@ -687,7 +689,9 @@ def run_bridge(p: Parsed, argv: List[String]) raises -> Int:
         )
     if lang == "c":
         return _bridge_c(argv, root, unit, bh)
-    if lang == "cpp" or lang == "go" or lang == "ruby":
+    if lang == "cpp":
+        return _bridge_cpp(argv, root, unit, bh)
+    if lang == "go" or lang == "ruby":
         # A unit `analyze` counted no exports in (functions and classes,
         # read by the same tree-sitter readers bridge's `lang::exports`
         # uses) has none to bridge, when every file of it reads as UTF-8
@@ -1171,5 +1175,128 @@ def _bridge_c(
     )
     for j in m.js_only:
         notes.append(String("`", j.name, "` stays in C: ", j.reason, "."))
+    _outcome(crate_dir, m.kind, paths, m, notes)
+    return 0
+
+
+def _bridge_cpp(
+    argv: List[String], root: String, unit: UnitReport, bh: PythonObject
+) raises -> Int:
+    """Bridge.rs `bridge` for a C++ unit (`bridge_cpp`, codegen_cpp
+    `bindings`)."""
+    var th = tree_helpers()
+    if (
+        Int(py=th["cpp_use_types"](PythonObject(root), cpp_type_rels(root)))
+        != 1
+    ):
+        return fallback(argv)
+    var files = Python.list()
+    for f in unit.files:
+        files.append(PythonObject(f))
+    var r = th["cpp_bridge_exports"](PythonObject(root), files)
+    if String(py=r[0]) != "ok":
+        return fallback(argv)
+    var exports = List[ExportedFn]()
+    var classes = List[ExportedClass]()
+    var js_only = List[JsOnly]()
+    var items = r[1]
+    for i in range(_len(items)):
+        var item = items[i]
+        if Bool(py=item["is_class"]):
+            # A C++ class always carries its refusal.
+            js_only.append(
+                JsOnly(
+                    String(py=item["name"]),
+                    String(py=item["file"]),
+                    Int(py=item["line"]),
+                    "class: " + String(py=item["blocker"]),
+                )
+            )
+            continue
+        var f = _c_function(item)
+        var reason = js_only_reason(f)
+        if reason:
+            js_only.append(JsOnly(f.name, f.file, f.line, reason.value()))
+        else:
+            exports.append(f^)
+    _check_defined(unit, "cpp", exports, classes, js_only)
+    var crate_name = _crate_name(unit.id)
+    var crate_dir = root + "/mojo/" + crate_name
+    if not _free_crate_dir(crate_dir, bh):
+        return fallback(argv)
+    var host = bh["host"]()
+    var signed = Int(py=host[0]) == 1
+    var ext = String(py=host[1])
+    var m = Manifest(
+        root,
+        unit.id,
+        "cpp",
+        "c-abi",
+        crate_name,
+        exports^,
+        classes^,
+        js_only^,
+    )
+    # Everything is generated before anything is written.
+    var port = port_mojo_cpp(m, signed)
+    var api = parse_port_mojo(port)
+    var paths = List[String]()
+    var texts = List[String]()
+    paths.append("port.mojo")
+    texts.append(port)
+    paths.append("pixi.toml")
+    texts.append(pixi_toml(m))
+    paths.append(".gitignore")
+    texts.append(".mojo-anything/\n.pixi/\n")
+    paths.append("README.md")
+    texts.append(readme(m))
+    paths.append(MANIFEST)
+    texts.append(manifest_json(m))
+    cpp_bindings(m, api, signed, paths, texts)
+    _write(crate_dir, paths, texts, bh)
+    var notes = List[String]()
+    notes.append(
+        String(
+            "Port each function in port.mojo, then: mojo-anything record ",
+            crate_dir,
+            " && mojo-anything build ",
+            crate_dir,
+            " && mojo-anything diff ",
+            crate_dir,
+        )
+    )
+    notes.append(
+        String(
+            "C++ callers keep the original header: compile ",
+            WRAPPER,
+            " and link ",
+            BUILD_DIR,
+            "/lib",
+            m.lib_name(),
+            ".",
+            ext,
+            " instead of ",
+            m.unit,
+            ". The wrapper replaces only the bridged functions of ",
+            m.unit,
+            (
+                ", so move its other definitions into a file of their own that"
+                " stays in the build (`gate`'s `cpp api` names any left"
+                " behind)."
+            ),
+        )
+    )
+    notes.append(
+        "The library is not self-contained yet: once it uses the Mojo standard"
+        " library it needs libKGENCompilerRTShared (.so, or .dylib on macOS)"
+        " from the unit's .pixi/envs/default/lib, and it finds it there through"
+        " an absolute RUNPATH. Ship that file beside it (and set the runpath"
+        " to $ORIGIN) before linking it into a program that runs elsewhere."
+    )
+    for j in m.js_only:
+        var reason = j.reason
+        if j.reason.startswith("class: "):
+            reason = String(j.reason[byte=7:])
+        notes.append(String("`", j.name, "` stays in C++: ", reason, "."))
     _outcome(crate_dir, m.kind, paths, m, notes)
     return 0

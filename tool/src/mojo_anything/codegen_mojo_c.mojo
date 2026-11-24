@@ -69,7 +69,7 @@ def _words(s: String) -> List[String]:
     return out^
 
 
-def _bare(c: String) -> String:
+def c_bare(c: String) -> String:
     """The words of a C type other than `const`, joined by one space."""
     var kept = List[String]()
     for w in _words(c):
@@ -102,7 +102,7 @@ def _index(text: String) -> Optional[Int]:
 def mojo_scalar(c_type: String, char_signed: Bool) -> Optional[String]:
     """The Mojo type of a C scalar (c.rs `scalar`'s Rust type, as Mojo
     names it); `None` for `void` and the types Mojo cannot pass."""
-    var c = _bare(c_type)
+    var c = c_bare(c_type)
     if c == "int" or c == "signed int" or c == "signed":
         return String("Int32")
     if c == "unsigned" or c == "unsigned int":
@@ -185,7 +185,7 @@ def returns_into(f: ExportedFn) -> Optional[Int]:
 def pointee(c_type: String) -> String:
     """codegen_c `pointee`: what a pointer type points to, without
     `const`."""
-    return _bare(_trim_stars(c_type))
+    return c_bare(_trim_stars(c_type))
 
 
 def _native(p: Param) -> String:
