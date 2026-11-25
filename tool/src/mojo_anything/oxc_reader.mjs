@@ -104,7 +104,16 @@ function strValue(lit) {
 
 const isStr = (n) => n && n.type === "Literal" && typeof n.value === "string" && !n.regex;
 
+// The files do not change while the reader runs, so each is read and each
+// path looked at once: collectTypes walks the same imports for every file.
+const texts = new Map();
+const stats = new Map();
 function readText(rel) {
+  if (!texts.has(rel)) texts.set(rel, readTextOnce(rel));
+  return texts.get(rel);
+}
+
+function readTextOnce(rel) {
   let buf;
   try {
     buf = fs.readFileSync(ROOT + "/" + rel);
@@ -118,32 +127,43 @@ function readText(rel) {
   }
 }
 
-function isFile(rel) {
-  try {
-    return fs.statSync(ROOT + "/" + rel).isFile();
-  } catch {
-    return false;
+function statOf(rel) {
+  if (!stats.has(rel)) {
+    let s = null;
+    try {
+      s = fs.statSync(ROOT + "/" + rel);
+    } catch {
+      s = null;
+    }
+    stats.set(rel, s);
   }
+  return stats.get(rel);
+}
+
+function isFile(rel) {
+  const s = statOf(rel);
+  return s !== null && s.isFile();
 }
 
 function isDir(rel) {
-  try {
-    return fs.statSync(ROOT + "/" + rel).isDirectory();
-  } catch {
-    return false;
-  }
+  const s = statOf(rel);
+  return s !== null && s.isDirectory();
 }
 
 // ---- parsing ----------------------------------------------------------------
 
+// fileName -> [[source, parse result], ...]: a source is compared, not hashed.
 const parsed = new Map();
 function parse(fileName, source) {
-  const key = fileName + "\0" + source;
-  if (!parsed.has(key)) {
-    const r = parseSync(fileName, source);
-    parsed.set(key, r);
+  let seen = parsed.get(fileName);
+  if (seen === undefined) {
+    seen = [];
+    parsed.set(fileName, seen);
   }
-  return parsed.get(key);
+  for (const [s, r] of seen) if (s === source) return r;
+  const r = parseSync(fileName, source);
+  seen.push([source, r]);
+  return r;
 }
 
 const SKIP_KEYS = new Set(["type", "start", "end", "range", "loc"]);
@@ -331,7 +351,45 @@ function childMode(node, key, mode) {
   }
 }
 
+// A tree is scanned once: collectTypes scans every file an export's types may
+// come from, for every file, and the scan of one tree always gives the same
+// facts (or the same Decline), so the first answer is kept.
+const scans = new WeakMap();
 function scanTree(program, source) {
+  const s = scans.get(program);
+  if (s !== undefined && s.source === source) {
+    if (s.error !== undefined) throw s.error;
+    return s.facts;
+  }
+  let facts;
+  try {
+    facts = scanTreeOnce(program, source);
+  } catch (e) {
+    scans.set(program, { source, error: e });
+    throw e;
+  }
+  scans.set(program, { source, facts });
+  return facts;
+}
+
+function lineStarts(source) {
+  const starts = [0];
+  for (let i = source.indexOf("\n"); i >= 0; i = source.indexOf("\n", i + 1)) starts.push(i + 1);
+  return starts;
+}
+
+// The 1-based line of `offset`: one more than the `\n`s before it.
+function lineIn(starts, offset) {
+  let lo = 0, hi = starts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (starts[mid] <= offset) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function scanTreeOnce(program, source) {
   const starts = [0];
   for (let i = source.indexOf("\n"); i >= 0; i = source.indexOf("\n", i + 1)) starts.push(i + 1);
   const lineOf = (offset) => {
@@ -719,7 +777,8 @@ const bindingName = (pattern) => (pattern.type === "Identifier" ? pattern.name :
 // bodiless declarations `declared_functions` reads from a declaration file.
 function exportsOf(path, source, program, declarations = false) {
   const text = (n) => source.slice(n.start, n.end);
-  const lineAt = (off) => source.slice(0, off).split("\n").length;
+  let starts = null;
+  const lineAt = (off) => lineIn((starts ??= lineStarts(source)), off);
   const annotation = (ann) => (ann ? text(ann.typeAnnotation) : "unknown");
   const typeParamsOf = (tp) =>
     tp ? tp.params.map((p) => (p.constraint ? p.name.name + " extends " + text(p.constraint) : p.name.name)) : [];
@@ -865,7 +924,8 @@ function staticName(key, computed) {
 
 function classesOf(path, source, program) {
   const text = (n) => source.slice(n.start, n.end);
-  const lineAt = (off) => source.slice(0, off).split("\n").length;
+  let starts = null;
+  const lineAt = (off) => lineIn((starts ??= lineStarts(source)), off);
   const annotation = (ann) => (ann ? text(ann.typeAnnotation) : "unknown");
   const paramsOf = (ps) =>
     formalParams(ps).items.map((raw, i) => {
