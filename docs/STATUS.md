@@ -405,11 +405,17 @@ loads.
   other kinds and languages, and `gate`, `bench` and `fuzz` of a loaded manifest, still go to
   the Phase 1 binary.
 - **Speed of the Python-backed paths.** Timed against the Phase 1 binary on the same inputs
-  ([log](measurements/2026-11-25-phase2-python-timings.md)), the Mojo tool is slower on every
-  path measured; start-up (the Mojo runtime, then CPython) dominates the short commands: 15x
-  to 26x on commands that take Rust a few milliseconds (`bridge`, small `analyze`, TS `analyze`), 6x
-  to 7x on a 54049-line Python `analyze` and `map`, 3x to 4x on `record`, 1.1x on `diff` and
-  2.8x on `diff --json` with a tolerance. The numbers are indicative (other jobs ran).
+  ([log](measurements/2026-11-25-phase2-python-timings.md)). The large inputs are now within
+  2x: a 54049-line Python `analyze` and `map` take 0.8x to 0.9x of the Phase 1 binary's time
+  (6x before: the files are read in one forked CPython per CPU), TS `analyze` and `map` of an
+  820-file project 0.3x to 0.5x (5x before: the oxc reader reads, stats and scans each file
+  once), `record` 1.8x to 1.9x (3x), `diff` 1.0x with and without `--json` (1.3x to 1.6x).
+  Start-up is cut by keeping the libpython path and the helpers' bytecode between runs: an
+  empty `analyze` 11x (21x), `bridge` of one unit 15x (30x), small `analyze` 10x (14x). What
+  stays over 2x is start-up itself, which no change here moves below the Mojo runtime's own
+  start (5x on `--version`, `--help` and usage errors) plus CPython's, and TS `analyze` of a
+  28-file input (11x, 18x before), where starting Node and loading oxc-parser alone take more
+  than twice the Phase 1 binary's whole run. The numbers are indicative (other jobs ran).
 
 `refresh --batch` now prepares every file before it writes the manifest, so a case it hands
 over finds the manifest untouched ([log](measurements/2026-11-24-phase2-replay-18.md)).

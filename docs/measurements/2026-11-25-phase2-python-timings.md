@@ -69,9 +69,9 @@ allowed five): `analyze .` took 86.6 s in the Mojo tool and 14.7 s in the Phase 
   and, for `diff --json` with a tolerance, reading the driver's `diff.json` into EmberJson values
   and comparing every mismatch in Mojo.
 
-## Paths more than 2x slower than the Phase 1 binary
+## Paths more than 2x slower than the Phase 1 binary (at 603c94c)
 
-Every row but plain `diff` is. What would make each faster:
+Every row but plain `diff` is (see "After the speed work" below for what changed). What would make each faster:
 
 - Start-up (every command): one Python start per run is already the case; the Mojo runtime's own
   start-up is not something this repository controls. Importing only the helper module a command
@@ -130,3 +130,73 @@ tree-sitter at all (it reads `ast` and `tokenize`), so the move would rewrite ab
 of Python readers (`analyze_py.py`, `analyze_tree.py`) with new chances to differ from the Rust
 tool, while the per-file work is independent and spreads over forked CPython processes with
 the code unchanged. The TS reader needed caching, not a new parser: Node and oxc stay.
+
+## After the speed work
+
+What changed (each commit on `m9-self-port-commands`):
+
+- 91768d1: the oxc reader reads, stats and scans each file once (its answers compared byte for
+  byte with the old reader's on the saved ts-large and ts-real requests: identical).
+- d3a7c78: `analyze_py.py` `read_files` spreads a Python workspace of 256 KB or more over one
+  forked CPython per CPU (at most 16).
+- e18017b: the libpython path and the embedded helpers' bytecode are kept in
+  `$XDG_CACHE_HOME/mojo-anything` (else `~/.cache/mojo-anything`); see `tool/src/mojo_anything/pycache.mojo`.
+- 4152c3e: the review's fixes (a cached library no longer reaches the Phase 1 binary when a
+  command hands over before Python starts; CPython's `SyntaxWarning` no longer reaches stderr;
+  the workers' answers end at the first declined file).
+
+Timed with three binaries interleaved, the order rotating every round: fcfa619 (before),
+the new build, and the Phase 1 binary. Before timing, each command ran once on each binary:
+stdout, stderr, the exit code and (for commands that write) every file agreed across all three,
+and the Mojo builds' fallback logs were empty. Same machine (AMD Ryzen 9 3900X, 12 cores / 24
+threads, WSL2 Ubuntu 24.04, Mojo 1.2.0); other sessions' jobs were running, so the load is
+listed per row. Seconds, median / min / max. Caches warm (a first run on a machine pays one
+`python3` probe and the helpers' compile once).
+
+At 4152c3e, 21 runs each:
+
+| Scenario | Command | fcfa619 | after | Phase 1 | before / Phase 1 | after / Phase 1 | Load |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| start-up | `--version` | 0.014 / 0.012 / 0.034 | 0.013 / 0.012 / 0.031 | 0.003 / 0.002 / 0.004 | 5.4x | 5.3x | 2.52 |
+| start-up | `--help` | 0.014 / 0.012 / 0.015 | 0.014 / 0.013 / 0.017 | 0.003 / 0.002 / 0.004 | 5.4x | 5.5x | 2.40-2.52 |
+| start-up | `analyze --nope` (usage error) | 0.013 / 0.012 / 0.014 | 0.013 / 0.012 / 0.016 | 0.002 / 0.002 / 0.003 | 5.5x | 5.4x | 2.40 |
+| start-up with Python | `analyze .` (empty folder) | 0.070 / 0.061 / 0.107 | 0.036 / 0.033 / 0.051 | 0.003 / 0.003 / 0.004 | 20.7x | 10.8x | 2.40 |
+| py-small | `analyze .` | 0.151 / 0.144 / 0.161 | 0.103 / 0.089 / 0.110 | 0.010 / 0.009 / 0.012 | 14.4x | 9.8x | 2.19-2.40 |
+| unit | `bridge . mathkit.py` | 0.208 / 0.182 / 0.215 | 0.101 / 0.090 / 0.107 | 0.007 / 0.006 / 0.008 | 30.1x | 14.6x | 2.09-2.19 |
+| py-large | `analyze .` | 3.126 / 2.778 / 3.217 | 0.433 / 0.376 / 0.463 | 0.508 / 0.460 / 0.530 | 6.2x | 0.9x | 1.48-2.64 |
+| py-large | `map .` | 3.118 / 2.863 / 3.379 | 0.430 / 0.385 / 0.513 | 0.507 / 0.486 / 0.553 | 6.2x | 0.8x | 1.51-2.75 |
+| ts-large | `analyze .` | 0.910 / 0.800 / 1.054 | 0.545 / 0.463 / 0.590 | 0.050 / 0.045 / 0.054 | 18.0x | 10.8x | 1.68-1.90 |
+
+At e18017b (before the review's fixes, which do not touch these paths), 5 runs each:
+
+| Scenario | Command | fcfa619 | after | Phase 1 | before / Phase 1 | after / Phase 1 | Load |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| py-large | `analyze . --json` | 3.613 / 3.345 / 4.308 | 0.492 / 0.476 / 0.531 | 0.551 / 0.501 / 0.694 | 6.6x | 0.9x | 2.45-3.45 |
+| unit | `record ... --count 20` | 0.208 / 0.185 / 0.218 | 0.129 / 0.101 / 0.133 | 0.067 / 0.048 / 0.068 | 3.1x | 1.9x | 2.97-3.15 |
+| unit | `record ... --count 200` | 0.229 / 0.222 / 0.304 | 0.131 / 0.130 / 0.137 | 0.072 / 0.071 / 0.076 | 3.2x | 1.8x | 2.97 |
+| unit | `diff ...` | 0.263 / 0.184 / 0.297 | 0.157 / 0.135 / 0.245 | 0.164 / 0.162 / 0.164 | 1.6x | 1.0x | 2.82-2.97 |
+| unit | `diff ... --json --float-tolerance 1e-9` | 0.208 / 0.179 / 0.328 | 0.161 / 0.134 / 0.243 | 0.163 / 0.162 / 0.164 | 1.3x | 1.0x | 2.75-2.82 |
+| ts-real | `analyze .` | 62.145 / 57.314 / 70.921 | 5.707 / 4.075 / 7.139 | 12.592 / 12.146 / 13.691 | 4.9x | 0.5x | 1.07-1.48 |
+| ts-real | `map .` | 63.203 / 60.899 / 65.101 | 4.607 / 4.030 / 6.391 | 13.751 / 13.194 / 14.962 | 4.6x | 0.3x | 0.95-1.22 |
+
+The start-up rows of that 5-run pass gave `--version` 0.019 before and 0.028 after; the
+21-run pass above, on a quieter machine, gives 0.014 and 0.013 (the path did not change), so
+the 5-run numbers of the shortest rows are noise.
+
+## Paths still more than 2x slower, and why
+
+- `--version`, `--help` and usage errors (5x): answered in Mojo before CPython starts; what is
+  left is the Mojo runtime's own start (a program that only prints takes 13 to 15 ms) against
+  Rust's 3 ms. The repository does not control it.
+- `analyze` of an empty folder (11x), of two small Python files (10x) and `bridge` of one
+  Python unit (15x): the Mojo runtime plus CPython (about 30 ms together, measured with a
+  program that only starts Python), then importing the standard-library modules the helpers use
+  (`ast`, `tokenize`, `tomllib`, `json`, `subprocess`: about 35 ms) and, for `bridge`,
+  tree-sitter and its Python grammar. The Phase 1 binary does the whole command in 3 to 10 ms,
+  so no Python-backed command of that size can come within 2x.
+- `analyze` of ts-large (11x): Node starts in 27 ms and loads oxc-parser in 42 ms, oxc hands
+  each tree to JavaScript as JSON (about 115 ms here), and the walk runs in JavaScript; the
+  Phase 1 binary does all of it in 50 ms. Spreading the files over worker threads would not get
+  under 2x (Node and oxc-parser alone pass it), so it was not done. On the large TS input
+  (ts-real) the Mojo tool now takes under half the Phase 1 binary's time.
+- `record` sits at 1.8x to 1.9x: within 2x, the rest being the same Python driver both run.
