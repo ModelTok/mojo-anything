@@ -411,6 +411,8 @@ def parse_manifest(crate_dir, path, text):
         if ft is not None and not (_is(ft, float) or _is(ft, int)):
             raise _Bad("float_tolerance")
         m["float_tolerance"] = ft is not None
+        # Option<f64>: an integer reads as the nearest float.
+        m["float_tolerance_value"] = None if ft is None else float(ft)
         m["root_written"] = m["root"]
     except _Bad:
         return ("decline",)
