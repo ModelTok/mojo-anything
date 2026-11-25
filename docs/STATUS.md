@@ -50,6 +50,7 @@ Phase 1 binary in `mojo/app-cases/` (524 cases, `tool/record/`).
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `analyze` and `map` of TypeScript and JavaScript workspaces (read through oxc's own parser on Node), `bridge` and `refresh` of TS/JS units | 524 | 524 | 14.9% (78/524), [log](measurements/2026-11-24-phase2-replay-16.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `bridge` and `refresh` of Java and Kotlin units, `bridge --batch` and `refresh --batch` | 524 | 524 | 13.9% (73/524), [log](measurements/2026-11-24-phase2-replay-17.md) |
 | 2026-11-24, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `record` of Go and Ruby units, `analyze --whole-app` of Go, C, C++, Ruby, Java, Kotlin and PHP, the manifest errors of `build`, `diff`, `gate`, `bench` and `fuzz` | 524 | 524 | 9.9% (52/524), [log](measurements/2026-11-24-phase2-replay-18.md) |
+| 2026-11-25, Linux (WSL2 Ubuntu 24.04, Mojo 1.2.0) | the above, `build` of Python (`mojo-py`) units and `diff` of Python units (report, `--json`, float tolerance, known diffs, trend and stalled, stale checks) | 524 | 524 | 9.9% (52/524), [log](measurements/2026-11-25-phase2-replay-19.md) |
 
 `app replay` is moved: it falls back in none of its 11 cases, and the Mojo replayer replays the
 whole recording against the Phase 1 binary (524/524) and against itself, reporting the same
@@ -398,7 +399,17 @@ loads.
   front controller and each language's `main`; text outside ASCII declines. TS and C# plans
   still fall back (`analyze` 4 of 147).
 - **Unit commands.** `build`, `gate`, `bench` and `fuzz` answer `Manifest::load`'s errors and
-  `diff` its missing-recording error; a manifest that loads still goes to the Phase 1 binary.
+  `diff` its missing-recording error. Since the nineteenth row `build` of a `mojo-py` unit
+  and `diff` of a Python unit run in Mojo too, compared with the Phase 1 binary on a real
+  ported unit in `tool/tests/test_unit_python.mojo` ([log](measurements/2026-11-25-phase2-replay-19.md));
+  other kinds and languages, and `gate`, `bench` and `fuzz` of a loaded manifest, still go to
+  the Phase 1 binary.
+- **Speed of the Python-backed paths.** Timed against the Phase 1 binary on the same inputs
+  ([log](measurements/2026-11-25-phase2-python-timings.md)), the Mojo tool is slower on every
+  path measured; start-up (the Mojo runtime, then CPython) dominates the short commands: 15x
+  to 26x on commands that take Rust a few milliseconds (`bridge`, small `analyze`, TS `analyze`), 6x
+  to 7x on a 54049-line Python `analyze` and `map`, 3x to 4x on `record`, 1.1x on `diff` and
+  2.8x on `diff --json` with a tolerance. The numbers are indicative (other jobs ran).
 
 `refresh --batch` now prepares every file before it writes the manifest, so a case it hands
 over finds the manifest untouched ([log](measurements/2026-11-24-phase2-replay-18.md)).
