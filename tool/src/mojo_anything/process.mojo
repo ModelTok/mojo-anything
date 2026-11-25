@@ -12,6 +12,8 @@ from std.collections import Dict
 from std.os import getenv
 from std.python import Python, PythonObject
 
+from mojo_anything.pycache import py_exec
+
 comptime KEEP = 1 << 20
 comptime TESTS = 30.0 * 60.0
 comptime BUILD = 30.0 * 60.0
@@ -138,7 +140,7 @@ def limit(default_s: Float64) -> Float64:
 
 def _runner() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_RUNNER, scope)
+    py_exec(_RUNNER, scope)
     return scope
 
 

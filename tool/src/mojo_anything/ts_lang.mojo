@@ -8,6 +8,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.embedded import oxc_reader_source
 from mojo_anything.fallback import dirname, own_binary
 from mojo_anything.python_lang import Facts
@@ -129,7 +131,7 @@ def bridge(repo, source, root, files, packages, as_json):
 
 def ts_helpers() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     return scope
 
 

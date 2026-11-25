@@ -13,6 +13,8 @@
 
 from std.python import Python, PythonObject
 
+from mojo_anything.pycache import py_exec
+
 comptime _SOURCE = """
 import struct as _struct
 
@@ -559,4 +561,4 @@ def http_spec(doc):
 def server_helpers(h: PythonObject) raises:
     """Adds the helpers above to py.mojo's scope `h` (they use its sinks,
     `resolve_word`, `copy_tree` and `temp_dir`)."""
-    _ = Python.import_module("builtins").exec(_SOURCE, h)
+    py_exec(_SOURCE, h)

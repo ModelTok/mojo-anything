@@ -10,6 +10,8 @@
 
 from std.python import Python, PythonObject
 
+from mojo_anything.pycache import py_exec
+
 comptime _SOURCE = """
 import concurrent.futures, itertools, json, os, re, shutil, signal, socket
 import subprocess, threading, time, tomllib, unicodedata
@@ -1788,7 +1790,7 @@ def write_file(path, data):
 def py_helpers() raises -> PythonObject:
     """The helper functions above, in a fresh scope."""
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_SOURCE, scope)
+    py_exec(_SOURCE, scope)
     return scope
 
 

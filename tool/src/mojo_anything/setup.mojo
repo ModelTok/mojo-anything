@@ -21,6 +21,7 @@ from emberjson import Array, Object, Value
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback, own_binary
 from mojo_anything.json import parse_json
+from mojo_anything.pycache import py_exec
 from mojo_anything.json_text import json_equal, write_pretty, write_string
 from mojo_anything.skill_files import skill_file_names, skill_file_text
 from mojo_anything.toml_edit import CodexEdit, codex_edit
@@ -247,7 +248,7 @@ struct Report(Copyable, Movable):
 
 def _files() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_FILES, scope)
+    py_exec(_FILES, scope)
     return scope
 
 

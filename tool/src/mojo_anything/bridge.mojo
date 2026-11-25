@@ -14,6 +14,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.analyze import (
     c_type_rels,
     cpp_type_rels,
@@ -541,7 +543,7 @@ def readable(root, files):
 
 def bridge_helpers() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     return scope
 
 

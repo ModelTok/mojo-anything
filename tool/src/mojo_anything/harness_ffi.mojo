@@ -20,6 +20,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.analyze import helpers as analyze_helpers
 from mojo_anything.analyze import ruby_workspace
 from mojo_anything.codegen_go import results
@@ -257,7 +259,7 @@ def record_ruby(texts, fns, crate_dir, includes, files, targets_text, driver_tex
 
 def _ffi() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     return scope
 
 

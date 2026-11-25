@@ -19,6 +19,8 @@
 from std.collections import Dict, Set
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.codegen_mojo import (
     ExportedClass,
     ExportedFn,
@@ -334,7 +336,7 @@ struct Gen(Movable):
         self.type_texts = List[String]()
         self.resolved = Dict[String, Int]()
         var scope = Python.dict()
-        _ = Python.import_module("builtins").exec(
+        py_exec(
             """
 def cp_len(s):
     return len(s)

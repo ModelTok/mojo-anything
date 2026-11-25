@@ -15,6 +15,7 @@ from emberjson import Value
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback, fallback_path, own_binary
 from mojo_anything.json import parse_json
+from mojo_anything.pycache import py_exec
 from mojo_anything.json_text import write_string
 from mojo_anything.process import Command, QUICK, output
 from mojo_anything.setup import NAME, Agent, agent, home, join, present
@@ -684,7 +685,7 @@ def mojo_toolchain(platform: Int) -> List[Check]:
 
 def _py() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_MCP, scope)
+    py_exec(_MCP, scope)
     return scope
 
 

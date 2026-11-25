@@ -7,6 +7,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.embedded import analyze_py_source
 from mojo_anything.risks import RISK_COUNT, risk_index
 
@@ -23,7 +25,7 @@ comptime PLATFORM_UI = 8
 
 def py_helpers() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(analyze_py_source(), scope)
+    py_exec(analyze_py_source(), scope)
     return scope
 
 

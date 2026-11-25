@@ -21,6 +21,8 @@
 from emberjson import Value
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.embedded import driver_py
 from mojo_anything.fallback import fallback
 from mojo_anything.harness_py import _helpers
@@ -319,7 +321,7 @@ def to_float(text):
 
 def _h() raises -> PythonObject:
     var h = _helpers()
-    _ = Python.import_module("builtins").exec(_PY, h)
+    py_exec(_PY, h)
     return h
 
 

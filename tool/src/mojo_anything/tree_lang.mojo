@@ -7,6 +7,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.embedded import analyze_tree_source
 from mojo_anything.fallback import dirname, own_binary
 from mojo_anything.python_lang import Facts, js_shaped
@@ -19,7 +21,7 @@ def tree_helpers() raises -> PythonObject:
     tool/build/mojo-anything in the repository); without them every file
     declines."""
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(analyze_tree_source(), scope)
+    py_exec(analyze_tree_source(), scope)
     var repo = dirname(dirname(dirname(own_binary())))
     _ = scope["find_bindings"](PythonObject(repo))
     return scope

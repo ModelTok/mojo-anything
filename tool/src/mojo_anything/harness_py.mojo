@@ -32,6 +32,8 @@ from std.collections import Dict, Set
 from std.os import getenv
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.codegen_mojo import ExportedFn, Manifest, Param, param_rtype
 from mojo_anything.embedded import (
     driver_py,
@@ -612,7 +614,7 @@ def summarize(path):
 
 def _helpers() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     return scope
 
 

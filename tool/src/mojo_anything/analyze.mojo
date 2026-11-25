@@ -19,6 +19,8 @@ from std.os import listdir
 from std.os.path import exists, isdir, isfile, islink
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.cli_parse import Parsed
 from mojo_anything.fallback import fallback
 from mojo_anything.plan import (
@@ -184,7 +186,7 @@ def write(path, text):
 
 def _helpers() raises -> PythonObject:
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     return scope
 
 

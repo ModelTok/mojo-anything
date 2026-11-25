@@ -15,6 +15,7 @@ from mojo_anything.bridge import run_bridge
 from mojo_anything.refresh import run_record, run_refresh
 from mojo_anything.doctor import run_doctor
 from mojo_anything.map import run_map
+from mojo_anything.pycache import end_python, start_python
 from mojo_anything.setup import run_setup
 from mojo_anything.unit_commands import run_unit_command
 from mojo_anything.app.commands import run_app_record, run_app_replay
@@ -93,11 +94,13 @@ def main():
         exit(2)
     if outcome.kind == PARSED and outcome.parsed.path() in owned():
         report_owned()
+        var python = start_python()
         var code: Int
         try:
             code = run(outcome.parsed, args)
         except e:
             print("error:", e, file=stderr)
             code = 2
+        end_python(python)
         exit(code)
     exit(fallback(args))

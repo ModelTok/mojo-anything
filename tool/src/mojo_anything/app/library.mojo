@@ -9,6 +9,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.app.cases import REPORT_FILE, decline, join, words_quotable
 from mojo_anything.app.py import py_len, py_strings
 from mojo_anything.app.replay import Failure, Outcome, Problem, report_markdown
@@ -145,7 +147,7 @@ def library_diff_read(code, out, err):
 
 def library_helpers(h: PythonObject) raises:
     """Adds the helpers above to py.mojo's scope `h`."""
-    _ = Python.import_module("builtins").exec(_SOURCE, h)
+    py_exec(_SOURCE, h)
 
 
 def _plain_unit_path(path: String) -> Bool:

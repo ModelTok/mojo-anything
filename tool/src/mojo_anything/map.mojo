@@ -17,6 +17,8 @@
 
 from std.python import Python, PythonObject
 
+
+from mojo_anything.pycache import py_exec
 from mojo_anything.analyze import (
     detect_lang,
     empty_workspace,
@@ -208,7 +210,7 @@ def run_map(p: Parsed, argv: List[String]) raises -> Int:
     if repo.byte_length() == 0:
         return fallback(argv)
     var scope = Python.dict()
-    _ = Python.import_module("builtins").exec(_PY, scope)
+    py_exec(_PY, scope)
     var c = scope["canon"](PythonObject(repo))
     var state = String(py=c[0])
     if state == "missing":
