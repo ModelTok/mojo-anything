@@ -93,3 +93,40 @@ Not timed in this run: the tree-sitter readers of C, C++, Go, Ruby, Java, Kotlin
 (no realistic workspace of those languages that `analyze` answers was at hand), the Go and Ruby
 recording drivers, `app record`'s effects and server sinks, and `build` (its time is pixi and
 `mojo build`, the same process in both binaries).
+
+## Profile before the speed work (fcfa619)
+
+Measured on the same machine and inputs with the Mojo tool built at fcfa619, before any code
+below changed. Other sessions' jobs ran at times (1-minute load 0.3 to 2.5). Tools, all in the
+scratch folder, none committed:
+
+- a `sitecustomize.py` on `PYTHONPATH` that times every `exec` of an embedded helper source and
+  every call of a function it defines (the wrapper itself costs time: it adds most to the
+  441,366 calls of `_need`), and writes the totals from a thread every 20 ms (Mojo's `exit`
+  does not finalise Python, so `atexit` never runs in the tool);
+- a `node` on `PATH` that times each Node run the tool starts and keeps its request on stdin;
+- `node --cpu-prof` on those saved requests, summed per function (self time);
+- two Mojo programs built with the repository's pixi Mojo: one that prints, one that also calls
+  `Python.import_module("builtins")`; times from `date +%s%N` around 7 runs each.
+
+| What | Measured |
+| --- | --- |
+| Mojo runtime start (print only) | 13 to 15 ms; the tool's `--version` 13 to 21 ms (Phase 1: 3 to 23 ms, mostly 3 to 4) |
+| CPython start through Mojo's interop | 58 to 92 ms in the second program; 28 to 37 ms with `MOJO_PYTHON_LIBRARY` set |
+| Finding libpython | Without `MOJO_PYTHON_LIBRARY`, Mojo runs `python3 -c <script>` (`sysconfig`'s `LIBPL`/`LIBDIR`) on every start, then sets `MOJO_PYTHON_LIBRARY` and `PYTHONEXECUTABLE` itself: about 0.03 s of every command |
+| Compiling the embedded helpers (first `exec`, imports included) | `analyze`'s helpers (4 KB) 17 to 29 ms, `analyze_py.py` (49 KB) 45 to 56 ms, `analyze_tree.py` (174 KB) 107 ms, `bridge`'s helpers (16 KB) 29 ms |
+| `analyze` of py-large, 4.22 s under the hooks | `read_file` 3.90 s over 109 files: `_scan` 1.09 s, `_screen` 0.90 s, `_tokens` 0.85 s, `_exports` 0.31 s, `ast.parse` and the rest about 0.7 s; everything else (start-up, the Mojo planner and report) about 0.3 s. One CPython reads one file at a time. |
+| `analyze` of ts-large, 1.26 s | the Node reader 0.81 s (Node alone starts in 27 ms, loading oxc-parser takes 42 ms); in the reader, `visit` 220 ms, oxc's JSON deserialisation 112 ms, garbage collection 86 ms, a line lookup that sliced the source from its start for every export 85 ms, `children` 73 ms, `parseSync` 27 ms |
+| `analyze` of ts-real, 72.2 s | the Node reader 71.6 s: `visit` 34.2 s, `stat`/`statSync` 12.5 s, `children` 7.4 s, file reads and UTF-8 decoding 6.7 s, garbage collection 2.6 s, oxc's JSON deserialisation 1.0 s. For every file with exports, `collectTypes` follows its imports four levels deep and re-read, re-stat'ed and re-scanned each imported file every time; 15 MB of source were read many times over. |
+| `bridge . mathkit.py`, 0.55 s under the hooks (0.27 s without) | compiling `analyze_tree.py` 107 ms, `analyze_py.py` 56 ms and `bridge`'s helpers 29 ms; importing tree-sitter and loading the Python grammar 125 ms; finding libpython 37 ms |
+
+So the large inputs were slow for two reasons that are not the Mojo code: one CPython read
+every Python file in turn, and the TS reader repeated the same reads and scans for every file.
+The small commands pay start-up: the Mojo runtime (a floor of about 13 ms that the repository
+does not control), finding libpython (30 ms), and compiling up to 170 KB of embedded Python.
+Moving the walk to Mojo over tree-sitter's C library (`external_call` on the grammar shared
+objects in the pixi environment) was weighed and not taken: the Python reader does not use
+tree-sitter at all (it reads `ast` and `tokenize`), so the move would rewrite about 6,000 lines
+of Python readers (`analyze_py.py`, `analyze_tree.py`) with new chances to differ from the Rust
+tool, while the per-file work is independent and spreads over forked CPython processes with
+the code unchanged. The TS reader needed caching, not a new parser: Node and oxc stay.
