@@ -31,7 +31,7 @@ from mojo_anything.plan import (
     to_json,
     trim_end_matches,
 )
-from mojo_anything.python_lang import Facts, py_helpers, read_facts
+from mojo_anything.python_lang import Facts, facts_of, py_helpers
 from mojo_anything.tree_lang import read_tree_facts, tree_helpers
 from mojo_anything.ts_lang import read_ts_facts, ts_helpers
 from mojo_anything.walk import canonical, walk, walk_links
@@ -892,8 +892,16 @@ def python_plan(
     builds it; `declined` when a file may read otherwise than the Rust tool
     reads it."""
     var facts = List[Facts]()
+    var pairs = Python.list()
     for f in ws.files:
-        facts.append(read_facts(py, root + "/" + f.path, f.path, declined))
+        pairs.append(
+            Python.tuple(
+                PythonObject(root + "/" + f.path), PythonObject(f.path)
+            )
+        )
+    var answers = py["read_files"](pairs)
+    for i in range(len(ws.files)):
+        facts.append(facts_of(answers[i], declined))
         if declined:
             return Report("python")
     return build("python", "PyPI", ws.packages, ws.files, facts, py)

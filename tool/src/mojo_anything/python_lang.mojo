@@ -78,8 +78,15 @@ def read_facts(
 ) raises -> Facts:
     """The facts of the file at `path` (`rel` from the root); `declined` is
     set when `ast` may read it otherwise than tree-sitter."""
+    return facts_of(
+        py["read_file"](PythonObject(path), PythonObject(rel)), declined
+    )
+
+
+def facts_of(r: PythonObject, mut declined: Bool) raises -> Facts:
+    """The facts in one answer of analyze_py.py `read_file` (or of
+    `read_files`, which reads a workspace's files in worker processes)."""
     var out = Facts()
-    var r = py["read_file"](PythonObject(path), PythonObject(rel))
     var status = String(py=r[0])
     if status == "unreadable":
         return out^

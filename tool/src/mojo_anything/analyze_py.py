@@ -718,6 +718,94 @@ def read_file(path, rel):
     return ("ok", loc(text), imports, risks, loops, functions, classes)
 
 
+# Below this many bytes of source a fork costs more than it saves.
+_PARALLEL_BYTES = 256 * 1024
+
+
+def _workers(sizes):
+    if sum(sizes) < _PARALLEL_BYTES or len(sizes) < 2:
+        return 1
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus, 16, len(sizes) // 2))
+
+
+def read_files(pairs, workers=None):
+    """`read_file` of each (path, rel), in the order given. One CPython reads
+    one file at a time, so the files are split by size over `workers` forked
+    processes (by default one per CPU for a large workspace, none for a small
+    one), each sending its answers back pickled. A file a worker did not
+    answer (it raised, or the fork failed) is read here, so an exception is
+    raised here as one by one."""
+    pairs = list(pairs)
+    sizes = []
+    for path, _ in pairs:
+        try:
+            sizes.append(os.stat(path).st_size)
+        except OSError:
+            sizes.append(0)
+    n = _workers(sizes) if workers is None else max(1, min(workers, len(pairs)))
+    answers = [None] * len(pairs)
+    done = [False] * len(pairs)
+    if n > 1:
+        import pickle
+        import warnings
+
+        parts = [[] for _ in range(n)]
+        loads = [0] * n
+        for i in sorted(range(len(pairs)), key=lambda i: -sizes[i]):
+            k = loads.index(min(loads))
+            parts[k].append(i)
+            loads[k] += sizes[i] + 1
+        children = []
+        for part in parts:
+            if not part:
+                continue
+            r, w = os.pipe()
+            try:
+                with warnings.catch_warnings():
+                    # 3.12 warns that this process has other (Mojo) threads; the
+                    # child runs only Python and leaves with os._exit.
+                    warnings.simplefilter("ignore")
+                    pid = os.fork()
+            except OSError:
+                os.close(r)
+                os.close(w)
+                continue
+            if pid == 0:
+                try:
+                    os.close(r)
+                    out = []
+                    for i in part:
+                        try:
+                            out.append((i, read_file(*pairs[i])))
+                        except BaseException:
+                            break
+                    with os.fdopen(w, "wb") as f:
+                        f.write(pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL))
+                finally:
+                    os._exit(0)
+            os.close(w)
+            children.append((pid, r))
+        for pid, r in children:
+            with os.fdopen(r, "rb") as f:
+                data = f.read()
+            os.waitpid(pid, 0)
+            try:
+                got = pickle.loads(data)
+            except Exception:  # noqa: BLE001 - a worker that died answers nothing
+                got = []
+            for i, answer in got:
+                answers[i] = answer
+                done[i] = True
+    for i, pair in enumerate(pairs):
+        if not done[i]:
+            answers[i] = read_file(*pair)
+    return answers
+
+
 # ---- packages (python.rs read_package) ---------------------------------------
 
 
