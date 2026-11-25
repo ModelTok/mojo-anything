@@ -129,7 +129,7 @@ def known_plain(path):
     if r[0] != "ok":
         return False
     text = r[1]
-    if any(c.isspace() and ord(c) > 127 for c in text):
+    if any(_odd_space(c) for c in text):
         return False
     for raw in text.split("\\n"):
         line = raw.strip()
@@ -137,9 +137,21 @@ def known_plain(path):
             continue
         if not plain_json(line):
             return False
+        # The reason is trimmed after it is decoded: an escaped space
+        # outside ASCII trims in Rust and not in Mojo.
+        entry = json.loads(line)
+        reason = entry.get("reason") if isinstance(entry, dict) else None
+        if isinstance(reason, str) and any(_odd_space(c) for c in reason):
+            return False
     return True
 
-_RUN = re.compile(r'{"port":"[0-9a-f]{16}","passed":(0|[1-9][0-9]{0,18}),"total":(0|[1-9][0-9]{0,18})}')
+def _odd_space(c):
+    # Whitespace Rust's trim and Mojo's strip may read differently: any
+    # outside ASCII, and 0x1c-0x1f (Python's isspace has them, Rust's not).
+    return (c.isspace() and ord(c) > 127) or 0x1C <= ord(c) <= 0x1F
+
+# Counts up to 18 digits: Mojo reads them as Int (i64).
+_RUN = re.compile(r'{"port":"[0-9a-f]{16}","passed":(0|[1-9][0-9]{0,17}),"total":(0|[1-9][0-9]{0,17})}')
 
 def history_plain(path):
     # recording.rs `track` keeps each line it reads as it was; recording.mojo

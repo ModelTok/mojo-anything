@@ -279,7 +279,10 @@ def last_diff(crate_dir: String) -> Optional[Tuple[Int, Int]]:
 def known_diffs(crate_dir: String) raises -> List[Value]:
     """The entries of `known-diffs.jsonl`: `{"fn", "args", "actual",
     "reason"}` per line. An entry without a reason is refused."""
-    var path = crate_dir + "/" + KNOWN_DIFFS
+    # Path::join: no second separator after a folder written with one.
+    var path = crate_dir + (
+        KNOWN_DIFFS if crate_dir.endswith("/") else "/" + KNOWN_DIFFS
+    )
     var out = List[Value]()
     var text = _read(path)
     if not text:

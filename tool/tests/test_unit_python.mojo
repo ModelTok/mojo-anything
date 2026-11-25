@@ -345,6 +345,33 @@ def test_diff_known_and_trend() raises:
         ["diff", U],
     )
     _check(t, "known-bad", [k + "{\n"], ["diff", U], True)
+    # An error names the file as Path::join does after a trailing slash.
+    _check(
+        t,
+        "known-slash",
+        [k + '{"fn": "add", "args": [0, 0], "actual": {"ok": 1}}\n'],
+        ["diff", U + "/"],
+    )
+    # Rust's trim keeps \x1c-\x1f and trims Unicode spaces inside a reason;
+    # such files go to the Phase 1 binary.
+    _check(
+        t,
+        "known-x1f",
+        [k + gone_entry + String(chr(31)) + "\n"],
+        ["diff", U],
+        True,
+    )
+    _check(
+        t,
+        "known-nbsp-reason",
+        [
+            k
+            + '{"fn": "add", "args": [0, 0], "actual": {"ok": 1}, "reason":'
+            ' "\\u00a0"}\n'
+        ],
+        ["diff", U],
+        True,
+    )
     # The history: a second run on the same port replaces the last line; a
     # port that gained nothing over three changes is stalled.
     var runs = Python.list()
@@ -391,23 +418,44 @@ def test_diff_known_and_trend() raises:
         ["diff", U],
         True,
     )
+    _check(
+        t,
+        "history-big",
+        [
+            h
+            + String(
+                '{"port":"0000000000000000","passed":9300000000000000000,"total":',
+                total,
+                "}\n",
+            )
+        ],
+        ["diff", U],
+        True,
+    )
     _ = t["gone"]()
 
 
 def test_build() raises:
-    """A build of the ported unit, a port that does not compile, no pixi, and
-    an `ffi` unit with no build."""
+    """A build of the ported unit (from no library, so the build must write
+    one), a port that does not compile, and an `ffi` unit with no build."""
     var t = _py()
     var runs = Python.list()
     var args = Python.list()
     for a in ["build", U]:
         args.append(PythonObject(a))
     runs.append(args)
+    var fresh = Python.list()
+    fresh.append(
+        Python.tuple(
+            PythonObject(U + "/python/mathkit_mojo/_native.so"),
+            PythonObject("!gone"),
+        )
+    )
     assert_equal(
         String(
             py=t["both"](
                 PythonObject("build"),
-                Python.list(),
+                fresh,
                 runs,
                 PythonObject(False),
                 Python.list(),
