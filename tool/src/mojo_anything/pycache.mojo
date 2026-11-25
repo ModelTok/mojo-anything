@@ -22,11 +22,14 @@
 # Both live in $XDG_CACHE_HOME/mojo-anything (an absolute path), else
 # $HOME/.cache/mojo-anything; with neither, nothing is cached.
 
-from std.os import getenv, makedirs, setenv, stat
+from std.os import getenv, makedirs, setenv, stat, unsetenv
 from std.os.path import isfile, realpath
 from std.python import Python, PythonObject
 
 comptime _LIBRARY = "MOJO_PYTHON_LIBRARY"
+comptime _MARK = "MOJO_ANYTHING_PYTHON_CACHED"
+"""Set with MOJO_PYTHON_LIBRARY from the cache, until Python starts (the
+helpers' bootstrap drops it) or the Phase 1 binary takes over."""
 
 comptime _BOOT = """
 import marshal, os, sys, zlib
@@ -34,11 +37,13 @@ from importlib._bootstrap_external import MAGIC_NUMBER
 
 CACHE = ""
 _CODE = {}
+# Python has started: what MOJO_PYTHON_LIBRARY holds is what Mojo loaded.
+os.environ.pop("MOJO_ANYTHING_PYTHON_CACHED", None)
 
 def _load(source):
     path = None
     if CACHE:
-        folder = os.path.join(CACHE, "pyc-" + MAGIC_NUMBER.hex())
+        folder = os.path.join(CACHE, "pyc-%s-opt%d" % (MAGIC_NUMBER.hex(), sys.flags.optimize))
         path = os.path.join(folder, "%08x-%d.bin" % (zlib.crc32(source.encode("utf-8")), len(source)))
         try:
             with open(path, "rb") as f:
@@ -228,6 +233,7 @@ def start_python() -> String:
     if lib.byte_length() == 0:
         return key
     _ = setenv(_LIBRARY, lib)
+    _ = setenv(_MARK, lib)
     return ""
 
 
@@ -237,3 +243,27 @@ def end_python(key: String):
     if key.byte_length() == 0:
         return
     remember_python(key, getenv(_LIBRARY))
+
+
+def _loaded(lib: String) -> Bool:
+    """Whether `lib` is mapped into this process (CPython has started)."""
+    try:
+        var maps: String
+        with open("/proc/self/maps", "r") as f:
+            maps = f.read()
+        return lib in maps or realpath(lib) in maps
+    except:
+        return True
+
+
+def forget_python():
+    """Before handing over to the Phase 1 binary: a MOJO_PYTHON_LIBRARY set
+    from the cache while CPython never started is taken back, so the binary
+    and its children get the environment this run was given (Mojo sets the
+    variable only once Python starts)."""
+    var mark = getenv(_MARK)
+    if mark.byte_length() == 0:
+        return
+    _ = unsetenv(_MARK)
+    if getenv(_LIBRARY) == mark and not _loaded(mark):
+        _ = unsetenv(_LIBRARY)

@@ -58,9 +58,29 @@ def setup():
     # (the TS reader declines and the command goes to the Phase 1 binary).
     node = os.path.join(BASE, "bin", "node")
     with open(node, "w") as f:
-        f.write('#!/bin/sh\\necho "$MOJO_PYTHON_LIBRARY" >> "%s"\\nexit 1\\n' % os.path.join(BASE, "node.log"))
+        f.write('#!/bin/sh\\necho "$MOJO_PYTHON_LIBRARY" >> "%s"\\necho "[$MOJO_ANYTHING_PYTHON_CACHED]" >> "%s"\\nexit 1\\n'
+                % (os.path.join(BASE, "node.log"), os.path.join(BASE, "mark.log")))
     os.chmod(node, 0o755)
+    # A stand-in for the Phase 1 binary that says what environment it was handed.
+    p1 = os.path.join(BASE, "bin", "phase1")
+    with open(p1, "w") as f:
+        f.write('#!/bin/sh\\necho "lib=[$MOJO_PYTHON_LIBRARY] mark=[$MOJO_ANYTHING_PYTHON_CACHED]" >> "%s"\\n'
+                % os.path.join(BASE, "phase1.log"))
+    os.chmod(p1, 0o755)
     return BASE
+
+def with_phase1(e):
+    e = dict(e)
+    e["MOJO_ANYTHING_FALLBACK"] = os.path.join(BASE, "bin", "phase1")
+    return e
+
+def take(name):
+    text = read(os.path.join(BASE, name))
+    write(os.path.join(BASE, name), "")
+    return text
+
+def mtimes(paths):
+    return [os.stat(p).st_mtime_ns for p in paths]
 
 def env(extra_path=False):
     e = dict(os.environ)
@@ -160,6 +180,7 @@ def test_library_is_remembered_and_used() raises:
     var t = _py()
     _ = t["setup"]()
     var path = getenv("PATH")
+    var cache = getenv("XDG_CACHE_HOME")
     var env = t["env"]()
     var key = _key_for(env)
     assert_true(key.byte_length() > 0, "a python3 on PATH that can be cached")
@@ -179,6 +200,21 @@ def test_library_is_remembered_and_used() raises:
     _ = t["node_log"]()
     _same(t, ["analyze", "ts"], env, "with a stored library")
     assert_equal(String(py=t["node_log"]()), copy + "\n", "the library used")
+    assert_equal(
+        String(py=t["take"]("mark.log")), "[]\n", "no marker in children"
+    )
+
+    # A command handed to the Phase 1 binary before Python starts hands it the
+    # environment it was given: no library from the cache.
+    var p1 = t["with_phase1"](env)
+    _ = t["run"](
+        PythonObject(_binary()), _args(["fuzz", "nowhere", "--time", "10"]), p1
+    )
+    assert_equal(
+        String(py=t["take"]("phase1.log")),
+        "lib=[] mark=[]\n",
+        "the environment handed over before Python starts",
+    )
 
     # Under another PATH the entry is not this run's: Mojo finds the library.
     var other = t["env"](True)
@@ -192,6 +228,10 @@ def test_library_is_remembered_and_used() raises:
     _same(t, ["analyze", "ts"], env, "with a stale entry")
     assert_equal(String(py=t["node_log"]()), lib + "\n", "a stale entry")
     _ = setenv("PATH", path)
+    if cache.byte_length() > 0:
+        _ = setenv("XDG_CACHE_HOME", cache)
+    else:
+        _ = unsetenv("XDG_CACHE_HOME")
     _ = t["gone"]()
 
 
@@ -203,7 +243,15 @@ def test_bytecode_is_kept() raises:
     _same(t, ["analyze", "py"], env, "with no bytecode")
     var kept = t["bytecode"]()
     assert_true(Int(py=n(kept)) >= 2, "the helpers analyze runs are kept")
+    var before = String(
+        py=Python.import_module("builtins").repr(t["mtimes"](kept))
+    )
     _same(t, ["analyze", "py", "--json"], env, "with bytecode")
+    assert_equal(
+        String(py=Python.import_module("builtins").repr(t["mtimes"](kept))),
+        before,
+        "kept entries read, not written again",
+    )
     _ = t["spoil"](kept)
     _same(t, ["analyze", "py"], env, "with damaged bytecode")
     assert_equal(Int(py=t["spoilt"](kept)), 0, "damaged entries written again")

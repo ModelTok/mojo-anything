@@ -17,6 +17,7 @@ import re
 import sys
 import tokenize
 import tomllib
+import warnings
 
 # The screens below are written for the `ast` and `tokenize` of these
 # versions (3.11 has no FSTRING_START; 3.14 adds t-strings, which
@@ -703,7 +704,11 @@ def read_file(path, rel):
         _need(_VERSION in _SCREENED, "a Python whose ast and tokenize the screens were not written for")
         _need(not any(c in _BAD for c in text), "a character that ends lines differently")
         try:
-            tree = ast.parse(text)
+            # CPython's parser warns on stderr about what it reads (an invalid
+            # escape like "\d" in a string); tree-sitter says nothing.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                tree = ast.parse(text)
         except (SyntaxError, ValueError, RecursionError, MemoryError):
             raise Decline("a syntax error")
         comments = _tokens(text)
@@ -738,7 +743,9 @@ def read_files(pairs, workers=None):
     processes (by default one per CPU for a large workspace, none for a small
     one), each sending its answers back pickled. A file a worker did not
     answer (it raised, or the fork failed) is read here, so an exception is
-    raised here as one by one."""
+    raised here as one by one. Read one by one, python_plan stopped at the
+    first declined file, so the answers end there: an exception in a later
+    file is not raised."""
     pairs = list(pairs)
     sizes = []
     for path, _ in pairs:
@@ -751,7 +758,6 @@ def read_files(pairs, workers=None):
     done = [False] * len(pairs)
     if n > 1:
         import pickle
-        import warnings
 
         parts = [[] for _ in range(n)]
         loads = [0] * n
@@ -763,7 +769,10 @@ def read_files(pairs, workers=None):
         for part in parts:
             if not part:
                 continue
-            r, w = os.pipe()
+            try:
+                r, w = os.pipe()
+            except OSError:
+                break
             try:
                 with warnings.catch_warnings():
                     # 3.12 warns that this process has other (Mojo) threads; the
@@ -803,6 +812,8 @@ def read_files(pairs, workers=None):
     for i, pair in enumerate(pairs):
         if not done[i]:
             answers[i] = read_file(*pair)
+        if answers[i][0] not in ("ok", "unreadable"):
+            return answers[: i + 1]
     return answers
 
 

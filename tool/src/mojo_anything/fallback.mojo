@@ -10,6 +10,8 @@ from std.memory import Pointer
 from std.os import getenv
 from std.sys import stderr
 
+from mojo_anything.pycache import forget_python
+
 comptime _Bytes = Pointer[UInt8, MutAnyOrigin]
 comptime _CStrs = Pointer[Optional[_Bytes], MutAnyOrigin]
 comptime FALLBACK_LOG = "MOJO_ANYTHING_FALLBACK_LOG"
@@ -121,6 +123,7 @@ def fallback(argv: List[String]) -> Int:
     """Replaces this process with the Phase 1 binary and the same argv; returns
     only when that fails, with the exit code the caller should use."""
     _log(argv)
+    forget_python()
     var path = fallback_path()
     var n = len(argv)
     # SAFETY: room for `n` pointers and the NULL that ends execv's argv.

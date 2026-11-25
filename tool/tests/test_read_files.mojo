@@ -33,17 +33,42 @@ def fixture():
     with open(os.path.join(d, "bad.py"), "wb") as f:
         f.write(b"x = '\\xff'\\n")
     os.makedirs(os.path.join(d, "dir.py"), exist_ok=True)
-    rels = ["a.py", "b.py", "bad.py", "c.py", "dir.py", "missing.py", "pkg/d.py", "e.py"] * 3
+    # Over read_files' 256 KB, so the default splits the files too.
+    with open(os.path.join(d, "big.py"), "w") as f:
+        f.write("".join("value_%05d = %d\\n" % (i, i) for i in range(20000)))
+    rels = ["a.py", "b.py", "bad.py", "c.py", "dir.py", "missing.py", "pkg/d.py", "e.py"] * 3 + ["big.py"]
     return [(os.path.join(d, r), r) for r in rels]
 
 def pids(h, pairs, workers):
     # Which process read each file.
     real = h["read_file"]
-    h["read_file"] = lambda path, rel: ("pid", os.getpid(), rel)
+    h["read_file"] = lambda path, rel: ("ok", os.getpid(), rel)
     try:
         return h["read_files"](pairs, workers)
     finally:
         h["read_file"] = real
+
+def with_boom(h, pairs, workers):
+    # read_files where reading boom.py raises: ("raised", type name) or ("ok", answers).
+    real = h["read_file"]
+    def read(path, rel):
+        if rel == "boom.py":
+            raise ValueError("boom")
+        return real(path, rel)
+    h["read_file"] = read
+    try:
+        return ("ok", h["read_files"](pairs, workers))
+    except ValueError as e:
+        return ("raised", str(e))
+    finally:
+        h["read_file"] = real
+
+def without(pairs, rels):
+    return [(p, r) for p, r in pairs if r not in rels]
+
+def pick(pairs, rels):
+    by = {r: p for p, r in pairs}
+    return [(by.get(r, by["a.py"].replace("a.py", r)), r) for r in rels]
 """,
         scope,
     )
@@ -53,24 +78,35 @@ def pids(h, pairs, workers):
 def test_same_answers_as_one_by_one() raises:
     var h = py_helpers()
     var t = _fixture()
-    var pairs = t["fixture"]()
-    var one_by_one = Python.list()
-    for i in range(Int(py=Python.import_module("builtins").len(pairs))):
-        one_by_one.append(h["read_file"](pairs[i][0], pairs[i][1]))
-    var want = String(py=Python.import_module("builtins").repr(one_by_one))
-    for workers in [1, 3, 8, 64]:
-        var got = h["read_files"](pairs, PythonObject(workers))
-        assert_equal(
-            String(py=Python.import_module("builtins").repr(got)),
-            want,
-            "answers with " + String(workers) + " workers",
+    var all = t["fixture"]()
+    var repr = Python.import_module("builtins").repr
+    # Without the declined files every answer comes back; with them, the
+    # answers up to the first decline (b.py, the second file).
+    for kind in ["no declines", "with declines"]:
+        var pairs = (
+            t["without"](all, _rels(["b.py", "c.py"])) if kind
+            == "no declines" else all
         )
-    var got = h["read_files"](pairs, Python.none())
-    assert_equal(
-        String(py=Python.import_module("builtins").repr(got)),
-        want,
-        "answers with the default workers",
-    )
+        var one_by_one = Python.list()
+        for i in range(Int(py=Python.import_module("builtins").len(pairs))):
+            var a = h["read_file"](pairs[i][0], pairs[i][1])
+            one_by_one.append(a)
+            if String(py=a[0]) == "decline":
+                break
+        var want = String(py=repr(one_by_one))
+        for workers in [1, 3, 8, 64]:
+            var got = h["read_files"](pairs, PythonObject(workers))
+            assert_equal(
+                String(py=repr(got)),
+                want,
+                kind + ", answers with " + String(workers) + " workers",
+            )
+        var got = h["read_files"](pairs, Python.none())
+        assert_equal(
+            String(py=repr(got)),
+            want,
+            kind + ", answers with the default workers",
+        )
 
 
 def test_workers_are_other_processes() raises:
@@ -90,7 +126,39 @@ def test_workers_are_other_processes() raises:
     assert_equal(Int(py=Python.import_module("builtins").len(seen)), 3)
 
 
+def _rels(xs: List[String]) raises -> PythonObject:
+    var out = Python.list()
+    for x in xs:
+        out.append(PythonObject(x))
+    return out
+
+
+def test_a_decline_comes_before_a_later_error() raises:
+    """One by one, python_plan stopped at the first declined file, so an
+    error in a later file was never raised: the answers end at the decline.
+    An error before any decline is raised, from a worker's file too."""
+    var h = py_helpers()
+    var t = _fixture()
+    var pairs = t["fixture"]()
+    var late = t["pick"](pairs, _rels(["a.py", "b.py", "pkg/d.py", "boom.py"]))
+    var early = t["pick"](pairs, _rels(["a.py", "boom.py", "b.py", "e.py"]))
+    var n = Python.import_module("builtins").len
+    for workers in [1, 2, 4]:
+        var got = t["with_boom"](h, late, PythonObject(workers))
+        var what = String(workers) + " workers"
+        assert_equal(
+            String(py=got[0]), "ok", "an error after a decline, " + what
+        )
+        assert_equal(Int(py=n(got[1])), 2, "answers up to the decline, " + what)
+        assert_equal(String(py=got[1][1][0]), "decline", what)
+        var raised = t["with_boom"](h, early, PythonObject(workers))
+        assert_equal(
+            String(py=raised[0]), "raised", "an error before a decline, " + what
+        )
+
+
 def main() raises:
     test_same_answers_as_one_by_one()
     test_workers_are_other_processes()
-    print("test_read_files: 2 passed")
+    test_a_decline_comes_before_a_later_error()
+    print("test_read_files: 3 passed")

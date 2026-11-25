@@ -543,6 +543,19 @@ def test_python_plans_match_the_phase1_binary() raises:
         dot,
     )
     _both_ways(t, "nested-root", ["inner/a.py=x = 1\n"], ["analyze", "inner"])
+    # An invalid escape makes CPython's parser warn on stderr; tree-sitter
+    # and the Phase 1 binary say nothing.
+    _both_ways(
+        t,
+        "escape-warning",
+        [
+            (
+                "w.py=import re\n\n\ndef digits(s: str) -> bool:\n    return"
+                ' bool(re.match("\\d+", s))\n'
+            ),
+        ],
+        dot,
+    )
     var fns = String(
         "def a(x: int) -> int:\n    return x\n\n\ndef b(x: int) -> int:\n"
         "    return x\n"
