@@ -224,26 +224,6 @@ def find_pixi():
 def has_space(path):
     return any(c.isspace() for c in path)
 
-_NAMES = {
-    1: "SIGHUP", 2: "SIGINT", 3: "SIGQUIT", 4: "SIGILL", 5: "SIGTRAP", 6: "SIGABRT",
-    7: "SIGBUS", 8: "SIGFPE", 9: "SIGKILL", 10: "SIGUSR1", 11: "SIGSEGV", 12: "SIGUSR2",
-    13: "SIGPIPE", 14: "SIGALRM", 15: "SIGTERM", 16: "SIGSTKFLT", 17: "SIGCHLD",
-    18: "SIGCONT", 19: "SIGSTOP", 20: "SIGTSTP", 21: "SIGTTIN", 22: "SIGTTOU", 23: "SIGURG",
-    24: "SIGXCPU", 25: "SIGXFSZ", 26: "SIGVTALRM", 27: "SIGPROF", 28: "SIGWINCH",
-    29: "SIGIO", 30: "SIGPWR", 31: "SIGSYS",
-}
-
-def status_text(st):
-    # ExitStatus's Display on Linux.
-    if os.WIFEXITED(st):
-        return "exit status: %d" % os.WEXITSTATUS(st)
-    sig = os.WTERMSIG(st)
-    name = _NAMES.get(sig)
-    text = "signal: %d" % sig + (" (%s)" % name if name else "")
-    if os.WCOREDUMP(st):
-        text += " (core dumped)"
-    return text
-
 def run_driver(argv, env_set, env_remove, limit, shown):
     # harness_py.rs `run`: the driver from a scratch folder, stdin closed, in
     # a process group of its own, stopped with the group at the limit. ""
@@ -301,7 +281,7 @@ def run_driver(argv, env_set, env_remove, limit, shown):
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     tail = _lines(data.decode("utf-8", "replace"))[-25:]
-    return "python failed (%s):\\n%s" % (status_text(status), "\\n".join(tail))
+    return "python failed (%s):\\n%s" % (_status(status), "\\n".join(tail))
 
 def write_driver(crate_dir, text):
     # harness_py.rs `driver`: "" or the io error.

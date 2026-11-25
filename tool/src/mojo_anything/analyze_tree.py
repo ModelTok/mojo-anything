@@ -462,7 +462,7 @@ def _mod_directive(text, directive):
         if not words or words[0] != directive:
             continue
         if len(words) < 2 or words[1].startswith("//"):
-            return None
+            continue
         return words[1]
     return None
 

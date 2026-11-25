@@ -108,7 +108,8 @@ def _status(st):
     if os.WIFEXITED(st):
         return "exit status: %d" % os.WEXITSTATUS(st)
     sig = os.WTERMSIG(st)
-    text = "signal: %d (%s)" % (sig, _SIGNALS.get(sig, ""))
+    name = _SIGNALS.get(sig)
+    text = "signal: %d" % sig + (" (%s)" % name if name else "")
     if os.WCOREDUMP(st):
         text += " (core dumped)"
     return text

@@ -204,6 +204,12 @@ def test_go_records_match_the_phase1_binary() raises:
     )
     bad.after = ['bad.jsonl={"fn": "Nope", "args": [1]}\n']
     _check(t, bad^)
+    # A manifest root written with a trailing slash joins as Path::join does.
+    var slash = _case("go-root-slash", _GO, _GO_UNIT, _CRATE, ["--count", "3"])
+    slash.after = [
+        _CRATE + '/mojo-anything.json=!sub ",\n  "unit":=>/",\n  "unit":'
+    ]
+    _check(t, slash^)
     var nomod = _case("go-nomod", _GO, _GO_UNIT, _CRATE, ["--count", "3"])
     nomod.after = ["textkit/go.mod=!gone"]
     _check(t, nomod^)
@@ -232,6 +238,11 @@ def test_ruby_records_match_the_phase1_binary() raises:
     _check(t, _case("rb", _RB, _RB_UNIT, _CRATE, ["--count", "20"]))
     _check(t, _case("rb-default", _RB, _RB_UNIT, _CRATE, []))
     _check(t, _case("rb-none", _RB, _RB_UNIT, _CRATE, ["--count", "0"]))
+    var slash = _case("rb-root-slash", _RB, _RB_UNIT, _CRATE, ["--count", "3"])
+    slash.after = [
+        _CRATE + '/mojo-anything.json=!sub ",\n  "unit":=>/",\n  "unit":'
+    ]
+    _check(t, slash^)
     _check(
         t,
         _case(

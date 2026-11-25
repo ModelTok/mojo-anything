@@ -331,6 +331,21 @@ def test_go_plans_match_the_phase1_binary() raises:
         ],
         dot,
     )
+    # A `module` line with no value (or a comment for one) is passed over:
+    # the first line that has one names the module.
+    _both_ways(
+        t,
+        "mod-later",
+        [
+            "go.mod=module\nmodule // later\nmodule example.com/late\n",
+            "a/a.go=package a\nfunc A(x int) int { return x }\n",
+            (
+                'b/b.go=package b\nimport "example.com/late/a"\nfunc B() int {'
+                " return a.A(1) }\n"
+            ),
+        ],
+        dot,
+    )
     _both_ways(
         t,
         "no-mod",

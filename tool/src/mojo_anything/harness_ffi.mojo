@@ -67,7 +67,7 @@ def go_module_of(root, unit, th):
     u = _plain_unit(unit)
     if u is None:
         return ("decline",)
-    unit_dir = root + "/" + u
+    unit_dir = _under(root, u)
     if os.path.isfile(unit_dir):
         unit_dir = os.path.dirname(unit_dir)
     d = unit_dir
@@ -112,16 +112,21 @@ def cleanup(crate_dir):
         pass
     shutil.rmtree(work + "/coverage", ignore_errors=True)
 
-def _exit_text(rc):
-    # ExitStatus's Display for a subprocess return code.
-    if rc >= 0:
-        return "exit status: %d" % rc
-    from signal import Signals
-    try:
-        name = Signals(-rc).name
-    except ValueError:
-        name = ""
-    return "signal: %d (%s)" % (-rc, name)
+def _under(root, rel):
+    # Path::join: no second separator after a root that ends in one.
+    return root + rel if root.endswith("/") else root + "/" + rel
+
+def run_status(argv, cwd, env):
+    # subprocess.run that keeps the raw wait status (ExitStatus says which
+    # signal and whether it dumped core): (status, stderr bytes).
+    import tempfile
+    with tempfile.TemporaryFile() as err:
+        p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=err)
+        _, st = os.waitpid(p.pid, 0)
+        p.returncode = 0
+        err.seek(0)
+        return st, err.read()
 
 def record_go(slim, crate_dir, module_info, driver_text, limit, hp):
     # harness_go.rs `record`: ("ok", [indices left out]) or ("error", message).
@@ -148,13 +153,12 @@ def record_go(slim, crate_dir, module_info, driver_text, limit, hp):
         env["GOFLAGS"] = "-mod=mod"
         what = "go build (driver over the original package)"
         try:
-            p = subprocess.run(["go", "build", "-o", binary, "."], cwd=d, env=env,
-                               stdin=subprocess.DEVNULL, capture_output=True)
+            st, stderr = run_status(["go", "build", "-o", binary, "."], d, env)
         except OSError as e:
             raise Failed("running %s: %s" % (what, hp["_io"](e)))
-        if p.returncode != 0:
-            tail = hp["_lines"](p.stderr.decode("utf-8", "replace"))[-30:]
-            raise Failed("%s failed (%s):\\n%s" % (what, _exit_text(p.returncode), "\\n".join(tail)))
+        if not (os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0):
+            tail = hp["_lines"](stderr.decode("utf-8", "replace"))[-30:]
+            raise Failed("%s failed (%s):\\n%s" % (what, hp["_status"](st), "\\n".join(tail)))
         work = hp["join"](crate_dir, ".mojo-anything")
         out = hp["join"](crate_dir, "cases.jsonl")
         timed = hp["record_cases"](slim, slim, work, out, "Go driver (record)",
@@ -192,7 +196,7 @@ def _path_key(p):
 
 def ruby_files(root, rels):
     # harness_ruby.rs `files` of the original: sorted as paths, once each.
-    paths = sorted((root + "/" + r for r in rels), key=_path_key)
+    paths = sorted((_under(root, r) for r in rels), key=_path_key)
     out = []
     for p in paths:
         if not out or _path_key(out[-1]) != _path_key(p):
